@@ -50,3 +50,16 @@ func (u *URLTools) DomainIsSameString(targetURL string) (bool, error) {
 
 	return u.URL.Hostname() == parsed.URL.Hostname(), nil
 }
+
+func (u *URLTools) ResolveFullUrlString(targetURL string) (string, error) {
+	if !strings.HasSuffix(targetURL, "/") {
+		targetURL += "/"
+	}
+
+	parsed, err := NewURLTools(targetURL)
+	if err != nil {
+		return "", err
+	}
+
+	return u.URL.ResolveReference(parsed.URL).String(), nil
+}

@@ -5,8 +5,10 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/raysh454/moku/internal/utils"
+	"golang.org/x/net/html"
 )
 
 type Spider struct {
@@ -38,8 +40,62 @@ func newSpiderHelper(spider *Spider, root string) (*spiderHelper, error) {
 		root: rootUrl,
 		depth: map[string]int{root: 0},
 		results: []string{root},
-		re: regexp.MustCompile(`<a\s[^>]*href=(\"??)([^\" >]*?)\\1[^>]*>(.*)<\/a>`),
+		re: regexp.MustCompile(`https?://[^\s"'<>]+`),
 	}, nil
+}
+
+func (nsh *spiderHelper) resolveFullUrls(baseUrl string, links []string) ([]string, error) {
+	base, err := utils.NewURLTools(baseUrl)
+	if err != nil {
+		return nil, fmt.Errorf("error while converting %s to URLTools: %w", baseUrl, err)
+	}
+
+	var result []string
+
+	for _, v := range links {
+		resolved, err := base.ResolveFullUrlString(v)
+		if err != nil {
+			fmt.Printf("Couldn't resolve full url for %s: %v", v, err)
+			continue
+		}
+
+		result = append(result, resolved)
+	}
+
+	return result, nil
+} 
+
+func (nsh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links *[]string) error {
+	if node.Type == html.ElementNode {
+		hasSrc := false
+		var cLinks []string
+
+		for _, attr := range node.Attr {
+			if attr.Key == "href" || attr.Key == "src" {
+				cLinks = append(cLinks, attr.Val)
+				hasSrc = true
+			}
+		}
+
+		if node.Data == "script" && !hasSrc && node.FirstChild != nil && node.FirstChild.Type == html.TextNode {
+			cLinks = append(cLinks, nsh.re.FindAllString(node.FirstChild.Data, -1)...)
+		}
+
+		rLinks, err := nsh.resolveFullUrls(baseUrl, cLinks)
+		if err != nil {
+			return fmt.Errorf("error while resolving full urls: %w", err)
+		}
+
+		*links = append(*links, rLinks...)
+	}
+
+	for c := node.FirstChild; c != nil; c = c.NextSibling {
+		if err := nsh.extractLinksHTML(c, baseUrl, links); err != nil {
+			return err
+		}	
+	}
+
+	return nil
 }
 
 func (nsh *spiderHelper) crawlPage(target string) ([]string, error) {
@@ -47,7 +103,6 @@ func (nsh *spiderHelper) crawlPage(target string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error making http request: %w", err)
 	}
-
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
@@ -60,9 +115,19 @@ func (nsh *spiderHelper) crawlPage(target string) ([]string, error) {
 	}
 
 	bodyStr := string(body)
-	matches := nsh.re.FindAllString(bodyStr, -1)
+	var links []string
 
-	return matches, nil
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+		doc, err := html.Parse(strings.NewReader(bodyStr))
+		if err != nil {
+			return nil, fmt.Errorf("couldn't parse %s: %w", target, err)
+		}
+		nsh.extractLinksHTML(doc, target, &links)
+	} else {
+		links = nsh.re.FindAllString(bodyStr, -1)
+	}
+
+	return links, nil
 }
 
 func (nsh *spiderHelper) appendPages(pages []string, lastDepth int) {
