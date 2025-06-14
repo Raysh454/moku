@@ -147,9 +147,7 @@ func (nsh *spiderHelper) appendPages(pages []string, lastDepth int) {
 
 			if _, exists := nsh.depth[pageStr]; !exists {
 				nsh.depth[pageStr] = lastDepth + 1
-				if nsh.depth[pageStr] <= nsh.spider.MaxDepth {
-					nsh.results = append(nsh.results, pageStr)
-				}
+				nsh.results = append(nsh.results, pageStr)
 			}
 		}
 }
@@ -158,6 +156,9 @@ func (nsh *spiderHelper) run() error {
 	currPage := 0
 
 	for currPage < len(nsh.results) {
+		if depth, exists := nsh.depth[nsh.results[currPage]]; exists && depth > nsh.spider.MaxDepth {
+			break
+		}
 		crawledPages, err := nsh.crawlPage(nsh.results[currPage])
 		if err != nil {
 			fmt.Printf("error while crawling %s: %v\n", nsh.results[currPage], err)
