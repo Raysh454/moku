@@ -63,3 +63,11 @@ func (u *URLTools) ResolveFullUrlString(targetURL string) (string, error) {
 
 	return u.URL.ResolveReference(parsed.URL).String(), nil
 }
+
+func (u *URLTools) GetPath() string {
+	if path := u.URL.Path; strings.HasSuffix(path, "/") {
+		return path[:len(path)-1]
+	} else {
+		return path
+	}
+}
