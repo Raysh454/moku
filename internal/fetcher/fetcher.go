@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/raysh454/moku/internal/utils"
@@ -25,9 +26,6 @@ type Fetcher struct {
 }
 
 func NewFetcher(MaxCouncurrency int) *Fetcher {
-	if MaxCouncurrency > 4 {
-		fmt.Printf("Warning!! high concurrency level: %d, Writing too many files will cause problems for your machine!", MaxCouncurrency)
-	}
 	return &Fetcher{
 		MaxConcurrency: MaxCouncurrency,
 	}
@@ -37,7 +35,18 @@ func NewFetcher(MaxCouncurrency int) *Fetcher {
 func (f *Fetcher) Fetch(pageUrls []string) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.MaxConcurrency)
+	diskWriter := make(chan *Page)
 
+	// Write pages to disk
+	go func() {
+		for page := range diskWriter {
+			if err := f.StorePage(page); err != nil {
+				fmt.Printf("error while storing %s: %v. Skipping...", page.Path, err)
+			}
+		}
+	}()
+
+	// Fetch pages concurrently
 	for _, pageUrl := range pageUrls {
 		wg.Add(1)
 
@@ -53,9 +62,7 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 				return
 			}
 		
-			if err := f.Store(page); err != nil {
-				fmt.Printf("error while storing %s: %v. Skipping...", pageUrl, err)
-			}
+			diskWriter <- page
 		}(pageUrl)
 	}
 
@@ -123,7 +130,7 @@ func (f *Fetcher) storeHeaderData(page *Page) error {
 }
 
 // Stores a Page struct to the file system
-func (f *Fetcher) Store(page *Page) error {
+func (f *Fetcher) StorePage(page *Page) error {
 	err := os.MkdirAll(page.Path, 0755)
 	if err != nil {
 		return err
@@ -139,3 +146,51 @@ func (f *Fetcher) Store(page *Page) error {
 
 	return nil
 }
+
+// Returns the directory as a Page struct. Will throw an error if .page_headers or .page_data don't exist (Maybe will change)
+func (f *Fetcher) GetDir(path string) (*Page, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("error while opening dir %s: %w", path, err)
+	}
+
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a dir", path)
+	}
+
+	pageData, err := os.ReadFile(path + "/.page_data")
+	if err != nil {
+		return nil, fmt.Errorf("%s doesn't exist", path + "/.page_data")
+	}
+	
+	headers, err := f.parseHeaderFile(path + "./page_headers")
+	if err != nil {
+		return nil, fmt.Errorf("error while parsing %s", path + "./page_headers")
+	}
+	
+}
+
+// Parses given file to http.Header and returns a pointer to it
+func (f *Fetcher) parseHeaderFile(path string) (*http.Header, error) {
+	headerData, err := os.ReadFile(path + "./header_data")
+	if err != nil {
+		return nil, fmt.Errorf("%s doesn't exist", path + "./header_data")
+	}
+
+	headers := http.Header{}
+	
+	headerDataStr := string(headerData)
+	for _, val := range strings.Split(headerDataStr, "\n") {
+		header := strings.Split(val, ":")
+		if len(header) == 1 {
+			fmt.Printf("malformed header: %s in %s. Skipping...", header, path)
+		}
+		
+		for _, values := range header[1:] {
+			headers.Add(header[0], values)
+		}
+	}
+
+	return &headers, nil
+}
+
