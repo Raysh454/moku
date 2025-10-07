@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/raysh454/moku/internal/utils"
@@ -22,13 +21,24 @@ type Page struct {
 }
 
 type Fetcher struct {
+	RootPath string
 	MaxConcurrency int
 }
 
-func NewFetcher(MaxCouncurrency int) *Fetcher {
-	return &Fetcher{
-		MaxConcurrency: MaxCouncurrency,
+func NewFetcher(RootPath string, MaxCouncurrency int) (*Fetcher, error) {
+	if RootPath == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("error: root directory not given and failed to get working directory: %v", err)
+		}
+
+		RootPath = wd
 	}
+
+	return &Fetcher{
+		RootPath: RootPath,
+		MaxConcurrency: MaxCouncurrency,
+	}, nil
 }
 
 // Gets and stores all given HTTP urls to file system
@@ -100,7 +110,7 @@ func (f *Fetcher) HTTPGet(page string) (*Page, error) {
 
 // Helper function: stores page data to file
 func (f *Fetcher) storePageData(page *Page) error {
-	pageDataFile, err := os.Create(page.Path + "/.page_data")
+	pageDataFile, err := os.Create(f.RootPath + page.Path + "/.page_data")
 	if err != nil {
 		return err
 	}
@@ -116,14 +126,14 @@ func (f *Fetcher) storePageData(page *Page) error {
 
 // Helper function: stores header data to file
 func (f *Fetcher) storeHeaderData(page *Page) error {
-	headerFile, err := os.Create(page.Path + "/.page_headers") 
+	headerFile, err := os.Create(f.RootPath + page.Path + "/.page_headers") 
 	if err != nil {
 		return err
 	}
 	defer headerFile.Close()
 
 	for key, val := range *page.Headers {
-		headerFile.WriteString(fmt.Sprintf("%s: %s", key, val))
+		headerFile.WriteString(fmt.Sprintf("%s: %s\n", key, val))
 	}
 
 	return nil
@@ -131,7 +141,7 @@ func (f *Fetcher) storeHeaderData(page *Page) error {
 
 // Stores a Page struct to the file system
 func (f *Fetcher) StorePage(page *Page) error {
-	err := os.MkdirAll(page.Path, 0755)
+	err := os.MkdirAll(f.RootPath + page.Path, 0755)
 	if err != nil {
 		return err
 	}
@@ -148,6 +158,8 @@ func (f *Fetcher) StorePage(page *Page) error {
 }
 
 // Returns the directory as a Page struct. Will throw an error if .page_headers or .page_data don't exist (Maybe will change)
+// Do we even need this?
+/*
 func (f *Fetcher) GetDir(path string) (*Page, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -163,18 +175,18 @@ func (f *Fetcher) GetDir(path string) (*Page, error) {
 		return nil, fmt.Errorf("%s doesn't exist", path + "/.page_data")
 	}
 	
-	headers, err := f.parseHeaderFile(path + "./page_headers")
+	headers, err := f.parseHeaderFile(path + "/.page_headers")
 	if err != nil {
-		return nil, fmt.Errorf("error while parsing %s", path + "./page_headers")
+		return nil, fmt.Errorf("error while parsing %s", path + "/.page_headers")
 	}
 	
 }
 
 // Parses given file to http.Header and returns a pointer to it
 func (f *Fetcher) parseHeaderFile(path string) (*http.Header, error) {
-	headerData, err := os.ReadFile(path + "./header_data")
+	headerData, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%s doesn't exist", path + "./header_data")
+		return nil, fmt.Errorf("%s doesn't exist", path)
 	}
 
 	headers := http.Header{}
@@ -193,4 +205,4 @@ func (f *Fetcher) parseHeaderFile(path string) (*http.Header, error) {
 
 	return &headers, nil
 }
-
+*/
