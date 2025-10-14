@@ -44,7 +44,7 @@ func newSpiderHelper(spider *Spider, root string) (*spiderHelper, error) {
 	}, nil
 }
 
-func (nsh *spiderHelper) resolveFullUrls(baseUrl string, links []string) ([]string, error) {
+func (sh *spiderHelper) resolveFullUrls(baseUrl string, links []string) ([]string, error) {
 	base, err := utils.NewURLTools(baseUrl)
 	if err != nil {
 		return nil, fmt.Errorf("error while converting %s to URLTools: %w", baseUrl, err)
@@ -65,7 +65,7 @@ func (nsh *spiderHelper) resolveFullUrls(baseUrl string, links []string) ([]stri
 	return result, nil
 } 
 
-func (nsh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links *[]string) error {
+func (sh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links *[]string) error {
 	if node.Type == html.ElementNode {
 		hasSrc := false
 		var cLinks []string
@@ -78,10 +78,10 @@ func (nsh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links
 		}
 
 		if node.Data == "script" && !hasSrc && node.FirstChild != nil && node.FirstChild.Type == html.TextNode {
-			cLinks = append(cLinks, nsh.re.FindAllString(node.FirstChild.Data, -1)...)
+			cLinks = append(cLinks, sh.re.FindAllString(node.FirstChild.Data, -1)...)
 		}
 
-		rLinks, err := nsh.resolveFullUrls(baseUrl, cLinks)
+		rLinks, err := sh.resolveFullUrls(baseUrl, cLinks)
 		if err != nil {
 			return fmt.Errorf("error while resolving full urls: %w", err)
 		}
@@ -90,7 +90,7 @@ func (nsh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links
 	}
 
 	for c := node.FirstChild; c != nil; c = c.NextSibling {
-		if err := nsh.extractLinksHTML(c, baseUrl, links); err != nil {
+		if err := sh.extractLinksHTML(c, baseUrl, links); err != nil {
 			return err
 		}	
 	}
@@ -98,7 +98,7 @@ func (nsh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links
 	return nil
 }
 
-func (nsh *spiderHelper) crawlPage(target string) ([]string, error) {
+func (sh *spiderHelper) crawlPage(target string) ([]string, error) {
 	resp, err := http.Get(target)
 	if err != nil {
 		return nil, fmt.Errorf("error making http request: %w", err)
@@ -122,15 +122,15 @@ func (nsh *spiderHelper) crawlPage(target string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("couldn't parse %s: %w", target, err)
 		}
-		nsh.extractLinksHTML(doc, target, &links)
+		sh.extractLinksHTML(doc, target, &links)
 	} else {
-		links = nsh.re.FindAllString(bodyStr, -1)
+		links = sh.re.FindAllString(bodyStr, -1)
 	}
 
 	return links, nil
 }
 
-func (nsh *spiderHelper) appendPages(pages []string, lastDepth int) {
+func (sh *spiderHelper) appendPages(pages []string, lastDepth int) {
 		for _, page := range pages {
 			
 			pageUrlTools, err := utils.NewURLTools(page)
@@ -139,34 +139,34 @@ func (nsh *spiderHelper) appendPages(pages []string, lastDepth int) {
 				continue
 			}
 
-			if !nsh.root.DomainIsSame(pageUrlTools) {
+			if !sh.root.DomainIsSame(pageUrlTools) {
 				continue
 			}
 
 			pageStr := pageUrlTools.URL.String()
 
-			if _, exists := nsh.depth[pageStr]; !exists {
-				nsh.depth[pageStr] = lastDepth + 1
-				nsh.results = append(nsh.results, pageStr)
+			if _, exists := sh.depth[pageStr]; !exists {
+				sh.depth[pageStr] = lastDepth + 1
+				sh.results = append(sh.results, pageStr)
 			}
 		}
 }
 
-func (nsh *spiderHelper) run() error {
+func (sh *spiderHelper) run() error {
 	currPage := 0
 
-	for currPage < len(nsh.results) {
-		if depth, exists := nsh.depth[nsh.results[currPage]]; exists && depth > nsh.spider.MaxDepth {
+	for currPage < len(sh.results) {
+		if depth, exists := sh.depth[sh.results[currPage]]; exists && depth > sh.spider.MaxDepth {
 			break
 		}
-		crawledPages, err := nsh.crawlPage(nsh.results[currPage])
+		crawledPages, err := sh.crawlPage(sh.results[currPage])
 		if err != nil {
-			fmt.Printf("error while crawling %s: %v\n", nsh.results[currPage], err)
+			fmt.Printf("error while crawling %s: %v\n", sh.results[currPage], err)
 		}
 
-		currDepth := nsh.depth[nsh.results[currPage]] 
+		currDepth := sh.depth[sh.results[currPage]] 
 
-		nsh.appendPages(crawledPages, currDepth)
+		sh.appendPages(crawledPages, currDepth)
 		currPage += 1
 	}
 

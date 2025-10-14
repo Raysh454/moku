@@ -25,7 +25,7 @@ type Fetcher struct {
 	MaxConcurrency int
 }
 
-func NewFetcher(RootPath string, MaxCouncurrency int) (*Fetcher, error) {
+func New(RootPath string, MaxCouncurrency int) (*Fetcher, error) {
 	if RootPath == "" {
 		wd, err := os.Getwd()
 		if err != nil {
