@@ -111,7 +111,7 @@ func TestSpider(t *testing.T) {
 		addr + "/example/a/1",
 	}
 
-	fetcher, err := NewFetcher("", 1)
+	fetcher, err := New("", 1)
 	if err != nil {
 		return
 	}

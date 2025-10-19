@@ -46,9 +46,11 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.MaxConcurrency)
 	diskWriter := make(chan *Page)
+	writerDone := make(chan struct{})
 
 	// Write pages to disk
 	go func() {
+		defer close(writerDone)
 		for page := range diskWriter {
 			if err := f.StorePage(page); err != nil {
 				fmt.Printf("error while storing %s: %v. Skipping...", page.Path, err)
@@ -77,6 +79,8 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 	}
 
 	wg.Wait()
+	close(diskWriter)
+	<-writerDone
 }
 
 // Makes an HTTP GET Request to the given parameter and returns reference Page struct
