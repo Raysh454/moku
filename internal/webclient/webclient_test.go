@@ -8,7 +8,7 @@ import (
 // TestBrowserGet verifies that BrowserGet loads a simple local page correctly
 func TestBrowserGet(t *testing.T) {
 	// Call BrowserGet
-	html, err := BrowserGet("https://www.all-turtles.com")
+	html, err := Get("https://www.all-turtles.com")
 	if err != nil {
 		t.Fatalf("BrowserGet returned error: %v", err)
 	}
