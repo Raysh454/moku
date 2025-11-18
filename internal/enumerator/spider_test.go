@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // Color coding to make test passes more satisfying
@@ -95,7 +97,10 @@ func HttpServer(addr string) (*http.Server, error) {
 func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum, totalTests int) {
 	t.Helper()
 
-	spider := NewSpider(maxDepth)
+	// Create a simple webclient for testing
+	wc := webclient.NewNetHTTPClient(nil)
+	
+	spider := NewSpider(maxDepth, wc, nil)
 	got, err := spider.Enumerate(addr)
 	if err != nil {
 		t.Errorf("error: %v", err)

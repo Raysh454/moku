@@ -10,6 +10,8 @@ type Request struct {
 	URL string;
 	Headers http.Header;
 	Body []byte
+	// Options contains backend-specific options like "render": "true" for chromedp
+	Options map[string]string
 }
 
 type Response struct {

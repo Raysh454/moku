@@ -1,12 +1,13 @@
 package fetcher
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"sync"
 
+	"github.com/raysh454/moku/internal/interfaces"
 	"github.com/raysh454/moku/internal/utils"
 )
 
@@ -21,11 +22,15 @@ type Page struct {
 }
 
 type Fetcher struct {
-	RootPath string
+	RootPath       string
 	MaxConcurrency int
+	wc             interfaces.WebClient
+	logger         interfaces.Logger
 }
 
-func New(RootPath string, MaxCouncurrency int) (*Fetcher, error) {
+// New creates a new Fetcher with the given webclient and logger.
+// TODO: Update call sites to pass wc and logger when wiring modules in cmd/main or composition root.
+func New(RootPath string, MaxCouncurrency int, wc interfaces.WebClient, logger interfaces.Logger) (*Fetcher, error) {
 	if RootPath == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -36,8 +41,10 @@ func New(RootPath string, MaxCouncurrency int) (*Fetcher, error) {
 	}
 
 	return &Fetcher{
-		RootPath: RootPath,
+		RootPath:       RootPath,
 		MaxConcurrency: MaxCouncurrency,
+		wc:             wc,
+		logger:         logger,
 	}, nil
 }
 
@@ -53,7 +60,11 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 		defer close(writerDone)
 		for page := range diskWriter {
 			if err := f.StorePage(page); err != nil {
-				fmt.Printf("error while storing %s: %v. Skipping...", page.Path, err)
+				if f.logger != nil {
+					f.logger.Error("error while storing page", 
+						interfaces.Field{Key: "path", Value: page.Path},
+						interfaces.Field{Key: "error", Value: err})
+				}
 			}
 		}
 	}()
@@ -68,9 +79,13 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			page, err := f.HTTPGet(pageUrl)
+			page, err := f.HTTPGet(context.Background(), pageUrl)
 			if err != nil {
-				fmt.Printf("error while fetching %s: %v. Skipping...", pageUrl, err)
+				if f.logger != nil {
+					f.logger.Error("error while fetching page", 
+						interfaces.Field{Key: "url", Value: pageUrl},
+						interfaces.Field{Key: "error", Value: err})
+				}
 				return
 			}
 		
@@ -84,19 +99,17 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 }
 
 // Makes an HTTP GET Request to the given parameter and returns reference Page struct
-func (f *Fetcher) HTTPGet(page string) (*Page, error) {
-	resp, err := http.Get(page)
+func (f *Fetcher) HTTPGet(ctx context.Context, page string) (*Page, error) {
+	if f.wc == nil {
+		return nil, fmt.Errorf("fetcher: webclient is nil")
+	}
+
+	resp, err := f.wc.Get(ctx, page)
 	if err != nil {
 		return nil, fmt.Errorf("error GETting %s: %w", page, err)
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error while reading response body %s: %w", page, err)
-	}
-
-	bodyStr := string(body)	
+	bodyStr := string(resp.Body)	
 	//bodyStr = f.Normalize(bodyStr) Need to normalize repeating stuff, unless I come up with a better solution, cause this seems hard
 
 	urlTools, err := utils.NewURLTools(page)
@@ -105,9 +118,9 @@ func (f *Fetcher) HTTPGet(page string) (*Page, error) {
 	}
 
 	return &Page{
-		Path: urlTools.GetPath(),
-		Data: bodyStr,
-		Headers: &resp.Header,
+		Path:       urlTools.GetPath(),
+		Data:       bodyStr,
+		Headers:    &resp.Headers,
 		StatusCode: resp.StatusCode,
 	}, nil
 }
@@ -199,7 +212,11 @@ func (f *Fetcher) parseHeaderFile(path string) (*http.Header, error) {
 	for _, val := range strings.Split(headerDataStr, "\n") {
 		header := strings.Split(val, ":")
 		if len(header) == 1 {
-			fmt.Printf("malformed header: %s in %s. Skipping...", header, path)
+			if f.logger != nil {
+				f.logger.Warn("malformed header, skipping",
+					interfaces.Field{Key: "header", Value: header},
+					interfaces.Field{Key: "path", Value: path})
+			}
 		}
 		
 		for _, values := range header[1:] {

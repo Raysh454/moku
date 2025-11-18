@@ -71,4 +71,15 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Re
 	}, nil
 }
 
-func Close() error {return nil}
+// Get is a convenience method for simple GET requests
+func (nhc *NetHTTPClient) Get(ctx context.Context, url string) (*model.Response, error) {
+	req := &model.Request{
+		Method: "GET",
+		URL:    url,
+	}
+	return nhc.Do(ctx, req)
+}
+
+func (nhc *NetHTTPClient) Close() error {
+	return nil
+}

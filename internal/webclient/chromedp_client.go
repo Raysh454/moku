@@ -281,3 +281,12 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 
 }
 
+// Get is a convenience method for simple GET requests
+func (cdc *ChromeDPClient) Get(ctx context.Context, url string) (*model.Response, error) {
+	req := &model.Request{
+		Method: "GET",
+		URL:    url,
+	}
+	return cdc.Do(ctx, req)
+}
+
