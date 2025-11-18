@@ -6,5 +6,7 @@ import (
 )
 
 type WebClient interface {
-	Do(ctx context.Context, req *model.Request) (res *model.Response, err error)
+	Do(ctx context.Context, req *model.Request) (*model.Response, error)
+
+	Close() error
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/raysh454/moku/internal/model"
 )
 
+//net/http backed implementation of webclient.
 type NetHTTPClient struct {
 	client *http.Client
 }
@@ -25,7 +26,7 @@ func NewNetHTTPClient(client *http.Client) *NetHTTPClient {
 }
 
 // Do implements the generic request execution using net/http.
-func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (res *model.Response, err error) {
+func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Response, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil request")
 	}
@@ -70,4 +71,4 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (res *mode
 	}, nil
 }
 
-
+func Close() error {return nil}
