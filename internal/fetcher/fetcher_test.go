@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // Color coding to make test passes more satisfying
@@ -111,7 +114,11 @@ func TestSpider(t *testing.T) {
 		addr + "/example/a/1",
 	}
 
-	fetcher, err := New("", 1)
+	// Create test webclient and logger
+	logger := interfaces.NewTestLogger(false)
+	wc := webclient.NewNetHTTPClient(nil)
+
+	fetcher, err := New("", 1, wc, logger)
 	if err != nil {
 		return
 	}

@@ -1,31 +1,37 @@
 package enumerator
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strings"
 
+	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/model"
 	"github.com/raysh454/moku/internal/utils"
 	"golang.org/x/net/html"
 )
 
 type Spider struct {
 	MaxDepth int
+	wc       interfaces.WebClient
+	logger   interfaces.Logger
 }
 
 type spiderHelper struct {
-	spider *Spider;
-	root *utils.URLTools;
-	depth map[string]int;
-	results []string;
-	re *regexp.Regexp; //TODO: Need a better way to parse urls
+	spider  *Spider
+	root    *utils.URLTools
+	depth   map[string]int
+	results []string
+	re      *regexp.Regexp //TODO: Need a better way to parse urls
 }
 
-func NewSpider(maxDepth int) *Spider {
+func NewSpider(maxDepth int, wc interfaces.WebClient, logger interfaces.Logger) *Spider {
 	return &Spider{
 		MaxDepth: maxDepth,
+		wc:       wc,
+		logger:   logger,
 	}
 }
 
@@ -55,7 +61,9 @@ func (sh *spiderHelper) resolveFullUrls(baseUrl string, links []string) ([]strin
 	for _, v := range links {
 		resolved, err := base.ResolveFullUrlString(v)
 		if err != nil {
-			fmt.Printf("Couldn't resolve full url for %s: %v", v, err)
+			sh.spider.logger.Warn("couldn't resolve full url",
+				interfaces.Field{Key: "url", Value: v},
+				interfaces.Field{Key: "error", Value: err.Error()})
 			continue
 		}
 
@@ -99,25 +107,25 @@ func (sh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links 
 }
 
 func (sh *spiderHelper) crawlPage(target string) ([]string, error) {
-	resp, err := http.Get(target)
+	req := &model.Request{
+		Method:  "GET",
+		URL:     target,
+		Headers: http.Header{},
+	}
+
+	resp, err := sh.spider.wc.Do(context.Background(), req)
 	if err != nil {
 		return nil, fmt.Errorf("error making http request: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
 		return nil, fmt.Errorf("received 404 from target")
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading body: %w", err)
-	}
-
-	bodyStr := string(body)
+	bodyStr := string(resp.Body)
 	var links []string
 
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+	if strings.HasPrefix(resp.Headers.Get("Content-Type"), "text/html") {
 		doc, err := html.Parse(strings.NewReader(bodyStr))
 		if err != nil {
 			return nil, fmt.Errorf("couldn't parse %s: %w", target, err)
@@ -131,25 +139,27 @@ func (sh *spiderHelper) crawlPage(target string) ([]string, error) {
 }
 
 func (sh *spiderHelper) appendPages(pages []string, lastDepth int) {
-		for _, page := range pages {
-			
-			pageUrlTools, err := utils.NewURLTools(page)
-			if err != nil {
-				fmt.Printf("%v\n", err)
-				continue
-			}
+	for _, page := range pages {
 
-			if !sh.root.DomainIsSame(pageUrlTools) {
-				continue
-			}
-
-			pageStr := pageUrlTools.URL.String()
-
-			if _, exists := sh.depth[pageStr]; !exists {
-				sh.depth[pageStr] = lastDepth + 1
-				sh.results = append(sh.results, pageStr)
-			}
+		pageUrlTools, err := utils.NewURLTools(page)
+		if err != nil {
+			sh.spider.logger.Warn("error parsing page url",
+				interfaces.Field{Key: "url", Value: page},
+				interfaces.Field{Key: "error", Value: err.Error()})
+			continue
 		}
+
+		if !sh.root.DomainIsSame(pageUrlTools) {
+			continue
+		}
+
+		pageStr := pageUrlTools.URL.String()
+
+		if _, exists := sh.depth[pageStr]; !exists {
+			sh.depth[pageStr] = lastDepth + 1
+			sh.results = append(sh.results, pageStr)
+		}
+	}
 }
 
 func (sh *spiderHelper) run() error {
@@ -161,7 +171,9 @@ func (sh *spiderHelper) run() error {
 		}
 		crawledPages, err := sh.crawlPage(sh.results[currPage])
 		if err != nil {
-			fmt.Printf("error while crawling %s: %v\n", sh.results[currPage], err)
+			sh.spider.logger.Error("error while crawling page",
+				interfaces.Field{Key: "url", Value: sh.results[currPage]},
+				interfaces.Field{Key: "error", Value: err.Error()})
 		}
 
 		currDepth := sh.depth[sh.results[currPage]] 

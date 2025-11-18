@@ -24,6 +24,9 @@ type Config struct {
 
 	// FetcherConcurrency is the number of parallel fetch worker slots.
 	FetcherConcurrency int
+
+	// WebClientBackend specifies which webclient backend to use (e.g., "nethttp", "chromedp").
+	WebClientBackend string
 }
 
 // DefaultConfig returns a Config populated with sensible development defaults.
@@ -34,6 +37,7 @@ func DefaultConfig() *Config {
 		DBPath:                     "./data/moku.db",
 		SchedulerGlobalConcurrency: 4,
 		FetcherConcurrency:         8,
+		WebClientBackend:           "nethttp",
 	}
 }
 
@@ -46,6 +50,7 @@ func DefaultConfig() *Config {
 //   MOKU_DB_PATH
 //   MOKU_SCHED_CONCURRENCY
 //   MOKU_FETCHER_CONCURRENCY
+//   MOKU_WEBCLIENT_BACKEND
 func LoadConfigFromEnv() *Config {
 	cfg := DefaultConfig()
 
@@ -67,6 +72,9 @@ func LoadConfigFromEnv() *Config {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.FetcherConcurrency = n
 		}
+	}
+	if v := os.Getenv("MOKU_WEBCLIENT_BACKEND"); v != "" {
+		cfg.WebClientBackend = v
 	}
 
 	return cfg

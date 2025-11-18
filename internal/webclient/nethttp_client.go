@@ -71,4 +71,6 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Re
 	}, nil
 }
 
-func Close() error {return nil}
+func (nhc *NetHTTPClient) Close() error {
+	return nil
+}

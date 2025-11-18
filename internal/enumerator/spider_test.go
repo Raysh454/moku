@@ -8,6 +8,9 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // Color coding to make test passes more satisfying
@@ -92,10 +95,10 @@ func HttpServer(addr string) (*http.Server, error) {
 	return &server, nil
 }
 
-func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum, totalTests int) {
+func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum, totalTests int, wc interfaces.WebClient, logger interfaces.Logger) {
 	t.Helper()
 
-	spider := NewSpider(maxDepth)
+	spider := NewSpider(maxDepth, wc, logger)
 	got, err := spider.Enumerate(addr)
 	if err != nil {
 		t.Errorf("error: %v", err)
@@ -120,6 +123,10 @@ func TestSpider(t *testing.T) {
 	// Wait for server to start
 	time.Sleep(2 * time.Second)
 
+	// Create test webclient and logger
+	logger := interfaces.NewTestLogger(false)
+	wc := webclient.NewNetHTTPClient(nil)
+
 	// Depth 0 test
 	fmt.Printf("Testing Depth 0\n")
 	want := []string{
@@ -127,7 +134,7 @@ func TestSpider(t *testing.T) {
 		addr + "/example",
 		addr + "/blog",
 	}
-	AssertEqual(t, 0, addr, want, 1, 3)
+	AssertEqual(t, 0, addr, want, 1, 3, wc, logger)
 
 	// Depth 1 test
 	fmt.Printf("Testing Depth 1\n")
@@ -138,8 +145,7 @@ func TestSpider(t *testing.T) {
 		addr + "/example/a",
 		addr + "/example/b",
 	}
-	AssertEqual(t, 1, addr, want, 2, 3)
-
+	AssertEqual(t, 1, addr, want, 2, 3, wc, logger)
 
 	// Depth 2 test
 	fmt.Printf("Testing Depth 2\n")
@@ -152,7 +158,7 @@ func TestSpider(t *testing.T) {
 		addr + "/example/a/1",
 	}
 
-	AssertEqual(t, 2, addr, want, 3, 3)
+	AssertEqual(t, 2, addr, want, 3, 3, wc, logger)
 
 	server.Shutdown(context.Background())
 } 

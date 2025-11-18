@@ -6,17 +6,19 @@ import (
 )
 
 type Request struct {
-	Method string;
-	URL string;
-	Headers http.Header;
+	Method string
+	URL string
+	Headers http.Header
 	Body []byte
+	// Options allows backend-specific configuration (e.g., "render": "true" for chromedp)
+	Options map[string]string
 }
 
 type Response struct {
-	Request *Request;
-	Headers http.Header;
+	Request *Request
+	Headers http.Header
 	Body []byte
-	StatusCode int;
+	StatusCode int
 	FetchedAt time.Time
 }
 
