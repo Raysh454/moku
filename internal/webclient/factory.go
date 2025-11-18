@@ -1,55 +1,67 @@
 package webclient
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
+	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/interfaces"
 )
 
-// BackendFactory is a function that creates a WebClient backend from configuration.
-type BackendFactory func(cfg map[string]interface{}, logger interfaces.Logger) (interfaces.WebClient, error)
+// BackendConstructor constructs an interfaces.WebClient given the config and logger.
+type BackendConstructor func(cfg *app.Config, logger interfaces.Logger) (interfaces.WebClient, error)
 
 var (
 	mu        sync.RWMutex
-	backends  = make(map[string]BackendFactory)
+	registry  = map[string]BackendConstructor{}
 )
 
-// RegisterBackend registers a named backend factory. Call this from init() or main()
-// to register concrete implementations like "nethttp" or "chromedp".
-func RegisterBackend(name string, factory BackendFactory) {
+// RegisterBackend registers a named backend constructor. Name is lower-cased
+// internally. Calling RegisterBackend with the same name overwrites the previous
+// constructor.
+func RegisterBackend(name string, ctor BackendConstructor) {
+	if name == "" || ctor == nil {
+		return
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	backends[name] = factory
+	registry[strings.ToLower(name)] = ctor
 }
 
-// NewWebClient creates a WebClient instance using a registered backend.
-// cfg should contain a "backend" key specifying which backend to use.
-// Returns an error if no backend is registered with that name.
-func NewWebClient(cfg map[string]interface{}, logger interfaces.Logger) (interfaces.WebClient, error) {
-	backendName, ok := cfg["backend"].(string)
-	if !ok || backendName == "" {
-		return nil, fmt.Errorf("webclient config missing 'backend' key or value is not a string")
+// NewWebClient constructs the configured WebClient backend. It returns an error
+// if the named backend has not been registered.
+func NewWebClient(cfg *app.Config, logger interfaces.Logger) (interfaces.WebClient, error) {
+	backend := strings.ToLower(strings.TrimSpace(cfg.WebClientBackend))
+	if backend == "" {
+		backend = "nethttp"
 	}
 
 	mu.RLock()
-	factory, exists := backends[backendName]
+	ctor, ok := registry[backend]
 	mu.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("webclient backend %q not registered; available backends: %v", backendName, availableBackends())
+	if !ok || ctor == nil {
+		return nil, fmt.Errorf("webclient backend %q not registered: available backends=%v", backend, ListBackends())
 	}
 
-	return factory(cfg, logger)
+	wc, err := ctor(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct webclient backend %q: %w", backend, err)
+	}
+	if wc == nil {
+		return nil, errors.New("webclient constructor returned nil")
+	}
+	return wc, nil
 }
 
-// availableBackends returns a list of registered backend names for error messages.
-func availableBackends() []string {
+// ListBackends returns the list of registered backend names.
+func ListBackends() []string {
 	mu.RLock()
 	defer mu.RUnlock()
-	names := make([]string, 0, len(backends))
-	for name := range backends {
-		names = append(names, name)
+	out := make([]string, 0, len(registry))
+	for k := range registry {
+		out = append(out, k)
 	}
-	return names
+	return out
 }
