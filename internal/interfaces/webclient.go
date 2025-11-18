@@ -1,4 +1,4 @@
-package webclient
+package interfaces
 
 import (
 	"context"
@@ -10,3 +10,4 @@ type WebClient interface {
 
 	Close() error
 }
+

@@ -1,5 +1,5 @@
-package enumerate
+package interfaces
 
-type Enumerate interface {
+type Enumerator interface {
 	Enumerate(target string) ([]string, error)
 }

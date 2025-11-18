@@ -1,4 +1,4 @@
-package enumerate
+package enumerator
 
 import (
 	"context"
