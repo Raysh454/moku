@@ -18,7 +18,7 @@ func NewWebClient(cfg *app.Config, logger interfaces.Logger) (interfaces.WebClie
 
 	switch backend {
 	case "nethttp":
-		return NewNetHTTPClient(cfg, logger)
+		return NewNetHTTPClient(cfg, logger, nil)
 	case "chromedp":
 		return NewChromedpClient(cfg, logger)
 	default:

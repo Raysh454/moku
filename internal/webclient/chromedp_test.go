@@ -6,10 +6,21 @@ import (
 	"testing"
 
 	"github.com/raysh454/moku/internal/app"
-	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/interfaces"
 	"github.com/raysh454/moku/internal/model"
 	"github.com/raysh454/moku/internal/webclient"
 )
+
+// noopLogger is a test-local logger implementation that discards all log messages
+type chromedpNoopLogger struct{}
+
+func (n *chromedpNoopLogger) Debug(msg string, fields ...interfaces.Field) {}
+func (n *chromedpNoopLogger) Info(msg string, fields ...interfaces.Field)  {}
+func (n *chromedpNoopLogger) Warn(msg string, fields ...interfaces.Field)  {}
+func (n *chromedpNoopLogger) Error(msg string, fields ...interfaces.Field) {}
+func (n *chromedpNoopLogger) With(fields ...interfaces.Field) interfaces.Logger {
+	return n
+}
 
 // TestNewChromedpClient_Construct verifies that NewChromedpClient returns a non-nil client
 // Note: This test may be skipped in CI environments where chromedp cannot initialize
@@ -18,7 +29,7 @@ func TestNewChromedpClient_Construct(t *testing.T) {
 	cfg := &app.Config{
 		WebClientBackend: "chromedp",
 	}
-	logger := logging.NewStdoutLogger("chromedp-test")
+	logger := &chromedpNoopLogger{}
 
 	client, err := webclient.NewChromedpClient(cfg, logger)
 	if err != nil {
@@ -37,7 +48,7 @@ func TestChromedpClient_DoSupportsGET(t *testing.T) {
 	cfg := &app.Config{
 		WebClientBackend: "chromedp",
 	}
-	logger := logging.NewStdoutLogger("chromedp-test")
+	logger := &chromedpNoopLogger{}
 
 	client, err := webclient.NewChromedpClient(cfg, logger)
 	if err != nil {
@@ -66,7 +77,7 @@ func TestChromedpClient_DoRejectsNonGET(t *testing.T) {
 	cfg := &app.Config{
 		WebClientBackend: "chromedp",
 	}
-	logger := logging.NewStdoutLogger("chromedp-test")
+	logger := &chromedpNoopLogger{}
 
 	client, err := webclient.NewChromedpClient(cfg, logger)
 	if err != nil {
