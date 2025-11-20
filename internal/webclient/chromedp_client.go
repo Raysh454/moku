@@ -40,21 +40,12 @@ func NewChromedpClient(cfg *app.Config, logger interfaces.Logger) (interfaces.We
 	componentLogger.Warn("chromedp webclient is not fully implemented in dev branch")
 	
 	idleAfter := 2 * time.Second
-	
-	var (
-		ctx         context.Context
-		cancel      context.CancelFunc
-		allocCancel context.CancelFunc
-	)
 
 	// If no allocator options were provided, use the simpler NewContext directly.
 	// This avoids a code path in NewExecAllocator that has proven brittle in some test environments.
-	ctx, cancel = chromedp.NewContext(context.Background())
+	ctx, cancel := chromedp.NewContext(context.Background())
 
 	if err := chromedp.Run(ctx); err != nil {
-		if allocCancel != nil {
-			allocCancel()
-		}
 		cancel()
 		componentLogger.Warn("failed to start chromedp client", interfaces.Field{Key: "error", Value: err.Error()})
 		return nil, fmt.Errorf("starting chromedp client: %w", err)
@@ -64,11 +55,10 @@ func NewChromedpClient(cfg *app.Config, logger interfaces.Logger) (interfaces.We
 		interfaces.Field{Key: "idle_after", Value: idleAfter.String()})
 
 	return &ChromeDPClient{
-		baseCtx:     ctx,
-		cancel:      cancel,
-		allocCancel: allocCancel,
-		idleAfter:   idleAfter,
-		logger:      componentLogger,
+		baseCtx:   ctx,
+		cancel:    cancel,
+		idleAfter: idleAfter,
+		logger:    componentLogger,
 	}, nil
 }
 
