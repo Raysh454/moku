@@ -11,6 +11,8 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
+	"github.com/raysh454/moku/internal/app"
+	"github.com/raysh454/moku/internal/interfaces"
 	"github.com/raysh454/moku/internal/model"
 )
 
@@ -27,14 +29,18 @@ type ChromeDPClient struct {
 	wg sync.WaitGroup
 
 	idleAfter time.Duration
+	logger    interfaces.Logger
 }
 
-func NewChromeDPClient(idleAfter time.Duration, opts ...chromedp.ExecAllocatorOption) (*ChromeDPClient, error) {
-	if idleAfter <= 0 {
-		idleAfter = 2 * time.Second
-	}
-
-
+func NewChromedpClient(cfg *app.Config, logger interfaces.Logger) (interfaces.WebClient, error) {
+	// Create component-scoped logger
+	componentLogger := logger.With(interfaces.Field{Key: "backend", Value: "chromedp"})
+	
+	// Note: chromedp backend is not fully implemented in dev branch
+	componentLogger.Warn("chromedp webclient is not fully implemented in dev branch")
+	
+	idleAfter := 2 * time.Second
+	
 	var (
 		ctx         context.Context
 		cancel      context.CancelFunc
@@ -43,30 +49,26 @@ func NewChromeDPClient(idleAfter time.Duration, opts ...chromedp.ExecAllocatorOp
 
 	// If no allocator options were provided, use the simpler NewContext directly.
 	// This avoids a code path in NewExecAllocator that has proven brittle in some test environments.
-	if len(opts) == 0 {
-		ctx, cancel = chromedp.NewContext(context.Background())
-	} else {
-		// Build allocator options from defaults + provided opts safely.
-		allocOpts := make([]chromedp.ExecAllocatorOption, 0, len(chromedp.DefaultExecAllocatorOptions)+len(opts))
-		allocOpts = append(allocOpts, chromedp.DefaultExecAllocatorOptions[:]...)
-		allocOpts = append(allocOpts, opts...)
-
-		allocCtx, aCancel := chromedp.NewExecAllocator(context.Background(), allocOpts...)
-		allocCancel = aCancel
-		ctx, cancel = chromedp.NewContext(allocCtx)
-	}
+	ctx, cancel = chromedp.NewContext(context.Background())
 
 	if err := chromedp.Run(ctx); err != nil {
-		allocCancel()
+		if allocCancel != nil {
+			allocCancel()
+		}
 		cancel()
+		componentLogger.Warn("failed to start chromedp client", interfaces.Field{Key: "error", Value: err.Error()})
 		return nil, fmt.Errorf("starting chromedp client: %w", err)
 	}
 
+	componentLogger.Info("created chromedp webclient",
+		interfaces.Field{Key: "idle_after", Value: idleAfter.String()})
+
 	return &ChromeDPClient{
-		baseCtx:   ctx,
-		cancel:    cancel,
+		baseCtx:     ctx,
+		cancel:      cancel,
 		allocCancel: allocCancel,
-		idleAfter: idleAfter,
+		idleAfter:   idleAfter,
+		logger:      componentLogger,
 	}, nil
 }
 
@@ -79,6 +81,8 @@ func (cdc *ChromeDPClient) Close() error {
 
 	cdc.closed = true
 	cdc.mu.Unlock()
+
+	cdc.logger.Info("closing chromedp webclient")
 
 	if cdc.cancel != nil {
 		cdc.cancel()
@@ -195,8 +199,14 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 		method = http.MethodGet
 	}
 	if method != http.MethodGet {
+		cdc.logger.Warn("chromedp client only supports GET",
+			interfaces.Field{Key: "method", Value: method})
 		return nil, fmt.Errorf("chromedp client: method %q not supported", method)
 	}
+
+	cdc.logger.Debug("chromedp request",
+		interfaces.Field{Key: "method", Value: method},
+		interfaces.Field{Key: "url", Value: req.URL})
 
 	cdc.mu.Lock()
 	if cdc.closed {
