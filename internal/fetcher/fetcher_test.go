@@ -1,4 +1,4 @@
-package fetcher
+package fetcher_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/raysh454/moku/internal/app"
+	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/webclient"
 )
@@ -123,14 +124,14 @@ func TestSpider(t *testing.T) {
 		return
 	}
 	
-	fetcher, err := New("", 1, wc, nil)
+	f, err := fetcher.New("", 1, wc, nil)
 	if err != nil {
 		return
 	}
 
-	fmt.Print(fetcher.RootPath)
+	fmt.Print(f.RootPath)
 
-	fetcher.Fetch(urls)
+	f.Fetch(urls)
 
 	server.Shutdown(context.Background())
 } 
