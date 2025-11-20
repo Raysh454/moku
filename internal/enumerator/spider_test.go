@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raysh454/moku/internal/app"
+	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -98,7 +100,12 @@ func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum
 	t.Helper()
 
 	// Create a simple webclient for testing
-	wc := webclient.NewNetHTTPClient(nil)
+	cfg := &app.Config{WebClientBackend: "nethttp"}
+	logger := logging.NewStdoutLogger("test")
+	wc, err := webclient.NewNetHTTPClient(cfg, logger)
+	if err != nil {
+		t.Fatalf("Failed to create webclient: %v", err)
+	}
 	
 	spider := NewSpider(maxDepth, wc, nil)
 	got, err := spider.Enumerate(addr)
