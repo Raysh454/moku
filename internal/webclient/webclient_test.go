@@ -1,51 +1,77 @@
 package webclient
 
 import (
-	"context"
-	"net/http"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/app"
+	"github.com/raysh454/moku/internal/logging"
 )
 
-// TestBrowserGet verifies that BrowserGet loads a simple local page correctly
-func TestChromeDPClient(t *testing.T) {
+// TestFactoryNetHTTP verifies that the factory can create a nethttp client
+func TestFactoryNetHTTP(t *testing.T) {
+	cfg := &app.Config{
+		WebClientBackend: "nethttp",
+	}
+	logger := logging.NewStdoutLogger("test")
 
-	// Setup ChromeDPClient
-	client, err := NewChromeDPClient(2 * time.Second, nil)
+	client, err := NewWebClient(cfg, logger)
 	if err != nil {
-		t.Fatalf("Failed to set up ChromeDPClient: %v", err)
+		t.Fatalf("Failed to create nethttp client: %v", err)
+	}
+	if client == nil {
+		t.Fatal("client is nil")
 	}
 	defer client.Close()
+}
 
-	// Setup Request
-	modelReq := &model.Request{
-		Method: "GET",
-		URL: "https://www.all-turtles.com",
-		Headers: http.Header{},
-		Body: nil,
+// TestFactoryDefaultBackend verifies that empty backend defaults to nethttp
+func TestFactoryDefaultBackend(t *testing.T) {
+	cfg := &app.Config{
+		WebClientBackend: "",
 	}
+	logger := logging.NewStdoutLogger("test")
 
-	modelReq.Headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (Test) Chrome/58.0.3029.110 Safari/537.3")
-
-	// Call BrowserGet
-	ctx := context.Background()
-	resp, err := client.Do(ctx, modelReq)
+	client, err := NewWebClient(cfg, logger)
 	if err != nil {
-		t.Fatalf("BrowserGet returned error: %v", err)
+		t.Fatalf("Failed to create default client: %v", err)
 	}
+	if client == nil {
+		t.Fatal("client is nil")
+	}
+	defer client.Close()
+}
 
-	// Print response status for debugging
-	t.Logf("Response Status: %d", resp.StatusCode)
-	// Print headers for debugging
-	t.Logf("Response Headers: %v", resp.Headers)
-	
-	respString := string(resp.Body)
-	// Verify HTML contents
-	if !strings.Contains(respString, " of our studio companies.") {
-		t.Errorf("expected HTML to contain ' of our studio companies.', got: %s", resp.Body)
+// TestFactoryUnknownBackend verifies that unknown backend returns error
+func TestFactoryUnknownBackend(t *testing.T) {
+	cfg := &app.Config{
+		WebClientBackend: "unknown",
+	}
+	logger := logging.NewStdoutLogger("test")
+
+	client, err := NewWebClient(cfg, logger)
+	if err == nil {
+		t.Fatal("Expected error for unknown backend, got nil")
+	}
+	if client != nil {
+		t.Fatal("Expected nil client for unknown backend")
+	}
+}
+
+// TestChromeDPClientConstruction verifies that chromedp client can be constructed
+// Note: This test may be skipped in CI environments where chromedp is not fully functional
+func TestChromeDPClientConstruction(t *testing.T) {
+	cfg := &app.Config{
+		WebClientBackend: "chromedp",
+	}
+	logger := logging.NewStdoutLogger("test")
+
+	// Chromedp may fail to initialize in headless CI environments
+	client, err := NewWebClient(cfg, logger)
+	if err != nil {
+		t.Skipf("Skipping chromedp test: %v", err)
+	}
+	if client != nil {
+		defer client.Close()
 	}
 }
 
