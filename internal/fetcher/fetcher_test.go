@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raysh454/moku/internal/app"
+	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -114,7 +116,12 @@ func TestSpider(t *testing.T) {
 	}
 
 	// Create a simple webclient for testing
-	wc := webclient.NewNetHTTPClient(nil)
+	cfg := &app.Config{WebClientBackend: "nethttp"}
+	logger := logging.NewStdoutLogger("test")
+	wc, err := webclient.NewNetHTTPClient(cfg, logger)
+	if err != nil {
+		return
+	}
 	
 	fetcher, err := New("", 1, wc, nil)
 	if err != nil {
