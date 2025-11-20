@@ -20,18 +20,21 @@ type NetHTTPClient struct {
 	logger interfaces.Logger
 }
 
-func NewNetHTTPClient(cfg *app.Config, logger interfaces.Logger) (interfaces.WebClient, error) {
+func NewNetHTTPClient(cfg *app.Config, logger interfaces.Logger, httpClient *http.Client) (interfaces.WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(interfaces.Field{Key: "backend", Value: "nethttp"})
 	
-	// Use default timeout if cfg doesn't specify otherwise
-	client := &http.Client{Timeout: 30 * time.Second}
+	// If httpClient is nil, construct a sensible default with timeout from cfg or fallback to 30s
+	if httpClient == nil {
+		// TODO: Consider reading timeout from cfg if added in the future
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
 	
 	componentLogger.Info("created nethttp webclient",
-		interfaces.Field{Key: "timeout", Value: client.Timeout.String()})
+		interfaces.Field{Key: "timeout", Value: httpClient.Timeout.String()})
 	
 	return &NetHTTPClient{
-		client: client,
+		client: httpClient,
 		logger: componentLogger,
 	}, nil
 }
@@ -106,4 +109,28 @@ func (nhc *NetHTTPClient) Get(ctx context.Context, url string) (*model.Response,
 func (nhc *NetHTTPClient) Close() error {
 	nhc.logger.Info("closing nethttp webclient")
 	return nil
+}
+
+// HTTPClient returns the underlying *http.Client
+func (nhc *NetHTTPClient) HTTPClient() *http.Client {
+	return nhc.client
+}
+
+// DoHTTPRequest executes a raw *http.Request and returns the *http.Response
+func (nhc *NetHTTPClient) DoHTTPRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, nhc.ErrInvalidRequest()
+	}
+	
+	// Set context if not already set
+	if req.Context() == nil || req.Context() == context.Background() {
+		req = req.WithContext(ctx)
+	}
+	
+	return nhc.client.Do(req)
+}
+
+// ErrInvalidRequest returns an error for invalid request scenarios
+func (nhc *NetHTTPClient) ErrInvalidRequest() error {
+	return fmt.Errorf("invalid request")
 }
