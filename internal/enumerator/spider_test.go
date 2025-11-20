@@ -1,4 +1,4 @@
-package enumerator
+package enumerator_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/raysh454/moku/internal/app"
+	"github.com/raysh454/moku/internal/enumerator"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/webclient"
 )
@@ -107,7 +108,7 @@ func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum
 		t.Fatalf("Failed to create webclient: %v", err)
 	}
 	
-	spider := NewSpider(maxDepth, wc, nil)
+	spider := enumerator.NewSpider(maxDepth, wc, nil)
 	got, err := spider.Enumerate(addr)
 	if err != nil {
 		t.Errorf("error: %v", err)

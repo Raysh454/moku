@@ -30,7 +30,7 @@ type Fetcher struct {
 
 // New creates a new Fetcher with the given webclient and logger.
 // TODO: Update call sites to pass wc and logger when wiring modules in cmd/main or composition root.
-func New(RootPath string, MaxCouncurrency int, wc interfaces.WebClient, logger interfaces.Logger) (*Fetcher, error) {
+func New(RootPath string, MaxConcurrency int, wc interfaces.WebClient, logger interfaces.Logger) (*Fetcher, error) {
 	if RootPath == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -42,7 +42,7 @@ func New(RootPath string, MaxCouncurrency int, wc interfaces.WebClient, logger i
 
 	return &Fetcher{
 		RootPath:       RootPath,
-		MaxConcurrency: MaxCouncurrency,
+		MaxConcurrency: MaxConcurrency,
 		wc:             wc,
 		logger:         logger,
 	}, nil
