@@ -122,8 +122,8 @@ func (nhc *NetHTTPClient) DoHTTPRequest(ctx context.Context, req *http.Request) 
 		return nil, nhc.ErrInvalidRequest()
 	}
 	
-	// Set context if not already set
-	if req.Context() == nil || req.Context() == context.Background() {
+	// Set context if not already set (only if context is nil or context.TODO)
+	if req.Context() == nil || req.Context() == context.TODO() {
 		req = req.WithContext(ctx)
 	}
 	
@@ -132,5 +132,5 @@ func (nhc *NetHTTPClient) DoHTTPRequest(ctx context.Context, req *http.Request) 
 
 // ErrInvalidRequest returns an error for invalid request scenarios
 func (nhc *NetHTTPClient) ErrInvalidRequest() error {
-	return fmt.Errorf("invalid request")
+	return fmt.Errorf("request cannot be nil")
 }
