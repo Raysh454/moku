@@ -23,54 +23,66 @@ const reset = "\033[0m"
 func getRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got / Request\n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=/example>example</a>
 	<a href=/blog>blog</a>
-	`)
+	`); err != nil {
+		fmt.Printf("Error writing response: %v", err)
+	}
 }
 
 // Depth 1
 func getExample(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example Request\n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=/example/a>example a</a>
 	<a href=/example/b>example b</a>
 	<a href=/example>example</a>
-	`)
+	`); err != nil {
+		fmt.Printf("Error writing response: %v", err)
+	}
 }
 
 // Depth 2
 func getExampleA(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/a Request\n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=/example/a/1>example a 1</a>
 	<a href=/blog>blog</a>
-	`)
+	`); err != nil {
+		fmt.Printf("Error writing response: %v", err)
+	}
 }
 
 // Depth 2
 func getExampleB(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/b Request\n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=../example>test</a>
-	`)
+	`); err != nil {
+		fmt.Printf("Error writing response: %v", err)
+	}
 }
 
 // Depth 3
 func getExampleA1(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/a/1 Request\n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, "example/a/1")
+	if _, err := io.WriteString(w, "example/a/1"); err != nil {
+		fmt.Printf("Error writing response: %v", err)
+	}
 }
 
 // Depth 1
 func getBlog(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /blog Request \n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, "blog")
+	if _, err := io.WriteString(w, "blog"); err != nil {
+		fmt.Printf("Error writing response: %v", err)
+	}
 }
 
 func HttpServer(addr string) (*http.Server, error) {
