@@ -31,6 +31,21 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
+      - name: Configure Go environment
+        run: |
+          # Try to persist GOPROXY using `go env -w` (supported on modern Go).
+          # If not supported (ancient Go), fall back to exporting GOPROXY for the job.
+          if go env -w GOPROXY=https://proxy.golang.org,direct 2>/dev/null; then
+            echo "Configured GOPROXY via 'go env -w'"
+          else
+            echo "go env -w not supported; exporting GOPROXY for this job"
+            echo "GOPROXY=https://proxy.golang.org,direct" >> $GITHUB_ENV
+          fi
+
+          # Persist GOMODCACHE for later steps (cache key & path).
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> $GITHUB_ENV
+          echo "GOMODCACHE=$(go env GOMODCACHE)"
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -41,13 +56,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-${{ matrix.go-version }}-
             ${{ runner.os }}-go-
-
-      - name: Configure Go environment
-        run: |
-          # Optional: set a GOPROXY for faster module downloads; adjust as needed
-          go env -w GOPROXY=https://proxy.golang.org,direct
-          export GOMODCACHE=$(go env GOMODCACHE)
-          echo "GOMODCACHE=$GOMODCACHE"
 
       - name: Download modules
         run: go mod download
