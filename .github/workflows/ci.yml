@@ -20,8 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # include a modern Go (1.25) to avoid ancient-toolchain problems;
-        # keep a couple older supported versions for compatibility testing
+        # Modern Go versions only (removed ancient/unsupported entries)
         go-version: [1.20, 1.22, 1.25]
 
     steps:
@@ -44,8 +43,8 @@ jobs:
 
       - name: Configure Go environment
         run: |
-          # Try to persist GOPROXY using `go env -w` (supported on modern Go).
-          # If not supported (ancient Go), fall back to exporting GOPROXY for the job.
+          # Prefer persistently setting GOPROXY using `go env -w` (supported on modern Go).
+          # If not supported, fall back to exporting GOPROXY for the job.
           if go env -w GOPROXY=https://proxy.golang.org,direct 2>/dev/null; then
             echo "Configured GOPROXY via 'go env -w'"
           else
@@ -87,7 +86,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
-          # consider pinning to a newer release built with modern Go; v1.64+ recommended
+          # use a recent golangci-lint release built with modern Go
           version: v1.64.8
           args: --timeout=3m
 
