@@ -18,19 +18,19 @@ import (
 // Depth 0
 func getRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got / Request\n")
-	w.Header().Add("Content-Type",  "text/html")
+	w.Header().Add("Content-Type", "text/html")
 	if _, err := io.WriteString(w, `
 	<a href=/example>example</a>
 	<a href=/blog>blog</a>
 	`); err != nil {
 		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
 	}
-} 
+}
 
 // Depth 1
 func getExample(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example Request\n")
-	w.Header().Add("Content-Type",  "text/html")
+	w.Header().Add("Content-Type", "text/html")
 	if _, err := io.WriteString(w, `
 	<a href=/example/a>example a</a>
 	<a href=/example/b>example b</a>
@@ -43,7 +43,7 @@ func getExample(w http.ResponseWriter, r *http.Request) {
 // Depth 2
 func getExampleA(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/a Request\n")
-	w.Header().Add("Content-Type",  "text/html")
+	w.Header().Add("Content-Type", "text/html")
 	if _, err := io.WriteString(w, `
 	<a href=/example/a/1>example a 1</a>
 	<a href=/blog>blog</a>
@@ -139,4 +139,4 @@ func TestSpider(t *testing.T) {
 	if err := server.Shutdown(context.Background()); err != nil {
 		t.Fatalf("server shutdown: %v", err)
 	}
-} 
+}
