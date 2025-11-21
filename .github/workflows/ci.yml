@@ -20,7 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ["1.22", "1.25"]
+        # Quote versions so YAML preserves trailing zeroes
+        go-version: ["1.25", "1.22"]
 
     steps:
       - name: Checkout
@@ -42,8 +43,7 @@ jobs:
 
       - name: Configure Go environment
         run: |
-          # Prefer persistently setting GOPROXY using `go env -w` (supported on modern Go).
-          # If not supported, fall back to exporting GOPROXY for the job.
+          # Try go env -w (modern Go); if not available, export GOPROXY for the job.
           if go env -w GOPROXY=https://proxy.golang.org,direct 2>/dev/null; then
             echo "Configured GOPROXY via 'go env -w'"
           else
@@ -51,7 +51,7 @@ jobs:
             echo "GOPROXY=https://proxy.golang.org,direct" >> $GITHUB_ENV
           fi
 
-          # Persist GOMODCACHE for later steps (cache key & path).
+          # Persist GOMODCACHE for cache step
           echo "GOMODCACHE=$(go env GOMODCACHE)" >> $GITHUB_ENV
           echo "GOMODCACHE=$(go env GOMODCACHE)"
 
@@ -85,13 +85,16 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
+          # Use a recent golangci-lint release built with modern Go
           version: v1.64.8
           args: --timeout=3m
 
       - name: Run tests (race detector) and collect coverage
         run: |
           mkdir -p test-results
+          # Run tests with race detector where supported and generate coverage for later upload.
           go test -v -race ./... -coverprofile=coverage.out || true
+          # ensure we fail if any package had tests fail
           if grep -q "FAIL" coverage.out 2>/dev/null; then
             echo "One or more tests failed (see coverage.out)"
             exit 1
@@ -100,12 +103,14 @@ jobs:
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: coverage
+          # make artifact name unique per matrix job/run to avoid conflicts
+          name: coverage-${{ matrix.go-version }}-run-${{ github.run_id }}
           path: coverage.out
 
       - name: Archive test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          # unique artifact name per matrix job/run
+          name: test-results-${{ matrix.go-version }}-run-${{ github.run_id }}
           path: test-results
