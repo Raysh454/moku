@@ -20,7 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.18, 1.20, 1.22]
+        # include a modern Go (1.25) to avoid ancient-toolchain problems;
+        # keep a couple older supported versions for compatibility testing
+        go-version: [1.20, 1.22, 1.25]
 
     steps:
       - name: Checkout
@@ -30,6 +32,15 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go-version }}
+
+      - name: Verify Go installation (debug)
+        run: |
+          echo "=== go version ==="
+          go version || true
+          echo "=== which go ==="
+          which go || true
+          echo "=== go env (selected vars) ==="
+          go env GOROOT GOPATH GOMOD GOMODCACHE GOFLAGS || true
 
       - name: Configure Go environment
         run: |
@@ -76,10 +87,9 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
-          version: v1.59.0
+          # consider pinning to a newer release built with modern Go; v1.64+ recommended
+          version: v1.64.8
           args: --timeout=3m
-        # If you want lint to be advisory in early stage, change to: continue-on-error: true
-        # continue-on-error: true
 
       - name: Run tests (race detector) and collect coverage
         run: |
