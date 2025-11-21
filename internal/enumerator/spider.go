@@ -19,11 +19,11 @@ type Spider struct {
 }
 
 type spiderHelper struct {
-	spider *Spider;
-	root *utils.URLTools;
-	depth map[string]int;
-	results []string;
-	re *regexp.Regexp; //TODO: Need a better way to parse urls
+	spider  *Spider
+	root    *utils.URLTools
+	depth   map[string]int
+	results []string
+	re      *regexp.Regexp //TODO: Need a better way to parse urls
 }
 
 // NewSpider creates a new Spider with the given webclient and logger.
@@ -43,11 +43,11 @@ func newSpiderHelper(spider *Spider, root string) (*spiderHelper, error) {
 	}
 
 	return &spiderHelper{
-		spider: spider,
-		root: rootUrl,
-		depth: map[string]int{root: 0},
+		spider:  spider,
+		root:    rootUrl,
+		depth:   map[string]int{root: 0},
 		results: []string{root},
-		re: regexp.MustCompile(`https?://[^\s"'<>]+`),
+		re:      regexp.MustCompile(`https?://[^\s"'<>]+`),
 	}, nil
 }
 
@@ -74,7 +74,7 @@ func (sh *spiderHelper) resolveFullUrls(baseUrl string, links []string) ([]strin
 	}
 
 	return result, nil
-} 
+}
 
 func (sh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links *[]string) error {
 	if node.Type == html.ElementNode {
@@ -103,7 +103,7 @@ func (sh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links 
 	for c := node.FirstChild; c != nil; c = c.NextSibling {
 		if err := sh.extractLinksHTML(c, baseUrl, links); err != nil {
 			return err
-		}	
+		}
 	}
 
 	return nil
@@ -143,29 +143,29 @@ func (sh *spiderHelper) crawlPage(ctx context.Context, target string) ([]string,
 }
 
 func (sh *spiderHelper) appendPages(pages []string, lastDepth int) {
-		for _, page := range pages {
-			
-			pageUrlTools, err := utils.NewURLTools(page)
-			if err != nil {
-				if sh.spider.logger != nil {
-					sh.spider.logger.Warn("error parsing page url",
-						interfaces.Field{Key: "url", Value: page},
-						interfaces.Field{Key: "error", Value: err})
-				}
-				continue
-			}
+	for _, page := range pages {
 
-			if !sh.root.DomainIsSame(pageUrlTools) {
-				continue
+		pageUrlTools, err := utils.NewURLTools(page)
+		if err != nil {
+			if sh.spider.logger != nil {
+				sh.spider.logger.Warn("error parsing page url",
+					interfaces.Field{Key: "url", Value: page},
+					interfaces.Field{Key: "error", Value: err})
 			}
-
-			pageStr := pageUrlTools.URL.String()
-
-			if _, exists := sh.depth[pageStr]; !exists {
-				sh.depth[pageStr] = lastDepth + 1
-				sh.results = append(sh.results, pageStr)
-			}
+			continue
 		}
+
+		if !sh.root.DomainIsSame(pageUrlTools) {
+			continue
+		}
+
+		pageStr := pageUrlTools.URL.String()
+
+		if _, exists := sh.depth[pageStr]; !exists {
+			sh.depth[pageStr] = lastDepth + 1
+			sh.results = append(sh.results, pageStr)
+		}
+	}
 }
 
 func (sh *spiderHelper) run(ctx context.Context) error {
@@ -184,7 +184,7 @@ func (sh *spiderHelper) run(ctx context.Context) error {
 			}
 		}
 
-		currDepth := sh.depth[sh.results[currPage]] 
+		currDepth := sh.depth[sh.results[currPage]]
 
 		sh.appendPages(crawledPages, currDepth)
 		currPage += 1
@@ -194,7 +194,7 @@ func (sh *spiderHelper) run(ctx context.Context) error {
 }
 
 func (s *Spider) Enumerate(target string) ([]string, error) {
-	helper, err := newSpiderHelper(s, target)	
+	helper, err := newSpiderHelper(s, target)
 	if err != nil {
 		return nil, err
 	}

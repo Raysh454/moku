@@ -48,12 +48,13 @@ func DefaultConfig() *Config {
 // falling back to defaults when variables are not set or malformed.
 //
 // Supported environment variables:
-//   MOKU_SERVER_ADDR
-//   MOKU_STORAGE_ROOT
-//   MOKU_DB_PATH
-//   MOKU_SCHED_CONCURRENCY
-//   MOKU_FETCHER_CONCURRENCY
-//   MOKU_WEBCLIENT_BACKEND  (nethttp|chromedp)
+//
+//	MOKU_SERVER_ADDR
+//	MOKU_STORAGE_ROOT
+//	MOKU_DB_PATH
+//	MOKU_SCHED_CONCURRENCY
+//	MOKU_FETCHER_CONCURRENCY
+//	MOKU_WEBCLIENT_BACKEND  (nethttp|chromedp)
 func LoadConfigFromEnv() *Config {
 	cfg := DefaultConfig()
 

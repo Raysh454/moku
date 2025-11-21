@@ -19,11 +19,11 @@ import (
 // ChromeDPClient is a chromedp-backed implementation of the WebClient interface.
 // It currently supports GET semantics only
 type ChromeDPClient struct {
-	baseCtx context.Context
-	cancel context.CancelFunc
+	baseCtx     context.Context
+	cancel      context.CancelFunc
 	allocCancel context.CancelFunc
 
-	mu sync.Mutex
+	mu     sync.Mutex
 	closed bool
 
 	wg sync.WaitGroup
@@ -35,10 +35,10 @@ type ChromeDPClient struct {
 func NewChromedpClient(cfg *app.Config, logger interfaces.Logger) (interfaces.WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(interfaces.Field{Key: "backend", Value: "chromedp"})
-	
+
 	// Note: chromedp backend is not fully implemented in dev branch
 	componentLogger.Warn("chromedp webclient is not fully implemented in dev branch")
-	
+
 	idleAfter := 2 * time.Second
 
 	// If no allocator options were provided, use the simpler NewContext directly.
@@ -94,7 +94,7 @@ func (cdc *ChromeDPClient) waitNetworkIdle(ctx context.Context) chan struct{} {
 	var timerMutex sync.Mutex
 	var once sync.Once
 
-	startTimer := func(){
+	startTimer := func() {
 		timerMutex.Lock()
 		defer timerMutex.Unlock()
 
@@ -127,7 +127,7 @@ func (cdc *ChromeDPClient) waitNetworkIdle(ctx context.Context) chan struct{} {
 }
 
 func (cdc *ChromeDPClient) SetHeaders(taskCtx context.Context, headers http.Header) error {
-	if headers == nil { 
+	if headers == nil {
 		return nil
 	}
 
@@ -210,7 +210,7 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 	rctx, rcancel := chromedp.NewContext(cdc.baseCtx)
 	defer rcancel()
 
-	taskCtx, taskCancel := context.WithTimeout(rctx, 60 * time.Second)
+	taskCtx, taskCancel := context.WithTimeout(rctx, 60*time.Second)
 	defer taskCancel()
 
 	go func() {
@@ -225,8 +225,8 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 		return nil, fmt.Errorf("enable network: %w", err)
 	}
 
-	if err := cdc.SetHeaders(taskCtx, req.Headers);  err != nil {
-		return nil, err 
+	if err := cdc.SetHeaders(taskCtx, req.Headers); err != nil {
+		return nil, err
 	}
 
 	waitIdleChan := cdc.waitNetworkIdle(rctx)
@@ -237,7 +237,7 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 
 	err := chromedp.Run(taskCtx,
 		chromedp.Navigate(req.URL),
-		)
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf("error navigating to %s: %w", req.URL, err)
@@ -253,7 +253,7 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 
 	err = chromedp.Run(taskCtx,
 		chromedp.OuterHTML("html", &html),
-		)
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching html: %w", err)
@@ -272,7 +272,7 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 	}
 
 	return &model.Response{
-		Request:        req,
+		Request:    req,
 		StatusCode: statusCode,
 		Headers:    responseHeaders,
 		Body:       []byte(html),
@@ -289,4 +289,3 @@ func (cdc *ChromeDPClient) Get(ctx context.Context, url string) (*model.Response
 	}
 	return cdc.Do(ctx, req)
 }
-

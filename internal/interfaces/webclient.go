@@ -13,4 +13,3 @@ type WebClient interface {
 
 	Close() error
 }
-

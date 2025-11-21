@@ -61,7 +61,7 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 		for page := range diskWriter {
 			if err := f.StorePage(page); err != nil {
 				if f.logger != nil {
-					f.logger.Error("error while storing page", 
+					f.logger.Error("error while storing page",
 						interfaces.Field{Key: "path", Value: page.Path},
 						interfaces.Field{Key: "error", Value: err})
 				}
@@ -82,13 +82,13 @@ func (f *Fetcher) Fetch(pageUrls []string) {
 			page, err := f.HTTPGet(context.Background(), pageUrl)
 			if err != nil {
 				if f.logger != nil {
-					f.logger.Error("error while fetching page", 
+					f.logger.Error("error while fetching page",
 						interfaces.Field{Key: "url", Value: pageUrl},
 						interfaces.Field{Key: "error", Value: err})
 				}
 				return
 			}
-		
+
 			diskWriter <- page
 		}(pageUrl)
 	}
@@ -109,7 +109,7 @@ func (f *Fetcher) HTTPGet(ctx context.Context, page string) (*Page, error) {
 		return nil, fmt.Errorf("error GETting %s: %w", page, err)
 	}
 
-	bodyStr := string(resp.Body)	
+	bodyStr := string(resp.Body)
 	//bodyStr = f.Normalize(bodyStr) Need to normalize repeating stuff, unless I come up with a better solution, cause this seems hard
 
 	urlTools, err := utils.NewURLTools(page)
@@ -143,7 +143,7 @@ func (f *Fetcher) storePageData(page *Page) error {
 
 // Helper function: stores header data to file
 func (f *Fetcher) storeHeaderData(page *Page) error {
-	headerFile, err := os.Create(f.RootPath + page.Path + "/.page_headers") 
+	headerFile, err := os.Create(f.RootPath + page.Path + "/.page_headers")
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (f *Fetcher) storeHeaderData(page *Page) error {
 
 // Stores a Page struct to the file system
 func (f *Fetcher) StorePage(page *Page) error {
-	err := os.MkdirAll(f.RootPath + page.Path, 0755)
+	err := os.MkdirAll(f.RootPath+page.Path, 0755)
 	if err != nil {
 		return err
 	}
@@ -193,12 +193,12 @@ func (f *Fetcher) GetDir(path string) (*Page, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s doesn't exist", path + "/.page_data")
 	}
-	
+
 	headers, err := f.parseHeaderFile(path + "/.page_headers")
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing %s", path + "/.page_headers")
 	}
-	
+
 }
 
 // Parses given file to http.Header and returns a pointer to it
@@ -209,7 +209,7 @@ func (f *Fetcher) parseHeaderFile(path string) (*http.Header, error) {
 	}
 
 	headers := http.Header{}
-	
+
 	headerDataStr := string(headerData)
 	for _, val := range strings.Split(headerDataStr, "\n") {
 		header := strings.Split(val, ":")
@@ -220,7 +220,7 @@ func (f *Fetcher) parseHeaderFile(path string) (*http.Header, error) {
 					interfaces.Field{Key: "path", Value: path})
 			}
 		}
-		
+
 		for _, values := range header[1:] {
 			headers.Add(header[0], values)
 		}

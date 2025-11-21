@@ -23,10 +23,10 @@ func NewStdoutLogger(component string) *StdoutLogger {
 
 func (s *StdoutLogger) log(level string, msg string, fields ...interfaces.Field) {
 	type outEntry struct {
-		Level     string                 `json:"level"`
-		Msg       string                 `json:"msg"`
-		Component string                 `json:"component,omitempty"`
-		Time      string                 `json:"time"`
+		Level     string         `json:"level"`
+		Msg       string         `json:"msg"`
+		Component string         `json:"component,omitempty"`
+		Time      string         `json:"time"`
 		Fields    map[string]any `json:"fields,omitempty"`
 	}
 	m := make(map[string]any)

@@ -14,7 +14,7 @@ import (
 	"github.com/raysh454/moku/internal/model"
 )
 
-//net/http backed implementation of webclient.
+// net/http backed implementation of webclient.
 type NetHTTPClient struct {
 	client *http.Client
 	logger interfaces.Logger
@@ -23,16 +23,16 @@ type NetHTTPClient struct {
 func NewNetHTTPClient(cfg *app.Config, logger interfaces.Logger, httpClient *http.Client) (interfaces.WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(interfaces.Field{Key: "backend", Value: "nethttp"})
-	
+
 	// If httpClient is nil, construct a sensible default with timeout from cfg or fallback to 30s
 	if httpClient == nil {
 		// TODO: Consider reading timeout from cfg if added in the future
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	
+
 	componentLogger.Info("created nethttp webclient",
 		interfaces.Field{Key: "timeout", Value: httpClient.Timeout.String()})
-	
+
 	return &NetHTTPClient{
 		client: httpClient,
 		logger: componentLogger,
@@ -89,11 +89,11 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Re
 	}
 
 	return &model.Response{
-		Request: req,
-		Body: body,
-		Headers: resp.Header,
+		Request:    req,
+		Body:       body,
+		Headers:    resp.Header,
 		StatusCode: resp.StatusCode,
-		FetchedAt: time.Now(),
+		FetchedAt:  time.Now(),
 	}, nil
 }
 
@@ -121,12 +121,12 @@ func (nhc *NetHTTPClient) DoHTTPRequest(ctx context.Context, req *http.Request) 
 	if req == nil {
 		return nil, nhc.ErrInvalidRequest()
 	}
-	
+
 	// Set context if not already set (only if context is nil or context.TODO)
 	if req.Context() == nil || req.Context() == context.TODO() {
 		req = req.WithContext(ctx)
 	}
-	
+
 	return nhc.client.Do(req)
 }
 

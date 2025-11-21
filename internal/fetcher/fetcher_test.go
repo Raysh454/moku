@@ -55,7 +55,7 @@ func getExampleA(w http.ResponseWriter, r *http.Request) {
 // Depth 2
 func getExampleB(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/b Request\n")
-	w.Header().Add("Content-Type",  "text/html")
+	w.Header().Add("Content-Type", "text/html")
 	io.WriteString(w, `
 	<a href=../example>test</a>
 	`)
@@ -64,21 +64,21 @@ func getExampleB(w http.ResponseWriter, r *http.Request) {
 // Depth 3
 func getExampleA1(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/a/1 Request\n")
-	w.Header().Add("Content-Type",  "text/html")
+	w.Header().Add("Content-Type", "text/html")
 	io.WriteString(w, "example/a/1")
 }
 
 // Depth 1
 func getBlog(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /blog Request \n")
-	w.Header().Add("Content-Type",  "text/html")
+	w.Header().Add("Content-Type", "text/html")
 	io.WriteString(w, "blog")
 }
 
 func HttpServer(addr string) (*http.Server, error) {
 	mux := http.NewServeMux()
 	server := http.Server{
-		Addr: addr,
+		Addr:    addr,
 		Handler: mux,
 	}
 
@@ -122,11 +122,11 @@ func TestSpider(t *testing.T) {
 	// Create a simple webclient for testing
 	cfg := &app.Config{WebClientBackend: "nethttp"}
 	logger := logging.NewStdoutLogger("test")
-	wc, err := webclient.NewNetHTTPClient(cfg, logger)
+	wc, err := webclient.NewNetHTTPClient(cfg, logger, nil)
 	if err != nil {
 		return
 	}
-	
+
 	f, err := fetcher.New("", 1, wc, nil)
 	if err != nil {
 		return
@@ -140,4 +140,3 @@ func TestSpider(t *testing.T) {
 		t.Fatalf("server shutdown: %v", err)
 	}
 } 
-
