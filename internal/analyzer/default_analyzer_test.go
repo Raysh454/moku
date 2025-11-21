@@ -63,7 +63,9 @@ func TestDefaultAnalyzer_Analyze(t *testing.T) {
 	// Create a test HTTP server
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Test Content</body></html>"))
+		if _, err := w.Write([]byte("<html><body>Test Content</body></html>")); err != nil {
+			t.Fatalf("write: %v", err)
+		}
 	}))
 	defer testServer.Close()
 
@@ -197,7 +199,9 @@ func TestNewAnalyzer_ScanAndWait(t *testing.T) {
 	// Create a test HTTP server
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Test Content</body></html>"))
+		if _, err := w.Write([]byte("<html><body>Test Content</body></html>")); err != nil {
+			t.Fatalf("write: %v", err)
+		}
 	}))
 	defer testServer.Close()
 

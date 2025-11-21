@@ -3,6 +3,7 @@ package enumerator
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -131,7 +132,9 @@ func (sh *spiderHelper) crawlPage(ctx context.Context, target string) ([]string,
 		if err != nil {
 			return nil, fmt.Errorf("couldn't parse %s: %w", target, err)
 		}
-		sh.extractLinksHTML(doc, target, &links)
+		if err := sh.extractLinksHTML(doc, target, &links); err != nil {
+			fmt.Fprintf(os.Stderr, "extractLinksHTML: %v\n", err)
+		}
 	} else {
 		links = sh.re.FindAllString(bodyStr, -1)
 	}
@@ -197,6 +200,8 @@ func (s *Spider) Enumerate(target string) ([]string, error) {
 	}
 
 	// Use background context for now; TODO: pass ctx from caller
-	helper.run(context.Background())
+	if err := helper.run(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "helper.run failed: %v\n", err)
+	}
 	return helper.results, nil
 }
