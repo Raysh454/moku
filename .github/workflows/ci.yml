@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.18, 1.20, 1.22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ${{ env.GOMODCACHE }}
+          key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.go-version }}-
+            ${{ runner.os }}-go-
+
+      - name: Configure Go environment
+        run: |
+          # Optional: set a GOPROXY for faster module downloads; adjust as needed
+          go env -w GOPROXY=https://proxy.golang.org,direct
+          export GOMODCACHE=$(go env GOMODCACHE)
+          echo "GOMODCACHE=$GOMODCACHE"
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run gofmt (check only)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt found unformatted files:"
+            echo "$unformatted"
+            echo "Run 'gofmt -w .' to fix."
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: v1.59.0
+          args: --timeout=3m
+        # If you want lint to be advisory in early stage, change to: continue-on-error: true
+        # continue-on-error: true
+
+      - name: Run tests (race detector) and collect coverage
+        run: |
+          mkdir -p test-results
+          # Run tests with race detector where supported and generate coverage for later upload.
+          go test -v -race ./... -coverprofile=coverage.out || true
+          # ensure we fail if any package had tests fail (go test returns non-zero)
+          if grep -q "FAIL" coverage.out 2>/dev/null; then
+            echo "One or more tests failed (see coverage.out)"
+            exit 1
+          fi
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+      - name: Archive test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results

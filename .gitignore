@@ -1,2 +1,3 @@
-internal/fetcher/**/.page_data
-internal/fetcher/**/.page_headers
+**/.page_data
+**/.page_headers
+bin/*
