@@ -150,7 +150,9 @@ func (f *Fetcher) storeHeaderData(page *Page) error {
 	defer headerFile.Close()
 
 	for key, val := range *page.Headers {
-		headerFile.WriteString(fmt.Sprintf("%s: %s\n", key, val))
+		if _, err := headerFile.WriteString(fmt.Sprintf("%s: %s\n", key, val)); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: write header file: %v\n", err)
+		}
 	}
 
 	return nil

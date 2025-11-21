@@ -167,5 +167,7 @@ func TestSpider(t *testing.T) {
 
 	AssertEqual(t, 2, addr, want, 3, 3)
 
-	server.Shutdown(context.Background())
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("server shutdown: %v", err)
+	}
 } 

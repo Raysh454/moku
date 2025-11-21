@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -14,39 +15,41 @@ import (
 	"github.com/raysh454/moku/internal/webclient"
 )
 
-// Color coding to make test passes more satisfying
-const green = "\033[32m"
-const reset = "\033[0m"
-
 // Depth 0
 func getRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got / Request\n")
 	w.Header().Add("Content-Type",  "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=/example>example</a>
 	<a href=/blog>blog</a>
-	`)
+	`); err != nil {
+		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
+	}
 } 
 
 // Depth 1
 func getExample(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example Request\n")
 	w.Header().Add("Content-Type",  "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=/example/a>example a</a>
 	<a href=/example/b>example b</a>
 	<a href=/example>example</a>
-	`)
+	`); err != nil {
+		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
+	}
 }
 
 // Depth 2
 func getExampleA(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/a Request\n")
 	w.Header().Add("Content-Type",  "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=/example/a/1>example a 1</a>
 	<a href=/blog>blog</a>
-	`)
+	`); err != nil {
+		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
+	}
 }
 
 // Depth 2
@@ -133,6 +136,8 @@ func TestSpider(t *testing.T) {
 
 	f.Fetch(urls)
 
-	server.Shutdown(context.Background())
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("server shutdown: %v", err)
+	}
 } 
 
