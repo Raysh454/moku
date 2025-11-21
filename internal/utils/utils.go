@@ -15,7 +15,6 @@ func NewURLTools(raw string) (*URLTools, error) {
 	if err != nil {
 		return nil, fmt.Errorf("couldn't parse url %s: %w", raw, err)
 	}
-	
 
 	urlTools := &URLTools{
 		URL: u,
@@ -30,10 +29,10 @@ func (u *URLTools) normalize() {
 	u.URL.Scheme = strings.ToLower(u.URL.Scheme)
 	u.URL.Host = strings.ToLower(u.URL.Host)
 
-	if  (u.URL.Scheme == "http" && strings.HasSuffix(u.URL.Host, ":80")) ||
+	if (u.URL.Scheme == "http" && strings.HasSuffix(u.URL.Host, ":80")) ||
 		(u.URL.Scheme == "https" && strings.HasSuffix(u.URL.Host, ":443")) {
-			u.URL.Host, _, _ = strings.Cut(u.URL.Host, ":")
-		}
+		u.URL.Host, _, _ = strings.Cut(u.URL.Host, ":")
+	}
 
 	u.URL.Path = strings.TrimRight(u.URL.Path, "/")
 }

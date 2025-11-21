@@ -66,7 +66,7 @@ func TestChromedpClient_DoSupportsGET(t *testing.T) {
 		Method: "GET",
 		URL:    "about:blank",
 	}
-	
+
 	// This may succeed or fail depending on environment; we just ensure it doesn't panic
 	_, _ = client.Do(ctx, req)
 }

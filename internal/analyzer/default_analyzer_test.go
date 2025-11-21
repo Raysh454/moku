@@ -59,7 +59,7 @@ func TestNewDefaultAnalyzer_WithCustomClient(t *testing.T) {
 // TestDefaultAnalyzer_Analyze verifies that Analyze can fetch and analyze a URL
 func TestDefaultAnalyzer_Analyze(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create a test HTTP server
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
