@@ -20,8 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Modern Go versions only (removed ancient/unsupported entries)
-        go-version: [1.20, 1.22, 1.25]
+        go-version: ["1.20", "1.22", "1.25"]
 
     steps:
       - name: Checkout
@@ -86,16 +85,13 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
-          # use a recent golangci-lint release built with modern Go
           version: v1.64.8
           args: --timeout=3m
 
       - name: Run tests (race detector) and collect coverage
         run: |
           mkdir -p test-results
-          # Run tests with race detector where supported and generate coverage for later upload.
           go test -v -race ./... -coverprofile=coverage.out || true
-          # ensure we fail if any package had tests fail (go test returns non-zero)
           if grep -q "FAIL" coverage.out 2>/dev/null; then
             echo "One or more tests failed (see coverage.out)"
             exit 1
