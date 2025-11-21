@@ -56,23 +56,29 @@ func getExampleA(w http.ResponseWriter, r *http.Request) {
 func getExampleB(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/b Request\n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, `
+	if _, err := io.WriteString(w, `
 	<a href=../example>test</a>
-	`)
+	`); err != nil {
+		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
+	}
 }
 
 // Depth 3
 func getExampleA1(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /example/a/1 Request\n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, "example/a/1")
+	if _, err := io.WriteString(w, "example/a/1"); err != nil {
+		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
+	}
 }
 
 // Depth 1
 func getBlog(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Got /blog Request \n")
 	w.Header().Add("Content-Type", "text/html")
-	io.WriteString(w, "blog")
+	if _, err := io.WriteString(w, "blog"); err != nil {
+		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
+	}
 }
 
 func HttpServer(addr string) (*http.Server, error) {
