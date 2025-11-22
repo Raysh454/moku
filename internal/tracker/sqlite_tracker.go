@@ -23,13 +23,31 @@ type SQLiteTracker struct {
 	db      *sql.DB
 	store   *FSStore
 	logger  interfaces.Logger
+	config  *Config
 }
 
 // NewSQLiteTracker creates a new SQLiteTracker instance.
 // It initializes the SQLite database at siteDir/.moku/moku.db and sets up the blob store.
 func NewSQLiteTracker(siteDir string, logger interfaces.Logger) (*SQLiteTracker, error) {
+	return NewSQLiteTrackerWithConfig(siteDir, logger, nil)
+}
+
+// NewSQLiteTrackerWithConfig creates a new SQLiteTracker instance with custom configuration.
+// If config is nil, default configuration is used.
+func NewSQLiteTrackerWithConfig(siteDir string, logger interfaces.Logger, config *Config) (*SQLiteTracker, error) {
 	if logger == nil {
 		return nil, errors.New("tracker: nil logger provided")
+	}
+
+	// Use default config if not provided
+	if config == nil {
+		config = &Config{}
+	}
+
+	// Default to redacting sensitive headers if not explicitly set
+	if config.RedactSensitiveHeaders == nil {
+		redactDefault := true
+		config.RedactSensitiveHeaders = &redactDefault
 	}
 
 	// Ensure .moku directory exists
@@ -66,6 +84,7 @@ func NewSQLiteTracker(siteDir string, logger interfaces.Logger) (*SQLiteTracker,
 		db:      db,
 		store:   store,
 		logger:  logger,
+		config:  config,
 	}, nil
 }
 
@@ -117,7 +136,26 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		}
 	}()
 
-	// Step 5: Insert snapshot record
+	// Step 5: Extract and normalize headers from snapshot metadata
+	headers := make(map[string][]string)
+	if snapshot.Meta != nil {
+		// Try to parse headers from Meta["_headers"] as JSON
+		if headersJSON, ok := snapshot.Meta["_headers"]; ok {
+			if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
+				t.logger.Warn("Failed to parse headers from metadata", interfaces.Field{Key: "error", Value: err.Error()})
+			}
+		}
+	}
+
+	// Normalize and serialize headers
+	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+	normalizedHeaders := normalizeHeaders(headers, redactSensitive)
+	headersJSON, err := json.Marshal(normalizedHeaders)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal headers: %w", err)
+	}
+
+	// Step 6: Insert snapshot record with headers
 	filePath := "index.html" // Default file path, could be derived from URL
 	if snapshot.URL != "" {
 		// TODO: Derive file path from URL (e.g., parse path component)
@@ -125,14 +163,14 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO snapshots (id, url, file_path, created_at)
-		VALUES (?, ?, ?, ?)
-	`, snapshotID, snapshot.URL, filePath, timestamp)
+		INSERT INTO snapshots (id, url, file_path, created_at, headers)
+		VALUES (?, ?, ?, ?, ?)
+	`, snapshotID, snapshot.URL, filePath, timestamp, string(headersJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert snapshot: %w", err)
 	}
 
-	// Step 6: Insert version record
+	// Step 7: Insert version record
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO versions (id, parent_id, snapshot_id, message, author, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -141,7 +179,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		return nil, fmt.Errorf("failed to insert version: %w", err)
 	}
 
-	// Step 7: Insert version_files record
+	// Step 8: Insert version_files record
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO version_files (version_id, file_path, blob_id, size)
 		VALUES (?, ?, ?, ?)
@@ -150,7 +188,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		return nil, fmt.Errorf("failed to insert version_files: %w", err)
 	}
 
-	// Step 8: Compute and store diff (if parent exists)
+	// Step 9: Compute and store diff (if parent exists)
 	if parentID != "" {
 		if err := t.computeAndStoreDiff(ctx, tx, parentID, versionID); err != nil {
 			t.logger.Warn("Failed to compute diff, continuing", interfaces.Field{Key: "error", Value: err.Error()})
@@ -158,16 +196,16 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		}
 	}
 
-	// Step 9: Commit transaction
+	// Step 10: Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Step 10: Update working tree
+	// Step 11: Update working tree
 	// TODO: Implement working tree update with AtomicWriteFile
 	// For now, skip updating the working tree
 
-	// Step 11: Write HEAD
+	// Step 12: Write HEAD
 	if err := t.writeHEAD(versionID); err != nil {
 		t.logger.Warn("Failed to update HEAD", interfaces.Field{Key: "error", Value: err.Error()})
 		// Don't fail the commit if HEAD update fails
@@ -203,6 +241,36 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 
 	if err == nil {
 		// Diff exists, parse and return
+		// Detect format by checking for the presence of "body_diff" or "headers_diff" keys
+		// New format has these keys, old format has "base_id", "head_id", "chunks" at top level
+		var rawDiff map[string]interface{}
+		if err := json.Unmarshal([]byte(diffJSON), &rawDiff); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal cached diff: %w", err)
+		}
+
+		// Check if this is the new combined format
+		if _, hasBodyDiff := rawDiff["body_diff"]; hasBodyDiff {
+			// New format with combined diff, extract body diff
+			var combined CombinedDiff
+			if err := json.Unmarshal([]byte(diffJSON), &combined); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal combined diff: %w", err)
+			}
+			result := model.DiffResult{
+				BaseID: combined.BodyDiff.BaseID,
+				HeadID: combined.BodyDiff.HeadID,
+				Chunks: make([]model.DiffChunk, len(combined.BodyDiff.Chunks)),
+			}
+			for i, c := range combined.BodyDiff.Chunks {
+				result.Chunks[i] = model.DiffChunk{
+					Type:    c.Type,
+					Path:    c.Path,
+					Content: c.Content,
+				}
+			}
+			return &result, nil
+		}
+
+		// Old format - parse directly
 		var result model.DiffResult
 		if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal cached diff: %w", err)
@@ -448,21 +516,22 @@ func (t *SQLiteTracker) Close() error {
 
 // computeAndStoreDiff computes a diff between base and head versions and stores it.
 func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, baseID, headID string) error {
-	// Get snapshot bodies for both versions
-	baseBody, err := t.getVersionBody(ctx, tx, baseID)
+	// Get snapshot bodies and headers for both versions
+	baseBody, baseHeaders, err := t.getVersionData(ctx, tx, baseID)
 	if err != nil {
-		return fmt.Errorf("failed to get base version body: %w", err)
+		return fmt.Errorf("failed to get base version data: %w", err)
 	}
 
-	headBody, err := t.getVersionBody(ctx, tx, headID)
+	headBody, headHeaders, err := t.getVersionData(ctx, tx, headID)
 	if err != nil {
-		return fmt.Errorf("failed to get head version body: %w", err)
+		return fmt.Errorf("failed to get head version data: %w", err)
 	}
 
-	// Compute diff (placeholder)
-	diffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headBody)
+	// Compute combined diff (body + headers)
+	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+	diffJSON, err := computeCombinedDiff(baseID, headID, baseBody, headBody, baseHeaders, headHeaders, redactSensitive)
 	if err != nil {
-		return fmt.Errorf("failed to compute diff: %w", err)
+		return fmt.Errorf("failed to compute combined diff: %w", err)
 	}
 
 	// Store diff
@@ -475,22 +544,42 @@ func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, bas
 	return err
 }
 
-// getVersionBody retrieves the body content for a version (transaction version).
-func (t *SQLiteTracker) getVersionBody(ctx context.Context, tx *sql.Tx, versionID string) ([]byte, error) {
-	// Get blob ID from version_files (assuming single file for now)
+// getVersionData retrieves both body and headers for a version (transaction version).
+func (t *SQLiteTracker) getVersionData(ctx context.Context, tx *sql.Tx, versionID string) ([]byte, map[string][]string, error) {
+	// Get blob ID from version_files and headers from snapshots
 	var blobID string
+	var headersJSON sql.NullString
 	err := tx.QueryRowContext(ctx, `
-		SELECT blob_id FROM version_files
-		WHERE version_id = ?
+		SELECT vf.blob_id, s.headers
+		FROM version_files vf
+		JOIN versions v ON vf.version_id = v.id
+		JOIN snapshots s ON v.snapshot_id = s.id
+		WHERE vf.version_id = ?
 		LIMIT 1
-	`, versionID).Scan(&blobID)
+	`, versionID).Scan(&blobID, &headersJSON)
 
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("failed to query version data: %w", err)
 	}
 
 	// Get blob content
-	return t.store.Get(blobID)
+	body, err := t.store.Get(blobID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get blob: %w", err)
+	}
+
+	// Parse headers
+	var headers map[string][]string
+	if headersJSON.Valid && headersJSON.String != "" {
+		if err := json.Unmarshal([]byte(headersJSON.String), &headers); err != nil {
+			t.logger.Warn("Failed to parse headers", interfaces.Field{Key: "error", Value: err.Error()})
+			headers = make(map[string][]string)
+		}
+	} else {
+		headers = make(map[string][]string)
+	}
+
+	return body, headers, nil
 }
 
 // getVersionBodyByID retrieves the body content for a version (non-transaction version).

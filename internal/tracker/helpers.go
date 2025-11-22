@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -88,17 +89,14 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 		}
 	}
 
-	result := struct {
-		BaseID string  `json:"base_id,omitempty"`
-		HeadID string  `json:"head_id,omitempty"`
-		Chunks []chunk `json:"chunks"`
-	}{
+	// Return structured body diff
+	bodyDiff := BodyDiff{
 		BaseID: baseID,
 		HeadID: headID,
 		Chunks: chunks,
 	}
 
-	data, err := json.Marshal(result)
+	data, err := json.Marshal(bodyDiff)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal diff: %w", err)
 	}
@@ -113,6 +111,224 @@ type chunk struct {
 	Content string `json:"content,omitempty"` // content for the chunk
 }
 
-// TODO: Future header normalization and diffing functions can be added here:
-// - normalizeHeaders: Remove volatile headers, normalize names, sort alphabetically
-// - computeHeaderDiff: Compare headers accounting for semantic equivalence
+// BodyDiff represents the structured body diff.
+type BodyDiff struct {
+	BaseID string  `json:"base_id,omitempty"`
+	HeadID string  `json:"head_id,omitempty"`
+	Chunks []chunk `json:"chunks"`
+}
+
+// CombinedDiff represents both body and header diffs combined.
+type CombinedDiff struct {
+	BodyDiff    BodyDiff   `json:"body_diff"`
+	HeadersDiff HeaderDiff `json:"headers_diff"`
+}
+
+// computeCombinedDiff computes both body and header diffs and combines them.
+// If redactSensitive is true, sensitive headers are marked as redacted in the diff.
+func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseHeaders, headHeaders map[string][]string, redactSensitive bool) (string, error) {
+	// Compute body diff
+	bodyDiffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to compute body diff: %w", err)
+	}
+
+	var bodyDiff BodyDiff
+	if err := json.Unmarshal([]byte(bodyDiffJSON), &bodyDiff); err != nil {
+		return "", fmt.Errorf("failed to unmarshal body diff: %w", err)
+	}
+
+	// Compute header diff
+	headersDiff := diffHeaders(baseHeaders, headHeaders, redactSensitive)
+
+	// Combine both diffs
+	combined := CombinedDiff{
+		BodyDiff:    bodyDiff,
+		HeadersDiff: headersDiff,
+	}
+
+	data, err := json.Marshal(combined)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal combined diff: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// normalizeHeaders normalizes HTTP headers for consistent storage and comparison.
+// It lowercases header names, trims whitespace from values, and sorts multi-value
+// headers where order doesn't matter. For headers where order is significant
+// (like Set-Cookie), the original order is preserved.
+// Headers with the same normalized name are merged into a single entry, which is
+// correct behavior per RFC 7230 (HTTP headers are case-insensitive).
+// If redactSensitive is true, sensitive headers are replaced with "[REDACTED]".
+func normalizeHeaders(h map[string][]string, redactSensitive bool) map[string][]string {
+	if h == nil {
+		return make(map[string][]string)
+	}
+
+	// First pass: collect all values for each normalized header name
+	// This correctly merges headers with different cases (e.g., "Content-Type" and "content-type")
+	// into a single normalized entry, per HTTP specification
+	normalized := make(map[string][]string)
+	for name, values := range h {
+		// Lowercase the header name for case-insensitive comparison
+		normName := strings.ToLower(name)
+
+		// Trim whitespace from values
+		for _, v := range values {
+			trimmed := strings.TrimSpace(v)
+			if trimmed != "" {
+				normalized[normName] = append(normalized[normName], trimmed)
+			}
+		}
+	}
+
+	// Second pass: redact sensitive headers (if enabled) and sort values
+	for normName, values := range normalized {
+		// Redact sensitive headers if enabled
+		if redactSensitive && isSensitiveHeader(normName) {
+			normalized[normName] = []string{"[REDACTED]"}
+			continue
+		}
+
+		// For headers where order matters, preserve original order
+		// For others, sort values for consistent comparison
+		if !isOrderSensitiveHeader(normName) {
+			sort.Strings(values)
+		}
+	}
+
+	return normalized
+}
+
+// isSensitiveHeader returns true if the header contains sensitive data that should be redacted.
+func isSensitiveHeader(name string) bool {
+	name = strings.ToLower(name)
+	sensitiveHeaders := []string{
+		"authorization",
+		"cookie",
+		"set-cookie",
+		"proxy-authorization",
+		"www-authenticate",
+		"proxy-authenticate",
+		"x-api-key",
+		"x-auth-token",
+	}
+
+	for _, sensitive := range sensitiveHeaders {
+		if name == sensitive {
+			return true
+		}
+	}
+	return false
+}
+
+// isOrderSensitiveHeader returns true if the order of header values is significant.
+func isOrderSensitiveHeader(name string) bool {
+	name = strings.ToLower(name)
+	orderSensitiveHeaders := []string{
+		"set-cookie",
+		"www-authenticate",
+		"proxy-authenticate",
+	}
+
+	for _, orderSensitive := range orderSensitiveHeaders {
+		if name == orderSensitive {
+			return true
+		}
+	}
+	return false
+}
+
+// HeaderDiff represents differences in headers between two versions.
+type HeaderDiff struct {
+	Added    map[string][]string `json:"added,omitempty"`
+	Removed  map[string][]string `json:"removed,omitempty"`
+	Changed  map[string]Change   `json:"changed,omitempty"`
+	Redacted []string            `json:"redacted,omitempty"`
+}
+
+// Change represents a value change for a specific header.
+type Change struct {
+	From []string `json:"from"`
+	To   []string `json:"to"`
+}
+
+// diffHeaders computes a structured diff between two sets of normalized headers.
+// If redactSensitive is true, sensitive headers are marked as redacted in the diff.
+func diffHeaders(base, head map[string][]string, redactSensitive bool) HeaderDiff {
+	diff := HeaderDiff{
+		Added:    make(map[string][]string),
+		Removed:  make(map[string][]string),
+		Changed:  make(map[string]Change),
+		Redacted: make([]string, 0),
+	}
+
+	// Normalize both header sets
+	baseNorm := normalizeHeaders(base, redactSensitive)
+	headNorm := normalizeHeaders(head, redactSensitive)
+
+	// Track unique redacted headers using a map
+	redactedSet := make(map[string]bool)
+
+	// Find added and changed headers
+	for name, headValues := range headNorm {
+		if isRedacted(headValues) {
+			redactedSet[name] = true
+			continue
+		}
+
+		baseValues, existsInBase := baseNorm[name]
+		if !existsInBase {
+			// Header added in head
+			diff.Added[name] = headValues
+		} else if !equalStringSlices(baseValues, headValues) {
+			// Header changed
+			diff.Changed[name] = Change{
+				From: baseValues,
+				To:   headValues,
+			}
+		}
+	}
+
+	// Find removed headers
+	for name, baseValues := range baseNorm {
+		if isRedacted(baseValues) {
+			if _, existsInHead := headNorm[name]; !existsInHead {
+				redactedSet[name] = true
+			}
+			continue
+		}
+
+		if _, existsInHead := headNorm[name]; !existsInHead {
+			diff.Removed[name] = baseValues
+		}
+	}
+
+	// Convert redacted set to sorted slice
+	for name := range redactedSet {
+		diff.Redacted = append(diff.Redacted, name)
+	}
+	sort.Strings(diff.Redacted)
+
+	return diff
+}
+
+// isRedacted checks if header values are redacted.
+func isRedacted(values []string) bool {
+	return len(values) == 1 && values[0] == "[REDACTED]"
+}
+
+// equalStringSlices compares two string slices for equality.
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
