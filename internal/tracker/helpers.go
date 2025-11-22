@@ -186,13 +186,16 @@ func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseH
 // It lowercases header names, trims whitespace from values, and sorts multi-value
 // headers where order doesn't matter. For headers where order is significant
 // (like Set-Cookie), the original order is preserved.
-// Headers with the same normalized name are merged into a single entry.
+// Headers with the same normalized name are merged into a single entry, which is
+// correct behavior per RFC 7230 (HTTP headers are case-insensitive).
 func normalizeHeaders(h map[string][]string) map[string][]string {
 	if h == nil {
 		return make(map[string][]string)
 	}
 
 	// First pass: collect all values for each normalized header name
+	// This correctly merges headers with different cases (e.g., "Content-Type" and "content-type")
+	// into a single normalized entry, per HTTP specification
 	normalized := make(map[string][]string)
 	for name, values := range h {
 		// Lowercase the header name for case-insensitive comparison
