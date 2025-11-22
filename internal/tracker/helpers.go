@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -216,12 +217,7 @@ func isSensitiveHeader(name string) bool {
 		"x-auth-token",
 	}
 
-	for _, sensitive := range sensitiveHeaders {
-		if name == sensitive {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(sensitiveHeaders, name)
 }
 
 // isOrderSensitiveHeader returns true if the order of header values is significant.
@@ -233,12 +229,7 @@ func isOrderSensitiveHeader(name string) bool {
 		"proxy-authenticate",
 	}
 
-	for _, orderSensitive := range orderSensitiveHeaders {
-		if name == orderSensitive {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(orderSensitiveHeaders, name)
 }
 
 // HeaderDiff represents differences in headers between two versions.

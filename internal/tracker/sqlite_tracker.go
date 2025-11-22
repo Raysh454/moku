@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/interfaces"
 	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/utils"
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
@@ -137,15 +138,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	}()
 
 	// Step 5: Extract and normalize headers from snapshot metadata
-	headers := make(map[string][]string)
-	if snapshot.Meta != nil {
-		// Try to parse headers from Meta["_headers"] as JSON
-		if headersJSON, ok := snapshot.Meta["_headers"]; ok {
-			if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
-				t.logger.Warn("Failed to parse headers from metadata", interfaces.Field{Key: "error", Value: err.Error()})
-			}
-		}
-	}
+	headers := snapshot.Headers
 
 	// Normalize and serialize headers
 	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
@@ -156,16 +149,16 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	}
 
 	// Step 6: Insert snapshot record with headers
-	filePath := "index.html" // Default file path, could be derived from URL
-	if snapshot.URL != "" {
-		// TODO: Derive file path from URL (e.g., parse path component)
-		filePath = "index.html"
+	urlTools, err := utils.NewURLTools(snapshot.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse snapshot URL: %w", err)
 	}
+	filePath := urlTools.GetPath()
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO snapshots (id, url, file_path, created_at, headers)
-		VALUES (?, ?, ?, ?, ?)
-	`, snapshotID, snapshot.URL, filePath, timestamp, string(headersJSON))
+		INSERT INTO snapshots (id, status_code, url, file_path, created_at, headers)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, snapshotID, snapshot.StatusCode, snapshot.URL, filePath, timestamp, string(headersJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert snapshot: %w", err)
 	}
@@ -202,7 +195,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	}
 
 	// Step 11: Write working-tree convenience files
-	if err := t.writeWorkingTreeFiles(filePath, snapshot.Body, normalizedHeaders); err != nil {
+	if err := t.writeWorkingTreeFiles(filePath, snapshot.StatusCode, snapshot.Body, normalizedHeaders); err != nil {
 		t.logger.Warn("Failed to write working-tree files", interfaces.Field{Key: "error", Value: err.Error()})
 		// Don't fail the commit if working-tree writes fail - DB is authoritative
 		// Schedule reconciliation if needed
@@ -229,6 +222,62 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	}, nil
 }
 
+// Return diff from database, if it exists
+func (t *SQLiteTracker) diffFromCache(diffJSON string) (*model.DiffResult, error) {
+	// Diff exists, parse and return
+	var combined CombinedDiff
+	if err := json.Unmarshal([]byte(diffJSON), &combined); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal combined diff: %w", err)
+	}
+	result := model.DiffResult{
+		BaseID: combined.BodyDiff.BaseID,
+		HeadID: combined.BodyDiff.HeadID,
+		Chunks: make([]model.DiffChunk, len(combined.BodyDiff.Chunks)),
+	}
+	for i, c := range combined.BodyDiff.Chunks {
+		result.Chunks[i] = model.DiffChunk{
+			Type:    c.Type,
+			Path:    c.Path,
+			Content: c.Content,
+		}
+	}
+	return &result, nil
+}
+
+// Compute diff if it doesn't exist
+func (t *SQLiteTracker) computeDiff(ctx context.Context, baseID, headID string) (*model.DiffResult, string, error) {
+	var baseBody, headBody []byte
+	var err2 error
+
+	// Get base version body (if baseID is not empty)
+	if baseID != "" {
+		baseBody, err2 = t.getVersionBodyByID(ctx, baseID)
+		if err2 != nil {
+			return nil, "", fmt.Errorf("failed to get base version body: %w", err2)
+		}
+	}
+
+	// Get head version body
+	headBody, err2 = t.getVersionBodyByID(ctx, headID)
+	if err2 != nil {
+		return nil, "", fmt.Errorf("failed to get head version body: %w", err2)
+	}
+
+	// Compute diff
+	diffJSON, err2 := computeTextDiffJSON(baseID, headID, baseBody, headBody)
+	if err2 != nil {
+		return nil, "", fmt.Errorf("failed to compute diff: %w", err2)
+	}
+
+	// Parse the diff result
+	var result model.DiffResult
+	if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
+		return nil, "", fmt.Errorf("failed to unmarshal computed diff: %w", err)
+	}
+
+	return &result, diffJSON, nil
+}
+
 // Diff computes a delta between two versions identified by their IDs.
 func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
 	t.logger.Debug("Computing diff",
@@ -243,74 +292,15 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 	`, nullableString(baseID), headID).Scan(&diffJSON)
 
 	if err == nil {
-		// Diff exists, parse and return
-		// Detect format by checking for the presence of "body_diff" or "headers_diff" keys
-		// New format has these keys, old format has "base_id", "head_id", "chunks" at top level
-		var rawDiff map[string]interface{}
-		if err := json.Unmarshal([]byte(diffJSON), &rawDiff); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal cached diff: %w", err)
-		}
-
-		// Check if this is the new combined format
-		if _, hasBodyDiff := rawDiff["body_diff"]; hasBodyDiff {
-			// New format with combined diff, extract body diff
-			var combined CombinedDiff
-			if err := json.Unmarshal([]byte(diffJSON), &combined); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal combined diff: %w", err)
-			}
-			result := model.DiffResult{
-				BaseID: combined.BodyDiff.BaseID,
-				HeadID: combined.BodyDiff.HeadID,
-				Chunks: make([]model.DiffChunk, len(combined.BodyDiff.Chunks)),
-			}
-			for i, c := range combined.BodyDiff.Chunks {
-				result.Chunks[i] = model.DiffChunk{
-					Type:    c.Type,
-					Path:    c.Path,
-					Content: c.Content,
-				}
-			}
-			return &result, nil
-		}
-
-		// Old format - parse directly
-		var result model.DiffResult
-		if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal cached diff: %w", err)
-		}
-		return &result, nil
+		return t.diffFromCache(diffJSON)
 	} else if err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to query cached diff: %w", err)
 	}
 
 	// Diff not cached, compute it
-	var baseBody, headBody []byte
-	var err2 error
-
-	// Get base version body (if baseID is not empty)
-	if baseID != "" {
-		baseBody, err2 = t.getVersionBodyByID(ctx, baseID)
-		if err2 != nil {
-			return nil, fmt.Errorf("failed to get base version body: %w", err2)
-		}
-	}
-
-	// Get head version body
-	headBody, err2 = t.getVersionBodyByID(ctx, headID)
-	if err2 != nil {
-		return nil, fmt.Errorf("failed to get head version body: %w", err2)
-	}
-
-	// Compute diff
-	diffJSON, err2 = computeTextDiffJSON(baseID, headID, baseBody, headBody)
-	if err2 != nil {
-		return nil, fmt.Errorf("failed to compute diff: %w", err2)
-	}
-
-	// Parse the diff result
-	var result model.DiffResult
-	if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal computed diff: %w", err)
+	result, diffJSON, err := t.computeDiff(ctx, baseID, headID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Cache the diff for future use
@@ -324,7 +314,7 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 		t.logger.Warn("Failed to cache diff", interfaces.Field{Key: "error", Value: err.Error()})
 	}
 
-	return &result, nil
+	return result, nil
 }
 
 // Get returns the snapshot for a specific version ID.
@@ -334,12 +324,14 @@ func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*model.Snaps
 	// Query snapshot ID from version
 	var snapshotID, url, filePath string
 	var createdAt int64
+	var statucode int
+	var headersJSONSQL sql.NullString
 	err := t.db.QueryRowContext(ctx, `
-		SELECT s.id, s.url, s.file_path, s.created_at
+		SELECT s.id, s.status_code, s.url, s.file_path, s.created_at, s.headers
 		FROM snapshots s
 		JOIN versions v ON s.id = v.snapshot_id
 		WHERE v.id = ?
-	`, versionID).Scan(&snapshotID, &url, &filePath, &createdAt)
+	`, versionID).Scan(&snapshotID, &statucode, &url, &filePath, &createdAt, &headersJSONSQL)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("version not found: %s", versionID)
@@ -368,13 +360,20 @@ func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*model.Snaps
 		return nil, fmt.Errorf("failed to get blob: %w", err)
 	}
 
-	// TODO: Reconstruct meta from stored metadata
+	headersJSON := headersJSONSQL.String
+	var headers map[string][]string
+	err = json.Unmarshal([]byte(headersJSON), &headers)
+	if err != nil {
+		t.logger.Warn("Failed to parse headers", interfaces.Field{Key: "error", Value: err.Error()})
+	}
+
 	return &model.Snapshot{
-		ID:        snapshotID,
-		URL:       url,
-		Body:      body,
-		Meta:      make(map[string]string),
-		CreatedAt: time.Unix(createdAt, 0),
+		ID:         snapshotID,
+		StatusCode: statucode,
+		URL:        url,
+		Body:       body,
+		Headers:    headers,
+		CreatedAt:  time.Unix(createdAt, 0),
 	}, nil
 }
 
@@ -478,14 +477,15 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 			return fmt.Errorf("failed to get blob %s: %w", file.blobID, err)
 		}
 
-		// Get headers for this file from snapshot
+		// Get headers and status_code for this file from snapshot
 		var headersJSON sql.NullString
+		var statusCode int
 		err = t.db.QueryRowContext(ctx, `
-			SELECT s.headers
+			SELECT s.headers, s.status_code
 			FROM snapshots s
 			JOIN versions v ON s.id = v.snapshot_id
 			WHERE v.id = ? AND s.file_path = ?
-		`, versionID, file.path).Scan(&headersJSON)
+		`, versionID, file.path).Scan(&headersJSON, &statusCode)
 		if err != nil && err != sql.ErrNoRows {
 			t.logger.Warn("Failed to get headers for file",
 				interfaces.Field{Key: "filePath", Value: file.path},
@@ -505,7 +505,7 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 		}
 
 		// Write working-tree files (.page_body and .page_headers.json)
-		if err := t.writeWorkingTreeFiles(file.path, content, headers); err != nil {
+		if err := t.writeWorkingTreeFiles(file.path, statusCode, content, headers); err != nil {
 			return fmt.Errorf("failed to write working-tree files for %s: %w", file.path, err)
 		}
 
@@ -647,23 +647,68 @@ func nullableString(s string) sql.NullString {
 	}
 }
 
-// CommitBatch commits multiple snapshots in a single transaction.
-// This is more efficient than individual commits when storing multiple pages.
-//
-// The method:
-// 1. Stores all snapshot bodies as blobs
-// 2. Begins a transaction
-// 3. Creates a single version with multiple snapshots
-// 4. Inserts all snapshots with normalized headers
-// 5. Inserts version_files mappings
-// 6. Computes diffs for each file against parent version
-// 7. Commits the transaction
-// 8. Writes working-tree files for each snapshot
-// 9. Updates HEAD
-//
-// If working-tree writes fail after DB commit, an error is returned but the DB
-// remains consistent (authoritative source).
-func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message string, author string) ([]*model.Version, error) {
+// -----------------------------------------------------------------------------
+// Internal helper struct (defined ONCE, outside CommitBatch)
+// -----------------------------------------------------------------------------
+type snapshotData struct {
+	snapshot    *model.Snapshot
+	snapshotID  string
+	blobID      string
+	filePath    string
+	headersJSON string
+}
+
+// -----------------------------------------------------------------------------
+// Helper methods
+// -----------------------------------------------------------------------------
+func (t *SQLiteTracker) insertSnapshot(ctx context.Context, tx *sql.Tx, sd snapshotData) error {
+	_, err := tx.ExecContext(ctx, `
+        INSERT INTO snapshots (id, status_code, url, file_path, created_at, headers)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `,
+		sd.snapshotID,
+		sd.snapshot.StatusCode,
+		sd.snapshot.URL,
+		sd.filePath,
+		sd.snapshot.CreatedAt.Unix(),
+		sd.headersJSON,
+	)
+	return err
+}
+
+func (t *SQLiteTracker) insertVersion(ctx context.Context, tx *sql.Tx,
+	versionID, parentID, firstSnapshotID, message, author string, ts int64) error {
+
+	_, err := tx.ExecContext(ctx, `
+        INSERT INTO versions (id, parent_id, snapshot_id, message, author, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `,
+		versionID,
+		nullableString(parentID),
+		firstSnapshotID,
+		message,
+		nullableString(author),
+		ts,
+	)
+	return err
+}
+
+func (t *SQLiteTracker) insertVersionFile(ctx context.Context, tx *sql.Tx,
+	versionID, path, blobID string, size int) error {
+
+	_, err := tx.ExecContext(ctx, `
+        INSERT INTO version_files (version_id, file_path, blob_id, size)
+        VALUES (?, ?, ?, ?)
+    `,
+		versionID, path, blobID, size,
+	)
+	return err
+}
+
+// -----------------------------------------------------------------------------
+// CommitBatch (NO duplicate snapshotData inside)
+// -----------------------------------------------------------------------------
+func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.Version, error) {
 	if len(snapshots) == 0 {
 		return nil, errors.New("no snapshots to commit")
 	}
@@ -671,82 +716,49 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snap
 		return nil, errors.New("commit message cannot be empty")
 	}
 
-	t.logger.Debug("Starting batch commit",
-		interfaces.Field{Key: "count", Value: len(snapshots)},
-		interfaces.Field{Key: "message", Value: message})
+	t.logger.Info("Starting batch commit", interfaces.Field{Key: "count", Value: len(snapshots)})
 
-	// Step 1: Store all blobs and prepare snapshot data
-	type snapshotData struct {
-		snapshot          *model.Snapshot
-		blobID            string
-		filePath          string
-		normalizedHeaders map[string][]string
-		headersJSON       string
-	}
-
-	snapshotDataList := make([]snapshotData, 0, len(snapshots))
-
-	for _, snapshot := range snapshots {
-		if snapshot == nil {
+	// Build snapshotData list using the single shared struct
+	var list []snapshotData
+	for _, snap := range snapshots {
+		if snap == nil {
 			continue
 		}
 
-		// Store blob
-		blobID, err := t.store.Put(snapshot.Body)
+		blobID, err := t.store.Put(snap.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to store snapshot body: %w", err)
 		}
 
-		// Extract file path from metadata
-		filePath := "index.html" // Default
-		if snapshot.Meta != nil {
-			if fp, ok := snapshot.Meta["_file_path"]; ok && fp != "" {
-				filePath = fp
-			}
+		urlTools, err := utils.NewURLTools(snap.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse snapshot URL: %w", err)
 		}
+		filePath := urlTools.GetPath()
 
-		// Extract and normalize headers
-		headers := make(map[string][]string)
-		if snapshot.Meta != nil {
-			if headersJSON, ok := snapshot.Meta["_headers"]; ok {
-				if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
-					t.logger.Warn("Failed to parse headers from metadata",
-						interfaces.Field{Key: "error", Value: err.Error()})
-				}
-			}
-		}
-
-		redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
-		normalizedHeaders := normalizeHeaders(headers, redactSensitive)
-		headersJSONBytes, err := json.Marshal(normalizedHeaders)
+		headersJSONBytes, err := json.Marshal(snap.Headers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal headers: %w", err)
 		}
 
-		snapshotDataList = append(snapshotDataList, snapshotData{
-			snapshot:          snapshot,
-			blobID:            blobID,
-			filePath:          filePath,
-			normalizedHeaders: normalizedHeaders,
-			headersJSON:       string(headersJSONBytes),
+		list = append(list, snapshotData{
+			snapshot:    snap,
+			snapshotID:  uuid.New().String(),
+			blobID:      blobID,
+			filePath:    filePath,
+			headersJSON: string(headersJSONBytes),
 		})
 	}
 
-	if len(snapshotDataList) == 0 {
+	if len(list) == 0 {
 		return nil, errors.New("no valid snapshots to commit")
 	}
 
-	// Step 2: Generate IDs
 	versionID := uuid.New().String()
-	timestamp := time.Now().Unix()
+	ts := time.Now().Unix()
 
-	// Step 3: Get parent version (current HEAD)
-	parentID, err := t.readHEAD()
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("failed to read HEAD: %w", err)
-	}
+	parentID, _ := t.readHEAD()
 
-	// Step 4: Begin transaction
 	tx, err := t.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -757,180 +769,59 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snap
 		}
 	}()
 
-	// Step 5: Insert first snapshot (required for FK constraint on versions.snapshot_id)
-	firstSnapshotID := uuid.New().String()
-	firstSD := snapshotDataList[0]
-	firstSnapshotTimestamp := timestamp
-	if !firstSD.snapshot.CreatedAt.IsZero() {
-		firstSnapshotTimestamp = firstSD.snapshot.CreatedAt.Unix()
+	// First snapshot
+	first := list[0]
+	if err := t.insertSnapshot(ctx, tx, first); err != nil {
+		return nil, fmt.Errorf("insert first snapshot: %w", err)
 	}
 
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO snapshots (id, url, file_path, created_at, headers)
-		VALUES (?, ?, ?, ?, ?)
-	`, firstSnapshotID, firstSD.snapshot.URL, firstSD.filePath, firstSnapshotTimestamp, firstSD.headersJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert first snapshot: %w", err)
+	if err := t.insertVersion(ctx, tx, versionID, parentID, first.snapshotID, message, author, ts); err != nil {
+		return nil, fmt.Errorf("insert version: %w", err)
 	}
 
-	// Step 6: Insert version record (now that first snapshot exists)
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO versions (id, parent_id, snapshot_id, message, author, timestamp)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, versionID, nullableString(parentID), firstSnapshotID, message, nullableString(author), timestamp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert version: %w", err)
+	if err := t.insertVersionFile(ctx, tx, versionID, first.filePath, first.blobID, len(first.snapshot.Body)); err != nil {
+		return nil, fmt.Errorf("insert version file: %w", err)
 	}
 
-	// Step 7: Insert version_files for first snapshot
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO version_files (version_id, file_path, blob_id, size)
-		VALUES (?, ?, ?, ?)
-	`, versionID, firstSD.filePath, firstSD.blobID, len(firstSD.snapshot.Body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert version_files for first snapshot: %w", err)
-	}
-
-	// Step 8: Insert remaining snapshots and version_files
-	for i := 1; i < len(snapshotDataList); i++ {
-		sd := snapshotDataList[i]
-		snapshotID := uuid.New().String()
-
-		snapshotTimestamp := timestamp
-		if !sd.snapshot.CreatedAt.IsZero() {
-			snapshotTimestamp = sd.snapshot.CreatedAt.Unix()
+	// Remaining snapshots
+	for _, sd := range list[1:] {
+		if err := t.insertSnapshot(ctx, tx, sd); err != nil {
+			return nil, fmt.Errorf("insert snapshot: %w", err)
 		}
-
-		// Insert snapshot
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO snapshots (id, url, file_path, created_at, headers)
-			VALUES (?, ?, ?, ?, ?)
-		`, snapshotID, sd.snapshot.URL, sd.filePath, snapshotTimestamp, sd.headersJSON)
-		if err != nil {
-			return nil, fmt.Errorf("failed to insert snapshot: %w", err)
-		}
-
-		// Insert version_files
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO version_files (version_id, file_path, blob_id, size)
-			VALUES (?, ?, ?, ?)
-		`, versionID, sd.filePath, sd.blobID, len(sd.snapshot.Body))
-		if err != nil {
-			return nil, fmt.Errorf("failed to insert version_files: %w", err)
+		if err := t.insertVersionFile(ctx, tx, versionID, sd.filePath, sd.blobID, len(sd.snapshot.Body)); err != nil {
+			return nil, fmt.Errorf("insert version file: %w", err)
 		}
 	}
 
-	// Step 9: Compute and store diffs (if parent exists)
+	// Compute diff (best-effort)
 	if parentID != "" {
-		for _, sd := range snapshotDataList {
-			// Get parent snapshot for this file path
-			var parentBlobID string
-			var parentHeadersJSON sql.NullString
-			err := tx.QueryRowContext(ctx, `
-				SELECT vf.blob_id, s.headers
-				FROM version_files vf
-				LEFT JOIN versions v ON vf.version_id = v.id
-				LEFT JOIN snapshots s ON v.snapshot_id = s.id
-				WHERE vf.version_id = ? AND vf.file_path = ?
-			`, parentID, sd.filePath).Scan(&parentBlobID, &parentHeadersJSON)
-
-			if err == sql.ErrNoRows {
-				// No parent snapshot for this file - skip diff
-				t.logger.Debug("No parent snapshot for file, skipping diff",
-					interfaces.Field{Key: "filePath", Value: sd.filePath})
-				continue
-			}
-			if err != nil {
-				t.logger.Warn("Failed to query parent snapshot, skipping diff",
-					interfaces.Field{Key: "error", Value: err.Error()})
-				continue
-			}
-
-			// Get parent blob content
-			parentBody, err := t.store.Get(parentBlobID)
-			if err != nil {
-				t.logger.Warn("Failed to get parent blob, skipping diff",
-					interfaces.Field{Key: "error", Value: err.Error()})
-				continue
-			}
-
-			// Parse parent headers
-			var parentHeaders map[string][]string
-			if parentHeadersJSON.Valid && parentHeadersJSON.String != "" {
-				if err := json.Unmarshal([]byte(parentHeadersJSON.String), &parentHeaders); err != nil {
-					t.logger.Warn("Failed to parse parent headers",
-						interfaces.Field{Key: "error", Value: err.Error()})
-					parentHeaders = make(map[string][]string)
-				}
-			} else {
-				parentHeaders = make(map[string][]string)
-			}
-
-			// Compute combined diff
-			redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
-			diffJSON, err := computeCombinedDiff(parentID, versionID, parentBody, sd.snapshot.Body, parentHeaders, sd.normalizedHeaders, redactSensitive)
-			if err != nil {
-				t.logger.Warn("Failed to compute diff, skipping",
-					interfaces.Field{Key: "error", Value: err.Error()})
-				continue
-			}
-
-			// Store diff
-			diffID := uuid.New().String()
-			_, err = tx.ExecContext(ctx, `
-				INSERT INTO diffs (id, base_version_id, head_version_id, diff_json, created_at)
-				VALUES (?, ?, ?, ?, ?)
-			`, diffID, nullableString(parentID), versionID, diffJSON, time.Now().Unix())
-			if err != nil {
-				t.logger.Warn("Failed to store diff",
-					interfaces.Field{Key: "error", Value: err.Error()})
-			}
+		if err := t.computeAndStoreDiff(ctx, tx, parentID, versionID); err != nil {
+			t.logger.Warn("Failed to compute/store combined diff", interfaces.Field{Key: "error", Value: err.Error()})
 		}
 	}
 
-	// Step 10: Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Step 11: Write working-tree files for all snapshots
-	workingTreeErrors := []string{}
-	for _, sd := range snapshotDataList {
-		if err := t.writeWorkingTreeFiles(sd.filePath, sd.snapshot.Body, sd.normalizedHeaders); err != nil {
-			errMsg := fmt.Sprintf("file %s: %v", sd.filePath, err)
-			workingTreeErrors = append(workingTreeErrors, errMsg)
-			t.logger.Warn("Failed to write working-tree files",
-				interfaces.Field{Key: "filePath", Value: sd.filePath},
-				interfaces.Field{Key: "error", Value: err.Error()})
-		}
+	// Working tree writes (best-effort)
+	for _, sd := range list {
+		_ = t.writeWorkingTreeFiles(sd.filePath, sd.snapshot.StatusCode, sd.snapshot.Body, sd.snapshot.Headers)
 	}
 
-	// Step 12: Write HEAD
-	if err := t.writeHEAD(versionID); err != nil {
-		t.logger.Warn("Failed to update HEAD", interfaces.Field{Key: "error", Value: err.Error()})
-	}
+	_ = t.writeHEAD(versionID)
 
-	t.logger.Info("Batch commit successful",
-		interfaces.Field{Key: "versionID", Value: versionID},
-		interfaces.Field{Key: "snapshotCount", Value: len(snapshotDataList)})
-
-	// Return version record for each snapshot
-	versions := make([]*model.Version, len(snapshotDataList))
-	for i := range snapshotDataList {
+	// Return version objects
+	versions := make([]*model.Version, len(list))
+	for i := range list {
 		versions[i] = &model.Version{
 			ID:         versionID,
 			Parent:     parentID,
 			Message:    message,
 			Author:     author,
-			SnapshotID: versionID, // Placeholder - actual snapshots are in version_files
-			Timestamp:  time.Unix(timestamp, 0),
+			SnapshotID: first.snapshotID,
+			Timestamp:  time.Unix(ts, 0),
 		}
-	}
-
-	// If there were working-tree errors, note them (but DB is still consistent)
-	if len(workingTreeErrors) > 0 {
-		t.logger.Warn("Some working-tree files failed to write (DB is authoritative)",
-			interfaces.Field{Key: "errors", Value: fmt.Sprintf("%v", workingTreeErrors)})
 	}
 
 	return versions, nil
@@ -946,7 +837,7 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snap
 //
 // The filePath is treated as a directory name (following fetcher conventions),
 // so files are written to siteDir/filePath/.page_body and siteDir/filePath/.page_headers.json
-func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, body []byte, headers map[string][]string) error {
+func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, body []byte, headers map[string][]string) error {
 	// Build directory path in working tree
 	// The filePath is treated as a directory (e.g., "page1.html" becomes a directory)
 	dirPath := filepath.Join(t.siteDir, filePath)
@@ -963,6 +854,7 @@ func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, body []byte, head
 	}
 
 	// Write .page_headers.json
+	headers["Status-Code"] = []string{fmt.Sprintf("%d", statusCode)}
 	headersJSON, err := json.MarshalIndent(headers, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal headers: %w", err)

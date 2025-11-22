@@ -7,14 +7,17 @@ type Snapshot struct {
 	// ID is an opaque identifier (e.g., uuid or incremental string) assigned by the tracker.
 	ID string `json:"id,omitempty"`
 
+	// Status Code indicates the result of the snapshot attempt (e.g., 200, 404, error codes).
+	StatusCode int `json:"status_code,omitempty"`
+
 	// URL is the source URL for the snapshot when available.
 	URL string `json:"url,omitempty"`
 
 	// Body contains the raw HTML bytes for the snapshot.
 	Body []byte `json:"body,omitempty"`
 
-	// Meta contains optional metadata (headers, content-type, etc).
-	Meta map[string]string `json:"meta,omitempty"`
+	// Headers contains optional header data (headers, content-type, etc).
+	Headers map[string][]string `json:"headers,omitempty"`
 
 	// CreatedAt is the capture timestamp (if known).
 	CreatedAt time.Time `json:"created_at"`
