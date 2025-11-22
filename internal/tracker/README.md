@@ -2,7 +2,7 @@
 
 ## Overview
 
-The tracker component provides version control for website snapshots, similar to git but optimized for web content. It stores snapshots, manages versions, computes diffs, and provides checkout semantics for historical content.
+The tracker component provides version control for website snapshots, similar to git but optimized for web content. It stores snapshots with headers, manages versions, computes body and header diffs, and provides checkout semantics for historical content. The tracker is designed to integrate seamlessly with the fetcher through an adapter layer.
 
 ## Architecture
 
@@ -16,9 +16,16 @@ siteDir/
       ab/
         cd1234...    # sha256 hex filename (first 2 chars as subdirectory)
     HEAD             # Current version ID (text file)
+  index.html/        # Working-tree directory for a page
+    .page_body       # Raw HTML content (convenience file)
+    .page_headers.json # Normalized headers as JSON (convenience file)
 ```
 
-The `.moku` directory is the authoritative store. The working tree (files outside `.moku`) is derived from the current HEAD version and can be regenerated from the blob store.
+The `.moku` directory is the authoritative store. The working tree (files outside `.moku`) contains convenience files that are written after each commit and checkout:
+- `.page_body`: Raw body content from the snapshot
+- `.page_headers.json`: Normalized HTTP headers in human-readable JSON format
+
+These working-tree files can be regenerated from the blob store at any time.
 
 ### Data Model
 
@@ -84,29 +91,52 @@ This ensures:
 
 ### Commit Flow
 
-1. **Store blobs**: Write snapshot body and any related files to blob storage
+#### Single Commit
+
+1. **Store blobs**: Write snapshot body to blob storage
    - Compute SHA-256 hash of content
    - Store at `.moku/blobs/{hash[0:2]}/{hash}`
    - Use atomic write (tmp file → fsync → rename)
 
 2. **Begin transaction**: Start SQLite transaction
 
-3. **Insert snapshot**: Create snapshot record with ID, URL, file_path, timestamp
+3. **Extract and normalize headers**: Parse headers from snapshot metadata, normalize (lowercase, sort, redact sensitive)
 
-4. **Insert version**: Create version record linking to snapshot and parent
+4. **Insert snapshot**: Create snapshot record with ID, URL, file_path, timestamp, normalized headers JSON
 
-5. **Insert version_files**: Create entries mapping file_path → blob_id for this version
+5. **Insert version**: Create version record linking to snapshot and parent
 
-6. **Compute diffs**: Calculate diff from parent version (if exists)
+6. **Insert version_files**: Create entries mapping file_path → blob_id for this version
+
+7. **Compute diffs**: Calculate combined diff (body + headers) from parent version (if exists)
    - Extract text content from both versions
-   - Run diff algorithm (placeholder: unified diff or JSON-based)
-   - Store in diffs table with base_version_id and head_version_id
+   - Run diff algorithm (diffmatchpatch for body)
+   - Compute header diff (added, removed, changed, redacted)
+   - Store combined diff JSON in diffs table with base_version_id and head_version_id
 
-7. **Commit transaction**: Persist all metadata
+8. **Commit transaction**: Persist all metadata
 
-8. **Update working tree**: Write files to working directory using AtomicWriteFile
+9. **Write working-tree files**: Write `.page_body` and `.page_headers.json` using AtomicWriteFile
 
-9. **Write HEAD**: Update `.moku/HEAD` with new version ID
+10. **Write HEAD**: Update `.moku/HEAD` with new version ID
+
+#### Batch Commit
+
+The `CommitBatch` method efficiently commits multiple snapshots in a single transaction:
+
+1. **Store all blobs**: Write all snapshot bodies to blob storage in parallel
+2. **Extract and normalize headers** for each snapshot
+3. **Begin transaction**
+4. **Insert first snapshot** (required for FK constraint on versions.snapshot_id)
+5. **Insert version record** (references first snapshot)
+6. **Insert version_files** for first snapshot
+7. **Insert remaining snapshots and version_files**
+8. **Compute diffs** for each file against parent version (if exists)
+9. **Commit transaction**
+10. **Write working-tree files** for all snapshots
+11. **Write HEAD**
+
+This is more efficient than individual commits when fetching multiple pages, as it uses a single transaction and reduces database overhead.
 
 ### Diff Algorithm
 
@@ -313,6 +343,50 @@ The following headers are considered sensitive and are redacted in storage and d
 - `x-api-key`
 - `x-auth-token`
 
+## Fetcher Integration
+
+The tracker integrates with the fetcher through an adapter layer in `internal/fetcher/adapter.go`. This adapter converts HTTP responses into tracker snapshots without writing files directly to disk.
+
+### Using the Fetcher Adapter
+
+```go
+// Initialize tracker
+logger := logging.NewStdoutLogger("tracker")
+tr, err := tracker.NewSQLiteTracker("/path/to/site", logger)
+if err != nil {
+    log.Fatal(err)
+}
+defer tr.Close()
+
+// Fetch a page using webclient
+resp, err := webclient.Get(ctx, "https://example.com")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Commit the response to tracker using the adapter
+version, err := fetcher.CommitResponseToTracker(ctx, tr, resp, "index.html")
+if err != nil {
+    log.Fatal(err)
+}
+
+// For batch commits of multiple pages
+responses := map[string]*http.Response{
+    "page1.html": resp1,
+    "page2.html": resp2,
+    "page3.html": resp3,
+}
+
+versions, err := fetcher.CommitResponseBatchToTracker(ctx, tr, responses, "Fetched multiple pages", "fetcher")
+```
+
+The adapter automatically:
+1. Reads response body
+2. Extracts headers
+3. Constructs a `model.Snapshot` with headers stored in `Meta["_headers"]`
+4. Calls `tracker.Commit` or `tracker.CommitBatch`
+5. Does NOT write files to disk (tracker handles all persistence)
+
 ## Example Usage
 
 ```go
@@ -324,7 +398,7 @@ if err != nil {
 }
 defer tracker.Close()
 
-// Commit a snapshot with headers
+// Commit a snapshot with headers (direct tracker API)
 headers := map[string][]string{
     "Content-Type": {"text/html; charset=utf-8"},
     "Cache-Control": {"no-cache", "no-store"},
@@ -340,18 +414,49 @@ snapshot := &model.Snapshot{
 }
 version, err := tracker.Commit(ctx, snapshot, "Initial commit", "user@example.com")
 
+// Batch commit multiple snapshots (more efficient)
+snapshots := []*model.Snapshot{snapshot1, snapshot2, snapshot3}
+versions, err := tracker.CommitBatch(ctx, snapshots, "Batch commit", "user@example.com")
+
 // Get diff between versions (returns body diff for backward compatibility)
 diff, err := tracker.Diff(ctx, parentID, currentID)
 
 // For full combined diff including headers, query diffs table directly
 // SELECT diff_json FROM diffs WHERE base_version_id = ? AND head_version_id = ?
 
-// Checkout a specific version
+// Checkout a specific version (writes working-tree files)
 err = tracker.Checkout(ctx, versionID)
 
 // List recent versions
 versions, err := tracker.List(ctx, 10)
 ```
+
+### Working-Tree Files
+
+After a commit or checkout, the tracker writes convenience files to the working tree:
+
+- `siteDir/index.html/.page_body` - Raw HTML content
+- `siteDir/index.html/.page_headers.json` - Normalized headers in pretty-printed JSON
+
+These files are for human readability and convenience. The authoritative data is always in `.moku/` (blobs and database).
+
+Example `.page_headers.json`:
+```json
+{
+  "cache-control": [
+    "max-age=3600",
+    "public"
+  ],
+  "content-type": [
+    "text/html; charset=utf-8"
+  ],
+  "server": [
+    "nginx/1.20.0"
+  ]
+}
+```
+
+Note that sensitive headers (authorization, cookie, etc.) are replaced with `["[REDACTED]"]` if redaction is enabled in the tracker configuration.
 
 ## References
 

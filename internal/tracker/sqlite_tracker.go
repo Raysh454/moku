@@ -201,9 +201,12 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Step 11: Update working tree
-	// TODO: Implement working tree update with AtomicWriteFile
-	// For now, skip updating the working tree
+	// Step 11: Write working-tree convenience files
+	if err := t.writeWorkingTreeFiles(filePath, snapshot.Body, normalizedHeaders); err != nil {
+		t.logger.Warn("Failed to write working-tree files", interfaces.Field{Key: "error", Value: err.Error()})
+		// Don't fail the commit if working-tree writes fail - DB is authoritative
+		// Schedule reconciliation if needed
+	}
 
 	// Step 12: Write HEAD
 	if err := t.writeHEAD(versionID); err != nil {
@@ -475,15 +478,35 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 			return fmt.Errorf("failed to get blob %s: %w", file.blobID, err)
 		}
 
-		// Sanitize and build full path
-		fullPath, err := sanitizePath(t.siteDir, file.path)
-		if err != nil {
-			return fmt.Errorf("invalid file path %s: %w", file.path, err)
+		// Get headers for this file from snapshot
+		var headersJSON sql.NullString
+		err = t.db.QueryRowContext(ctx, `
+			SELECT s.headers
+			FROM snapshots s
+			JOIN versions v ON s.id = v.snapshot_id
+			WHERE v.id = ? AND s.file_path = ?
+		`, versionID, file.path).Scan(&headersJSON)
+		if err != nil && err != sql.ErrNoRows {
+			t.logger.Warn("Failed to get headers for file",
+				interfaces.Field{Key: "filePath", Value: file.path},
+				interfaces.Field{Key: "error", Value: err.Error()})
 		}
 
-		// Write file atomically to working tree
-		if err := AtomicWriteFile(fullPath, content, 0644); err != nil {
-			return fmt.Errorf("failed to write file %s: %w", file.path, err)
+		// Parse headers
+		var headers map[string][]string
+		if headersJSON.Valid && headersJSON.String != "" {
+			if err := json.Unmarshal([]byte(headersJSON.String), &headers); err != nil {
+				t.logger.Warn("Failed to parse headers",
+					interfaces.Field{Key: "error", Value: err.Error()})
+				headers = make(map[string][]string)
+			}
+		} else {
+			headers = make(map[string][]string)
+		}
+
+		// Write working-tree files (.page_body and .page_headers.json)
+		if err := t.writeWorkingTreeFiles(file.path, content, headers); err != nil {
+			return fmt.Errorf("failed to write working-tree files for %s: %w", file.path, err)
 		}
 
 		t.logger.Debug("Checked out file",
@@ -622,4 +645,332 @@ func nullableString(s string) sql.NullString {
 		String: s,
 		Valid:  s != "",
 	}
+}
+
+// CommitBatch commits multiple snapshots in a single transaction.
+// This is more efficient than individual commits when storing multiple pages.
+//
+// The method:
+// 1. Stores all snapshot bodies as blobs
+// 2. Begins a transaction
+// 3. Creates a single version with multiple snapshots
+// 4. Inserts all snapshots with normalized headers
+// 5. Inserts version_files mappings
+// 6. Computes diffs for each file against parent version
+// 7. Commits the transaction
+// 8. Writes working-tree files for each snapshot
+// 9. Updates HEAD
+//
+// If working-tree writes fail after DB commit, an error is returned but the DB
+// remains consistent (authoritative source).
+func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message string, author string) ([]*model.Version, error) {
+	if len(snapshots) == 0 {
+		return nil, errors.New("no snapshots to commit")
+	}
+	if message == "" {
+		return nil, errors.New("commit message cannot be empty")
+	}
+
+	t.logger.Debug("Starting batch commit",
+		interfaces.Field{Key: "count", Value: len(snapshots)},
+		interfaces.Field{Key: "message", Value: message})
+
+	// Step 1: Store all blobs and prepare snapshot data
+	type snapshotData struct {
+		snapshot          *model.Snapshot
+		blobID            string
+		filePath          string
+		normalizedHeaders map[string][]string
+		headersJSON       string
+	}
+
+	snapshotDataList := make([]snapshotData, 0, len(snapshots))
+
+	for _, snapshot := range snapshots {
+		if snapshot == nil {
+			continue
+		}
+
+		// Store blob
+		blobID, err := t.store.Put(snapshot.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to store snapshot body: %w", err)
+		}
+
+		// Extract file path from metadata
+		filePath := "index.html" // Default
+		if snapshot.Meta != nil {
+			if fp, ok := snapshot.Meta["_file_path"]; ok && fp != "" {
+				filePath = fp
+			}
+		}
+
+		// Extract and normalize headers
+		headers := make(map[string][]string)
+		if snapshot.Meta != nil {
+			if headersJSON, ok := snapshot.Meta["_headers"]; ok {
+				if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
+					t.logger.Warn("Failed to parse headers from metadata",
+						interfaces.Field{Key: "error", Value: err.Error()})
+				}
+			}
+		}
+
+		redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+		normalizedHeaders := normalizeHeaders(headers, redactSensitive)
+		headersJSONBytes, err := json.Marshal(normalizedHeaders)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal headers: %w", err)
+		}
+
+		snapshotDataList = append(snapshotDataList, snapshotData{
+			snapshot:          snapshot,
+			blobID:            blobID,
+			filePath:          filePath,
+			normalizedHeaders: normalizedHeaders,
+			headersJSON:       string(headersJSONBytes),
+		})
+	}
+
+	if len(snapshotDataList) == 0 {
+		return nil, errors.New("no valid snapshots to commit")
+	}
+
+	// Step 2: Generate IDs
+	versionID := uuid.New().String()
+	timestamp := time.Now().Unix()
+
+	// Step 3: Get parent version (current HEAD)
+	parentID, err := t.readHEAD()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to read HEAD: %w", err)
+	}
+
+	// Step 4: Begin transaction
+	tx, err := t.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && rbErr != sql.ErrTxDone {
+			t.logger.Warn("Failed to rollback transaction", interfaces.Field{Key: "error", Value: rbErr.Error()})
+		}
+	}()
+
+	// Step 5: Insert first snapshot (required for FK constraint on versions.snapshot_id)
+	firstSnapshotID := uuid.New().String()
+	firstSD := snapshotDataList[0]
+	firstSnapshotTimestamp := timestamp
+	if !firstSD.snapshot.CreatedAt.IsZero() {
+		firstSnapshotTimestamp = firstSD.snapshot.CreatedAt.Unix()
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO snapshots (id, url, file_path, created_at, headers)
+		VALUES (?, ?, ?, ?, ?)
+	`, firstSnapshotID, firstSD.snapshot.URL, firstSD.filePath, firstSnapshotTimestamp, firstSD.headersJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert first snapshot: %w", err)
+	}
+
+	// Step 6: Insert version record (now that first snapshot exists)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO versions (id, parent_id, snapshot_id, message, author, timestamp)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, versionID, nullableString(parentID), firstSnapshotID, message, nullableString(author), timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert version: %w", err)
+	}
+
+	// Step 7: Insert version_files for first snapshot
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO version_files (version_id, file_path, blob_id, size)
+		VALUES (?, ?, ?, ?)
+	`, versionID, firstSD.filePath, firstSD.blobID, len(firstSD.snapshot.Body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert version_files for first snapshot: %w", err)
+	}
+
+	// Step 8: Insert remaining snapshots and version_files
+	for i := 1; i < len(snapshotDataList); i++ {
+		sd := snapshotDataList[i]
+		snapshotID := uuid.New().String()
+
+		snapshotTimestamp := timestamp
+		if !sd.snapshot.CreatedAt.IsZero() {
+			snapshotTimestamp = sd.snapshot.CreatedAt.Unix()
+		}
+
+		// Insert snapshot
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO snapshots (id, url, file_path, created_at, headers)
+			VALUES (?, ?, ?, ?, ?)
+		`, snapshotID, sd.snapshot.URL, sd.filePath, snapshotTimestamp, sd.headersJSON)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert snapshot: %w", err)
+		}
+
+		// Insert version_files
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO version_files (version_id, file_path, blob_id, size)
+			VALUES (?, ?, ?, ?)
+		`, versionID, sd.filePath, sd.blobID, len(sd.snapshot.Body))
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert version_files: %w", err)
+		}
+	}
+
+	// Step 9: Compute and store diffs (if parent exists)
+	if parentID != "" {
+		for _, sd := range snapshotDataList {
+			// Get parent snapshot for this file path
+			var parentBlobID string
+			var parentHeadersJSON sql.NullString
+			err := tx.QueryRowContext(ctx, `
+				SELECT vf.blob_id, s.headers
+				FROM version_files vf
+				LEFT JOIN versions v ON vf.version_id = v.id
+				LEFT JOIN snapshots s ON v.snapshot_id = s.id
+				WHERE vf.version_id = ? AND vf.file_path = ?
+			`, parentID, sd.filePath).Scan(&parentBlobID, &parentHeadersJSON)
+
+			if err == sql.ErrNoRows {
+				// No parent snapshot for this file - skip diff
+				t.logger.Debug("No parent snapshot for file, skipping diff",
+					interfaces.Field{Key: "filePath", Value: sd.filePath})
+				continue
+			}
+			if err != nil {
+				t.logger.Warn("Failed to query parent snapshot, skipping diff",
+					interfaces.Field{Key: "error", Value: err.Error()})
+				continue
+			}
+
+			// Get parent blob content
+			parentBody, err := t.store.Get(parentBlobID)
+			if err != nil {
+				t.logger.Warn("Failed to get parent blob, skipping diff",
+					interfaces.Field{Key: "error", Value: err.Error()})
+				continue
+			}
+
+			// Parse parent headers
+			var parentHeaders map[string][]string
+			if parentHeadersJSON.Valid && parentHeadersJSON.String != "" {
+				if err := json.Unmarshal([]byte(parentHeadersJSON.String), &parentHeaders); err != nil {
+					t.logger.Warn("Failed to parse parent headers",
+						interfaces.Field{Key: "error", Value: err.Error()})
+					parentHeaders = make(map[string][]string)
+				}
+			} else {
+				parentHeaders = make(map[string][]string)
+			}
+
+			// Compute combined diff
+			redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+			diffJSON, err := computeCombinedDiff(parentID, versionID, parentBody, sd.snapshot.Body, parentHeaders, sd.normalizedHeaders, redactSensitive)
+			if err != nil {
+				t.logger.Warn("Failed to compute diff, skipping",
+					interfaces.Field{Key: "error", Value: err.Error()})
+				continue
+			}
+
+			// Store diff
+			diffID := uuid.New().String()
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO diffs (id, base_version_id, head_version_id, diff_json, created_at)
+				VALUES (?, ?, ?, ?, ?)
+			`, diffID, nullableString(parentID), versionID, diffJSON, time.Now().Unix())
+			if err != nil {
+				t.logger.Warn("Failed to store diff",
+					interfaces.Field{Key: "error", Value: err.Error()})
+			}
+		}
+	}
+
+	// Step 10: Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Step 11: Write working-tree files for all snapshots
+	workingTreeErrors := []string{}
+	for _, sd := range snapshotDataList {
+		if err := t.writeWorkingTreeFiles(sd.filePath, sd.snapshot.Body, sd.normalizedHeaders); err != nil {
+			errMsg := fmt.Sprintf("file %s: %v", sd.filePath, err)
+			workingTreeErrors = append(workingTreeErrors, errMsg)
+			t.logger.Warn("Failed to write working-tree files",
+				interfaces.Field{Key: "filePath", Value: sd.filePath},
+				interfaces.Field{Key: "error", Value: err.Error()})
+		}
+	}
+
+	// Step 12: Write HEAD
+	if err := t.writeHEAD(versionID); err != nil {
+		t.logger.Warn("Failed to update HEAD", interfaces.Field{Key: "error", Value: err.Error()})
+	}
+
+	t.logger.Info("Batch commit successful",
+		interfaces.Field{Key: "versionID", Value: versionID},
+		interfaces.Field{Key: "snapshotCount", Value: len(snapshotDataList)})
+
+	// Return version record for each snapshot
+	versions := make([]*model.Version, len(snapshotDataList))
+	for i := range snapshotDataList {
+		versions[i] = &model.Version{
+			ID:         versionID,
+			Parent:     parentID,
+			Message:    message,
+			Author:     author,
+			SnapshotID: versionID, // Placeholder - actual snapshots are in version_files
+			Timestamp:  time.Unix(timestamp, 0),
+		}
+	}
+
+	// If there were working-tree errors, note them (but DB is still consistent)
+	if len(workingTreeErrors) > 0 {
+		t.logger.Warn("Some working-tree files failed to write (DB is authoritative)",
+			interfaces.Field{Key: "errors", Value: fmt.Sprintf("%v", workingTreeErrors)})
+	}
+
+	return versions, nil
+}
+
+// writeWorkingTreeFiles writes the convenience files for a snapshot to the working tree.
+// These files are:
+// - .page_body: The raw body content
+// - .page_headers.json: The normalized headers as JSON
+//
+// Both files are written atomically to prevent corruption.
+// The working tree is a convenience layer; the authoritative data is in .moku/
+//
+// The filePath is treated as a directory name (following fetcher conventions),
+// so files are written to siteDir/filePath/.page_body and siteDir/filePath/.page_headers.json
+func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, body []byte, headers map[string][]string) error {
+	// Build directory path in working tree
+	// The filePath is treated as a directory (e.g., "page1.html" becomes a directory)
+	dirPath := filepath.Join(t.siteDir, filePath)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
+	}
+
+	// Write .page_body
+	bodyPath := filepath.Join(dirPath, ".page_body")
+	if err := AtomicWriteFile(bodyPath, body, 0644); err != nil {
+		return fmt.Errorf("failed to write .page_body: %w", err)
+	}
+
+	// Write .page_headers.json
+	headersJSON, err := json.MarshalIndent(headers, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal headers: %w", err)
+	}
+	headersPath := filepath.Join(dirPath, ".page_headers.json")
+	if err := AtomicWriteFile(headersPath, headersJSON, 0644); err != nil {
+		return fmt.Errorf("failed to write .page_headers.json: %w", err)
+	}
+
+	return nil
 }

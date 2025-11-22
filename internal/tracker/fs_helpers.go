@@ -85,24 +85,3 @@ func validatePath(path string) error {
 	// Additional validation can be added here (e.g., check against siteDir)
 	return nil
 }
-
-// sanitizePath returns a clean, safe path relative to baseDir
-// It prevents directory traversal and ensures the path stays within baseDir
-func sanitizePath(baseDir, path string) (string, error) {
-	// Clean and join the paths
-	fullPath := filepath.Join(baseDir, path)
-	cleaned := filepath.Clean(fullPath)
-
-	// Ensure the cleaned path is still within baseDir
-	relPath, err := filepath.Rel(baseDir, cleaned)
-	if err != nil {
-		return "", fmt.Errorf("failed to compute relative path: %w", err)
-	}
-
-	// Check if the relative path tries to escape baseDir
-	if strings.HasPrefix(relPath, "..") {
-		return "", fmt.Errorf("path attempts to escape base directory")
-	}
-
-	return cleaned, nil
-}
