@@ -186,40 +186,39 @@ func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseH
 // It lowercases header names, trims whitespace from values, and sorts multi-value
 // headers where order doesn't matter. For headers where order is significant
 // (like Set-Cookie), the original order is preserved.
+// Headers with the same normalized name are merged into a single entry.
 func normalizeHeaders(h map[string][]string) map[string][]string {
 	if h == nil {
 		return make(map[string][]string)
 	}
 
+	// First pass: collect all values for each normalized header name
 	normalized := make(map[string][]string)
 	for name, values := range h {
 		// Lowercase the header name for case-insensitive comparison
 		normName := strings.ToLower(name)
 
-		// Skip sensitive headers - they'll be redacted
+		// Trim whitespace from values
+		for _, v := range values {
+			trimmed := strings.TrimSpace(v)
+			if trimmed != "" {
+				normalized[normName] = append(normalized[normName], trimmed)
+			}
+		}
+	}
+
+	// Second pass: redact sensitive headers and sort values
+	for normName, values := range normalized {
+		// Redact sensitive headers
 		if isSensitiveHeader(normName) {
 			normalized[normName] = []string{"[REDACTED]"}
 			continue
 		}
 
-		// Trim whitespace from values
-		trimmedValues := make([]string, 0, len(values))
-		for _, v := range values {
-			trimmed := strings.TrimSpace(v)
-			if trimmed != "" {
-				trimmedValues = append(trimmedValues, trimmed)
-			}
-		}
-
 		// For headers where order matters, preserve original order
-		if isOrderSensitiveHeader(normName) {
-			normalized[normName] = trimmedValues
-		} else {
-			// Sort values for consistent comparison
-			sortedValues := make([]string, len(trimmedValues))
-			copy(sortedValues, trimmedValues)
-			sort.Strings(sortedValues)
-			normalized[normName] = sortedValues
+		// For others, sort values for consistent comparison
+		if !isOrderSensitiveHeader(normName) {
+			sort.Strings(values)
 		}
 	}
 
