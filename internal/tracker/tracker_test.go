@@ -317,8 +317,9 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 		t.Fatalf("Checkout returned error: %v", err)
 	}
 
-	// Verify the file was restored
-	indexPath := filepath.Join(tmpDir, "index.html")
+	// Verify the working-tree file was restored
+	// Files are now written as index.html/.page_body
+	indexPath := filepath.Join(tmpDir, "index.html", ".page_body")
 	content, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatalf("failed to read checked out file: %v", err)
@@ -327,6 +328,12 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	expected := "<html><body>First Version</body></html>"
 	if string(content) != expected {
 		t.Errorf("expected content %q, got %q", expected, string(content))
+	}
+
+	// Also verify headers file was created
+	headersPath := filepath.Join(tmpDir, "index.html", ".page_headers.json")
+	if _, err := os.Stat(headersPath); os.IsNotExist(err) {
+		t.Error(".page_headers.json was not created")
 	}
 
 	// Checkout second version
