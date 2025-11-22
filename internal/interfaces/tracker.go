@@ -24,6 +24,10 @@ type Tracker interface {
 	// can be added later.
 	List(ctx context.Context, limit int) ([]*model.Version, error)
 
+	// Checkout updates the working tree to match a specific version.
+	// This restores all files from the specified version to the working directory.
+	Checkout(ctx context.Context, versionID string) error
+
 	// Close releases resources used by the tracker.
 	Close() error
 }
