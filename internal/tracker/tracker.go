@@ -59,6 +59,11 @@ func (t *inMemoryTracker) List(ctx context.Context, limit int) ([]*model.Version
 	return nil, ErrNotImplemented
 }
 
+func (t *inMemoryTracker) Checkout(ctx context.Context, versionID string) error {
+	// TODO: restore working tree from versionID.
+	return ErrNotImplemented
+}
+
 func (t *inMemoryTracker) Close() error {
 	// No resources in scaffold; return nil.
 	return nil
