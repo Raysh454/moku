@@ -73,10 +73,10 @@ func TestHeaderStorage_Integration(t *testing.T) {
 
 	// Create second snapshot with modified headers
 	headers2 := map[string][]string{
-		"Content-Type":  {"application/json"},      // changed
-		"Cache-Control": {"no-cache", "no-store"},  // unchanged
-		"Server":        {"nginx/1.21.0"},          // changed
-		"X-Custom":      {"value"},                 // added
+		"Content-Type":  {"application/json"},     // changed
+		"Cache-Control": {"no-cache", "no-store"}, // unchanged
+		"Server":        {"nginx/1.21.0"},         // changed
+		"X-Custom":      {"value"},                // added
 		// Authorization removed (was never there, but testing removal in next version)
 	}
 	headersJSON2, err := json.Marshal(headers2)

@@ -23,13 +23,31 @@ type SQLiteTracker struct {
 	db      *sql.DB
 	store   *FSStore
 	logger  interfaces.Logger
+	config  *Config
 }
 
 // NewSQLiteTracker creates a new SQLiteTracker instance.
 // It initializes the SQLite database at siteDir/.moku/moku.db and sets up the blob store.
 func NewSQLiteTracker(siteDir string, logger interfaces.Logger) (*SQLiteTracker, error) {
+	return NewSQLiteTrackerWithConfig(siteDir, logger, nil)
+}
+
+// NewSQLiteTrackerWithConfig creates a new SQLiteTracker instance with custom configuration.
+// If config is nil, default configuration is used.
+func NewSQLiteTrackerWithConfig(siteDir string, logger interfaces.Logger, config *Config) (*SQLiteTracker, error) {
 	if logger == nil {
 		return nil, errors.New("tracker: nil logger provided")
+	}
+
+	// Use default config if not provided
+	if config == nil {
+		config = &Config{}
+	}
+
+	// Default to redacting sensitive headers if not explicitly set
+	if config.RedactSensitiveHeaders == nil {
+		redactDefault := true
+		config.RedactSensitiveHeaders = &redactDefault
 	}
 
 	// Ensure .moku directory exists
@@ -66,6 +84,7 @@ func NewSQLiteTracker(siteDir string, logger interfaces.Logger) (*SQLiteTracker,
 		db:      db,
 		store:   store,
 		logger:  logger,
+		config:  config,
 	}, nil
 }
 
@@ -129,7 +148,8 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	}
 
 	// Normalize and serialize headers
-	normalizedHeaders := normalizeHeaders(headers)
+	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+	normalizedHeaders := normalizeHeaders(headers, redactSensitive)
 	headersJSON, err := json.Marshal(normalizedHeaders)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal headers: %w", err)
@@ -508,7 +528,8 @@ func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, bas
 	}
 
 	// Compute combined diff (body + headers)
-	diffJSON, err := computeCombinedDiff(baseID, headID, baseBody, headBody, baseHeaders, headHeaders)
+	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+	diffJSON, err := computeCombinedDiff(baseID, headID, baseBody, headBody, baseHeaders, headHeaders, redactSensitive)
 	if err != nil {
 		return fmt.Errorf("failed to compute combined diff: %w", err)
 	}
@@ -521,24 +542,6 @@ func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, bas
 	`, diffID, nullableString(baseID), headID, diffJSON, time.Now().Unix())
 
 	return err
-}
-
-// getVersionBody retrieves the body content for a version (transaction version).
-func (t *SQLiteTracker) getVersionBody(ctx context.Context, tx *sql.Tx, versionID string) ([]byte, error) {
-	// Get blob ID from version_files (assuming single file for now)
-	var blobID string
-	err := tx.QueryRowContext(ctx, `
-		SELECT blob_id FROM version_files
-		WHERE version_id = ?
-		LIMIT 1
-	`, versionID).Scan(&blobID)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Get blob content
-	return t.store.Get(blobID)
 }
 
 // getVersionData retrieves both body and headers for a version (transaction version).
