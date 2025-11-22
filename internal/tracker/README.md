@@ -33,6 +33,7 @@ The `.moku` directory is the authoritative store. The working tree (files outsid
 - `url` TEXT (source URL)
 - `file_path` TEXT (relative path in working tree, e.g., "index.html")
 - `created_at` INTEGER (Unix timestamp)
+- `headers` TEXT (JSON-encoded normalized HTTP headers)
 
 **versions**: Commits/history entries
 - `id` TEXT PRIMARY KEY (UUID)
@@ -53,7 +54,7 @@ The `.moku` directory is the authoritative store. The working tree (files outsid
 - `id` TEXT PRIMARY KEY (UUID)
 - `base_version_id` TEXT
 - `head_version_id` TEXT
-- `diff_json` TEXT (JSON serialized diff chunks)
+- `diff_json` TEXT (JSON serialized combined diff with body_diff and headers_diff)
 - `created_at` INTEGER
 
 **scans**: Tracking for analyzer scan results
@@ -114,11 +115,21 @@ This ensures:
 - Compute line-based unified diff
 - Return as JSON with chunks: `{type: "added"|"removed"|"modified", content: "...", path: "..."}`
 
-**Header canonicalization** (TODO):
-- Normalize HTTP headers before comparison
-- Strip volatile headers (Date, Set-Cookie, etc.)
-- Sort remaining headers
-- Store canonical form in metadata
+**Header normalization** (implemented):
+- Normalize HTTP headers before storage and comparison
+- Lowercase header names for case-insensitive handling
+- Trim whitespace from values
+- Sort multi-value headers (except order-sensitive ones like Set-Cookie)
+- Redact sensitive headers (Authorization, Cookie, API keys, etc.)
+- Store normalized form as JSON in snapshots.headers column
+
+**Header diffing** (implemented):
+- Compute structured diff between normalized headers
+- Track added headers (present in head, not in base)
+- Track removed headers (present in base, not in head)
+- Track changed headers (different values between base and head)
+- Track redacted headers (sensitive headers present in either version)
+- Diff structure: `{added: map, removed: map, changed: map, redacted: []string}`
 
 **DOM-aware diffing** (future):
 - Parse HTML into DOM tree
@@ -240,6 +251,68 @@ type Config struct {
 }
 ```
 
+## Diff JSON Format
+
+The `diff_json` column in the diffs table contains a combined diff with both body and header changes:
+
+```json
+{
+  "body_diff": {
+    "base_id": "version-uuid-1",
+    "head_id": "version-uuid-2",
+    "chunks": [
+      {
+        "type": "removed",
+        "content": "Old Title"
+      },
+      {
+        "type": "added",
+        "content": "New Title"
+      }
+    ]
+  },
+  "headers_diff": {
+    "added": {
+      "x-custom-header": ["value1", "value2"]
+    },
+    "removed": {
+      "x-deprecated-header": ["old-value"]
+    },
+    "changed": {
+      "content-type": {
+        "from": ["text/html"],
+        "to": ["application/json"]
+      },
+      "cache-control": {
+        "from": ["no-cache"],
+        "to": ["max-age=3600", "public"]
+      }
+    },
+    "redacted": ["authorization", "cookie"]
+  }
+}
+```
+
+### Header Normalization Rules
+
+1. **Case normalization**: Header names are lowercased (`Content-Type` → `content-type`)
+2. **Value trimming**: Leading/trailing whitespace is removed from values
+3. **Sorting**: Multi-value headers are sorted alphabetically (except order-sensitive ones)
+4. **Order preservation**: Headers like `Set-Cookie` preserve original order
+5. **Redaction**: Sensitive headers are replaced with `["[REDACTED]"]`
+
+### Sensitive Headers (Redacted)
+
+The following headers are considered sensitive and are redacted in storage and diffs:
+- `authorization`
+- `cookie`
+- `set-cookie`
+- `proxy-authorization`
+- `www-authenticate`
+- `proxy-authenticate`
+- `x-api-key`
+- `x-auth-token`
+
 ## Example Usage
 
 ```go
@@ -251,18 +324,29 @@ if err != nil {
 }
 defer tracker.Close()
 
-// Commit a snapshot
+// Commit a snapshot with headers
+headers := map[string][]string{
+    "Content-Type": {"text/html; charset=utf-8"},
+    "Cache-Control": {"no-cache", "no-store"},
+}
+headersJSON, _ := json.Marshal(headers)
+
 snapshot := &model.Snapshot{
     URL:  "https://example.com",
     Body: []byte("<html>...</html>"),
-    Meta: map[string]string{"Content-Type": "text/html"},
+    Meta: map[string]string{
+        "_headers": string(headersJSON),
+    },
 }
 version, err := tracker.Commit(ctx, snapshot, "Initial commit", "user@example.com")
 
-// Get diff between versions
+// Get diff between versions (returns body diff for backward compatibility)
 diff, err := tracker.Diff(ctx, parentID, currentID)
 
-// Checkout a specific version (future)
+// For full combined diff including headers, query diffs table directly
+// SELECT diff_json FROM diffs WHERE base_version_id = ? AND head_version_id = ?
+
+// Checkout a specific version
 err = tracker.Checkout(ctx, versionID)
 
 // List recent versions
