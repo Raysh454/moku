@@ -118,19 +118,14 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	}()
 
 	// Step 5: Extract and normalize headers from snapshot metadata
-	var headers map[string][]string
+	headers := make(map[string][]string)
 	if snapshot.Meta != nil {
 		// Try to parse headers from Meta["_headers"] as JSON
 		if headersJSON, ok := snapshot.Meta["_headers"]; ok {
 			if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
 				t.logger.Warn("Failed to parse headers from metadata", interfaces.Field{Key: "error", Value: err.Error()})
-				headers = make(map[string][]string)
 			}
-		} else {
-			headers = make(map[string][]string)
 		}
-	} else {
-		headers = make(map[string][]string)
 	}
 
 	// Normalize and serialize headers
