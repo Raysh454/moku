@@ -3,6 +3,7 @@ package tracker_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -313,7 +314,7 @@ func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers m
 
 	snapshot := &model.Snapshot{
 		URL:  "https://example.com",
-		Body: []byte("<html><body>Version " + string(rune('0'+versionNum)) + "</body></html>"),
+		Body: []byte("<html><body>Version " + fmt.Sprintf("%d", versionNum) + "</body></html>"),
 		Meta: map[string]string{
 			"_headers": string(headersJSON),
 		},
