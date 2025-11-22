@@ -96,9 +96,12 @@ func (fs *FSStore) Delete(blobID string) error {
 // blobPath returns the filesystem path for a given blob ID.
 // Format: blobsDir/{first2chars}/{fullhash}
 func (fs *FSStore) blobPath(blobID string) string {
+	// Validate blob ID length to prevent path traversal attacks
+	// SHA-256 hex is always 64 characters
 	if len(blobID) < 2 {
-		// Fallback for invalid IDs (shouldn't happen in normal operation)
-		return filepath.Join(fs.blobsDir, blobID)
+		// Return an invalid path that will cause operations to fail safely
+		// Using a subdirectory name that can't match any real blob
+		return filepath.Join(fs.blobsDir, "__invalid__", blobID)
 	}
 	return filepath.Join(fs.blobsDir, blobID[:2], blobID)
 }

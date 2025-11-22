@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/interfaces"
 	"github.com/raysh454/moku/internal/model"
+	_ "modernc.org/sqlite" // SQLite driver
 )
 
 // SQLiteTracker implements interfaces.Tracker using SQLite for metadata storage
