@@ -35,7 +35,7 @@ func TestNewInMemoryTracker_Constructable(t *testing.T) {
 
 func TestNewSQLiteTracker_Constructable(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create temp directory for test
 	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
 	if err != nil {
@@ -71,7 +71,7 @@ func TestNewSQLiteTracker_Constructable(t *testing.T) {
 
 func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create temp directory for test
 	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
 	if err != nil {
@@ -139,7 +139,7 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 
 func TestSQLiteTracker_List(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create temp directory for test
 	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
 	if err != nil {
@@ -196,7 +196,7 @@ func TestSQLiteTracker_List(t *testing.T) {
 
 func TestSQLiteTracker_Diff(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create temp directory for test
 	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
 	if err != nil {
@@ -251,8 +251,109 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 		t.Errorf("expected HeadID %q, got %q", version2.ID, diff.HeadID)
 	}
 
-	// Should have at least one chunk (placeholder implementation)
+	// Should have at least one chunk (actual diff implementation)
 	if len(diff.Chunks) == 0 {
 		t.Error("expected at least one diff chunk")
+	}
+
+	// Verify diff chunks make sense (version 1 removed, version 2 added)
+	hasRemoved := false
+	hasAdded := false
+	for _, chunk := range diff.Chunks {
+		if chunk.Type == "removed" && chunk.Content == "1" {
+			hasRemoved = true
+		}
+		if chunk.Type == "added" && chunk.Content == "2" {
+			hasAdded = true
+		}
+	}
+	if !hasRemoved || !hasAdded {
+		t.Errorf("expected diff to show version 1 removed and version 2 added, got chunks: %+v", diff.Chunks)
+	}
+}
+
+func TestSQLiteTracker_Checkout(t *testing.T) {
+	t.Parallel()
+
+	// Create temp directory for test
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-test")
+	tr, err := tracker.NewSQLiteTracker(tmpDir, logger)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	// Commit first version
+	snapshot1 := &model.Snapshot{
+		URL:  "https://example.com",
+		Body: []byte("<html><body>First Version</body></html>"),
+	}
+	version1, err := tr.Commit(ctx, snapshot1, "First commit", "test@example.com")
+	if err != nil {
+		t.Fatalf("Commit 1 returned error: %v", err)
+	}
+
+	// Commit second version
+	snapshot2 := &model.Snapshot{
+		URL:  "https://example.com",
+		Body: []byte("<html><body>Second Version</body></html>"),
+	}
+	version2, err := tr.Commit(ctx, snapshot2, "Second commit", "test@example.com")
+	if err != nil {
+		t.Fatalf("Commit 2 returned error: %v", err)
+	}
+
+	// Checkout first version
+	err = tr.Checkout(ctx, version1.ID)
+	if err != nil {
+		t.Fatalf("Checkout returned error: %v", err)
+	}
+
+	// Verify the file was restored
+	indexPath := filepath.Join(tmpDir, "index.html")
+	content, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("failed to read checked out file: %v", err)
+	}
+
+	expected := "<html><body>First Version</body></html>"
+	if string(content) != expected {
+		t.Errorf("expected content %q, got %q", expected, string(content))
+	}
+
+	// Checkout second version
+	err = tr.Checkout(ctx, version2.ID)
+	if err != nil {
+		t.Fatalf("Checkout of version 2 returned error: %v", err)
+	}
+
+	// Verify the file was updated
+	content, err = os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("failed to read checked out file: %v", err)
+	}
+
+	expected = "<html><body>Second Version</body></html>"
+	if string(content) != expected {
+		t.Errorf("expected content %q, got %q", expected, string(content))
+	}
+
+	// Verify HEAD was updated
+	headPath := filepath.Join(tmpDir, ".moku", "HEAD")
+	headContent, err := os.ReadFile(headPath)
+	if err != nil {
+		t.Fatalf("failed to read HEAD: %v", err)
+	}
+
+	if string(headContent) != version2.ID {
+		t.Errorf("expected HEAD to be %q, got %q", version2.ID, string(headContent))
 	}
 }

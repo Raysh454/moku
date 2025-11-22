@@ -81,7 +81,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		return nil, errors.New("commit message cannot be empty")
 	}
 
-	t.logger.Debug("Starting commit", 
+	t.logger.Debug("Starting commit",
 		interfaces.Field{Key: "url", Value: snapshot.URL},
 		interfaces.Field{Key: "message", Value: message})
 
@@ -111,7 +111,11 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback() // Rollback if not committed
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && rbErr != sql.ErrTxDone {
+			t.logger.Warn("Failed to rollback transaction", interfaces.Field{Key: "error", Value: rbErr.Error()})
+		}
+	}()
 
 	// Step 5: Insert snapshot record
 	filePath := "index.html" // Default file path, could be derived from URL
@@ -169,7 +173,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		// Don't fail the commit if HEAD update fails
 	}
 
-	t.logger.Info("Commit successful", 
+	t.logger.Info("Commit successful",
 		interfaces.Field{Key: "versionID", Value: versionID},
 		interfaces.Field{Key: "snapshotID", Value: snapshotID})
 
@@ -186,7 +190,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 
 // Diff computes a delta between two versions identified by their IDs.
 func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
-	t.logger.Debug("Computing diff", 
+	t.logger.Debug("Computing diff",
 		interfaces.Field{Key: "baseID", Value: baseID},
 		interfaces.Field{Key: "headID", Value: headID})
 
@@ -209,19 +213,47 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 	}
 
 	// Diff not cached, compute it
-	// TODO: Implement actual diff computation
-	// For now, return a placeholder
-	return &model.DiffResult{
-		BaseID: baseID,
-		HeadID: headID,
-		Chunks: []model.DiffChunk{
-			{
-				Type:    "modified",
-				Path:    "",
-				Content: "Diff computation not yet fully implemented",
-			},
-		},
-	}, nil
+	var baseBody, headBody []byte
+	var err2 error
+
+	// Get base version body (if baseID is not empty)
+	if baseID != "" {
+		baseBody, err2 = t.getVersionBodyByID(ctx, baseID)
+		if err2 != nil {
+			return nil, fmt.Errorf("failed to get base version body: %w", err2)
+		}
+	}
+
+	// Get head version body
+	headBody, err2 = t.getVersionBodyByID(ctx, headID)
+	if err2 != nil {
+		return nil, fmt.Errorf("failed to get head version body: %w", err2)
+	}
+
+	// Compute diff
+	diffJSON, err2 = computeTextDiffJSON(baseID, headID, baseBody, headBody)
+	if err2 != nil {
+		return nil, fmt.Errorf("failed to compute diff: %w", err2)
+	}
+
+	// Parse the diff result
+	var result model.DiffResult
+	if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal computed diff: %w", err)
+	}
+
+	// Cache the diff for future use
+	diffID := uuid.New().String()
+	_, err = t.db.ExecContext(ctx, `
+		INSERT INTO diffs (id, base_version_id, head_version_id, diff_json, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, diffID, nullableString(baseID), headID, diffJSON, time.Now().Unix())
+	if err != nil {
+		// Log but don't fail if caching fails
+		t.logger.Warn("Failed to cache diff", interfaces.Field{Key: "error", Value: err.Error()})
+	}
+
+	return &result, nil
 }
 
 // Get returns the snapshot for a specific version ID.
@@ -323,10 +355,84 @@ func (t *SQLiteTracker) List(ctx context.Context, limit int) ([]*model.Version, 
 }
 
 // Checkout updates the working tree to match a specific version.
-// TODO: Implement full checkout logic
+// This restores all files from the specified version to the working directory.
 func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 	t.logger.Debug("Checkout version", interfaces.Field{Key: "versionID", Value: versionID})
-	return ErrNotImplemented
+
+	// Verify version exists
+	var exists int
+	err := t.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM versions WHERE id = ?
+	`, versionID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to verify version: %w", err)
+	}
+	if exists == 0 {
+		return fmt.Errorf("version not found: %s", versionID)
+	}
+
+	// Get all files for this version
+	type fileEntry struct {
+		path   string
+		blobID string
+	}
+	var files []fileEntry
+
+	rows, err := t.db.QueryContext(ctx, `
+		SELECT file_path, blob_id FROM version_files
+		WHERE version_id = ?
+	`, versionID)
+	if err != nil {
+		return fmt.Errorf("failed to query version files: %w", err)
+	}
+	defer rows.Close()
+
+	var filePath, blobID string
+	for rows.Next() {
+		if err := rows.Scan(&filePath, &blobID); err != nil {
+			return fmt.Errorf("failed to scan file entry: %w", err)
+		}
+		files = append(files, fileEntry{path: filePath, blobID: blobID})
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating version files: %w", err)
+	}
+
+	// Restore each file to the working tree
+	for _, file := range files {
+		// Get blob content
+		content, err := t.store.Get(file.blobID)
+		if err != nil {
+			return fmt.Errorf("failed to get blob %s: %w", file.blobID, err)
+		}
+
+		// Sanitize and build full path
+		fullPath, err := sanitizePath(t.siteDir, file.path)
+		if err != nil {
+			return fmt.Errorf("invalid file path %s: %w", file.path, err)
+		}
+
+		// Write file atomically to working tree
+		if err := AtomicWriteFile(fullPath, content, 0644); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", file.path, err)
+		}
+
+		t.logger.Debug("Checked out file",
+			interfaces.Field{Key: "path", Value: file.path},
+			interfaces.Field{Key: "blobID", Value: file.blobID})
+	}
+
+	// Update HEAD to point to this version
+	if err := t.writeHEAD(versionID); err != nil {
+		return fmt.Errorf("failed to update HEAD: %w", err)
+	}
+
+	t.logger.Info("Checkout complete",
+		interfaces.Field{Key: "versionID", Value: versionID},
+		interfaces.Field{Key: "filesRestored", Value: len(files)})
+
+	return nil
 }
 
 // Close releases resources used by the tracker.
@@ -369,11 +475,29 @@ func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, bas
 	return err
 }
 
-// getVersionBody retrieves the body content for a version.
+// getVersionBody retrieves the body content for a version (transaction version).
 func (t *SQLiteTracker) getVersionBody(ctx context.Context, tx *sql.Tx, versionID string) ([]byte, error) {
 	// Get blob ID from version_files (assuming single file for now)
 	var blobID string
 	err := tx.QueryRowContext(ctx, `
+		SELECT blob_id FROM version_files
+		WHERE version_id = ?
+		LIMIT 1
+	`, versionID).Scan(&blobID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Get blob content
+	return t.store.Get(blobID)
+}
+
+// getVersionBodyByID retrieves the body content for a version (non-transaction version).
+func (t *SQLiteTracker) getVersionBodyByID(ctx context.Context, versionID string) ([]byte, error) {
+	// Get blob ID from version_files (assuming single file for now)
+	var blobID string
+	err := t.db.QueryRowContext(ctx, `
 		SELECT blob_id FROM version_files
 		WHERE version_id = ?
 		LIMIT 1
