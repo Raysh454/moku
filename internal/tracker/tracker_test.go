@@ -88,10 +88,11 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 
 	// Create a test snapshot
 	snapshot := &model.Snapshot{
-		URL:  "https://example.com",
-		Body: []byte("<html><body>Hello World</body></html>"),
-		Meta: map[string]string{
-			"Content-Type": "text/html",
+		URL:        "https://example.com",
+		StatusCode: 200,
+		Body:       []byte("<html><body>Hello World</body></html>"),
+		Headers: map[string][]string{
+			"Content-Type": []string{"text/html"},
 		},
 	}
 
@@ -319,7 +320,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 
 	// Verify the working-tree file was restored
 	// Files are now written as index.html/.page_body
-	indexPath := filepath.Join(tmpDir, "index.html", ".page_body")
+	indexPath := filepath.Join(tmpDir, ".page_body")
 	content, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatalf("failed to read checked out file: %v", err)
@@ -331,7 +332,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	}
 
 	// Also verify headers file was created
-	headersPath := filepath.Join(tmpDir, "index.html", ".page_headers.json")
+	headersPath := filepath.Join(tmpDir, ".page_headers.json")
 	if _, err := os.Stat(headersPath); os.IsNotExist(err) {
 		t.Error(".page_headers.json was not created")
 	}

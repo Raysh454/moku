@@ -13,6 +13,7 @@ INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');
 -- Snapshots: captured web content at a point in time
 CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,
+    status_code INTEGER NOT NULL,
     url TEXT NOT NULL,
     file_path TEXT NOT NULL,
     created_at INTEGER NOT NULL,
