@@ -15,7 +15,7 @@ func TestNormalizeHeaders(t *testing.T) {
 		{
 			name: "lowercase header names",
 			input: map[string][]string{
-				"Content-Type": {"text/html"},
+				"Content-Type":  {"text/html"},
 				"Cache-Control": {"no-cache"},
 			},
 			expected: map[string][]string{
@@ -26,7 +26,7 @@ func TestNormalizeHeaders(t *testing.T) {
 		{
 			name: "trim whitespace from values",
 			input: map[string][]string{
-				"Content-Type": {"  text/html  "},
+				"Content-Type":  {"  text/html  "},
 				"Cache-Control": {" no-cache "},
 			},
 			expected: map[string][]string{
@@ -56,9 +56,9 @@ func TestNormalizeHeaders(t *testing.T) {
 			name: "redact sensitive headers",
 			input: map[string][]string{
 				"Authorization": {"Bearer token123"},
-				"Cookie": {"session=xyz"},
-				"X-Api-Key": {"secret"},
-				"Content-Type": {"text/html"},
+				"Cookie":        {"session=xyz"},
+				"X-Api-Key":     {"secret"},
+				"Content-Type":  {"text/html"},
 			},
 			expected: map[string][]string{
 				"authorization": {"[REDACTED]"},

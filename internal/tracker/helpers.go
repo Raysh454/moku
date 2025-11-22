@@ -153,7 +153,8 @@ type CombinedDiff struct {
 }
 
 // computeCombinedDiff computes both body and header diffs and combines them.
-func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseHeaders, headHeaders map[string][]string) (string, error) {
+// If redactSensitive is true, sensitive headers are marked as redacted in the diff.
+func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseHeaders, headHeaders map[string][]string, redactSensitive bool) (string, error) {
 	// Compute body diff
 	bodyDiffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headBody)
 	if err != nil {
@@ -166,7 +167,7 @@ func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseH
 	}
 
 	// Compute header diff
-	headersDiff := diffHeaders(baseHeaders, headHeaders)
+	headersDiff := diffHeaders(baseHeaders, headHeaders, redactSensitive)
 
 	// Combine both diffs
 	combined := CombinedDiff{
@@ -188,7 +189,8 @@ func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseH
 // (like Set-Cookie), the original order is preserved.
 // Headers with the same normalized name are merged into a single entry, which is
 // correct behavior per RFC 7230 (HTTP headers are case-insensitive).
-func normalizeHeaders(h map[string][]string) map[string][]string {
+// If redactSensitive is true, sensitive headers are replaced with "[REDACTED]".
+func normalizeHeaders(h map[string][]string, redactSensitive bool) map[string][]string {
 	if h == nil {
 		return make(map[string][]string)
 	}
@@ -210,10 +212,10 @@ func normalizeHeaders(h map[string][]string) map[string][]string {
 		}
 	}
 
-	// Second pass: redact sensitive headers and sort values
+	// Second pass: redact sensitive headers (if enabled) and sort values
 	for normName, values := range normalized {
-		// Redact sensitive headers
-		if isSensitiveHeader(normName) {
+		// Redact sensitive headers if enabled
+		if redactSensitive && isSensitiveHeader(normName) {
 			normalized[normName] = []string{"[REDACTED]"}
 			continue
 		}
@@ -282,7 +284,8 @@ type Change struct {
 }
 
 // diffHeaders computes a structured diff between two sets of normalized headers.
-func diffHeaders(base, head map[string][]string) HeaderDiff {
+// If redactSensitive is true, sensitive headers are marked as redacted in the diff.
+func diffHeaders(base, head map[string][]string, redactSensitive bool) HeaderDiff {
 	diff := HeaderDiff{
 		Added:    make(map[string][]string),
 		Removed:  make(map[string][]string),
@@ -291,8 +294,8 @@ func diffHeaders(base, head map[string][]string) HeaderDiff {
 	}
 
 	// Normalize both header sets
-	baseNorm := normalizeHeaders(base)
-	headNorm := normalizeHeaders(head)
+	baseNorm := normalizeHeaders(base, redactSensitive)
+	headNorm := normalizeHeaders(head, redactSensitive)
 
 	// Track unique redacted headers using a map
 	redactedSet := make(map[string]bool)
