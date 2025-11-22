@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,
     url TEXT NOT NULL,
     file_path TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    headers TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
