@@ -44,34 +44,6 @@ func applySchema(db *sql.DB) error {
 		return fmt.Errorf("failed to execute schema: %w", err)
 	}
 
-	// Apply schema migrations
-	if err := applyMigrations(db); err != nil {
-		return fmt.Errorf("failed to apply migrations: %w", err)
-	}
-
-	return nil
-}
-
-// applyMigrations applies any necessary schema migrations for existing databases.
-func applyMigrations(db *sql.DB) error {
-	// Check if headers column exists in snapshots table
-	var columnExists bool
-	err := db.QueryRow(`
-		SELECT COUNT(*) > 0
-		FROM pragma_table_info('snapshots')
-		WHERE name = 'headers'
-	`).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check headers column existence: %w", err)
-	}
-
-	// Add headers column if it doesn't exist
-	if !columnExists {
-		if _, err := db.Exec(`ALTER TABLE snapshots ADD COLUMN headers TEXT`); err != nil {
-			return fmt.Errorf("failed to add headers column: %w", err)
-		}
-	}
-
 	return nil
 }
 
