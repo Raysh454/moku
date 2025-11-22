@@ -5,8 +5,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-
-	_ "modernc.org/sqlite" // SQLite driver
 )
 
 //go:embed schema.sql

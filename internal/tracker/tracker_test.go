@@ -3,6 +3,7 @@ package tracker_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -168,9 +169,9 @@ func TestSQLiteTracker_List(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		snapshot := &model.Snapshot{
 			URL:  "https://example.com",
-			Body: []byte("<html><body>Version " + string(rune(i)) + "</body></html>"),
+			Body: []byte(fmt.Sprintf("<html><body>Version %d</body></html>", i)),
 		}
-		_, err := tr.Commit(ctx, snapshot, "Commit "+string(rune(i)), "test@example.com")
+		_, err := tr.Commit(ctx, snapshot, fmt.Sprintf("Commit %d", i), "test@example.com")
 		if err != nil {
 			t.Fatalf("Commit %d returned error: %v", i, err)
 		}
