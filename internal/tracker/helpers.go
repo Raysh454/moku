@@ -292,10 +292,13 @@ func diffHeaders(base, head map[string][]string) HeaderDiff {
 	baseNorm := normalizeHeaders(base)
 	headNorm := normalizeHeaders(head)
 
+	// Track unique redacted headers using a map
+	redactedSet := make(map[string]bool)
+
 	// Find added and changed headers
 	for name, headValues := range headNorm {
 		if isRedacted(headValues) {
-			diff.Redacted = append(diff.Redacted, name)
+			redactedSet[name] = true
 			continue
 		}
 
@@ -316,7 +319,7 @@ func diffHeaders(base, head map[string][]string) HeaderDiff {
 	for name, baseValues := range baseNorm {
 		if isRedacted(baseValues) {
 			if _, existsInHead := headNorm[name]; !existsInHead {
-				diff.Redacted = append(diff.Redacted, name)
+				redactedSet[name] = true
 			}
 			continue
 		}
@@ -326,7 +329,10 @@ func diffHeaders(base, head map[string][]string) HeaderDiff {
 		}
 	}
 
-	// Sort redacted list for consistency
+	// Convert redacted set to sorted slice
+	for name := range redactedSet {
+		diff.Redacted = append(diff.Redacted, name)
+	}
 	sort.Strings(diff.Redacted)
 
 	return diff
