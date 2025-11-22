@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/raysh454/moku/internal/logging"
@@ -321,4 +322,169 @@ func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers m
 	}
 
 	return tr.Commit(ctx, snapshot, message, "test@example.com")
+}
+
+func TestCommitBatch_Integration(t *testing.T) {
+	t.Parallel()
+
+	// Create temp directory for test
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-batch-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-batch-test")
+	tr, err := tracker.NewSQLiteTracker(tmpDir, logger)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	// Create multiple snapshots with different headers
+	snapshots := []*model.Snapshot{
+		{
+			URL:  "https://example.com/page1",
+			Body: []byte("<html><body>Page 1</body></html>"),
+			Meta: map[string]string{
+				"_headers":   `{"Content-Type":["text/html"],"Server":["nginx"]}`,
+				"_file_path": "page1.html",
+			},
+		},
+		{
+			URL:  "https://example.com/page2",
+			Body: []byte("<html><body>Page 2</body></html>"),
+			Meta: map[string]string{
+				"_headers":   `{"Content-Type":["application/json"],"Cache-Control":["max-age=3600"]}`,
+				"_file_path": "page2.html",
+			},
+		},
+	}
+
+	// Commit batch
+	versions, err := tr.CommitBatch(ctx, snapshots, "Initial batch commit", "test@example.com")
+	if err != nil {
+		t.Fatalf("CommitBatch returned error: %v", err)
+	}
+
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+
+	// Verify working-tree files were created
+	page1BodyPath := filepath.Join(tmpDir, "page1.html", ".page_body")
+	page1HeadersPath := filepath.Join(tmpDir, "page1.html", ".page_headers.json")
+	page2BodyPath := filepath.Join(tmpDir, "page2.html", ".page_body")
+	page2HeadersPath := filepath.Join(tmpDir, "page2.html", ".page_headers.json")
+
+	// Check if files exist
+	if _, err := os.Stat(page1BodyPath); os.IsNotExist(err) {
+		t.Errorf(".page_body for page1 not created")
+	}
+	if _, err := os.Stat(page1HeadersPath); os.IsNotExist(err) {
+		t.Errorf(".page_headers.json for page1 not created")
+	}
+	if _, err := os.Stat(page2BodyPath); os.IsNotExist(err) {
+		t.Errorf(".page_body for page2 not created")
+	}
+	if _, err := os.Stat(page2HeadersPath); os.IsNotExist(err) {
+		t.Errorf(".page_headers.json for page2 not created")
+	}
+
+	// Verify body content
+	body1, err := os.ReadFile(page1BodyPath)
+	if err != nil {
+		t.Fatalf("failed to read page1 body: %v", err)
+	}
+	if string(body1) != "<html><body>Page 1</body></html>" {
+		t.Errorf("unexpected page1 body: %s", string(body1))
+	}
+
+	// Verify headers content
+	headers1, err := os.ReadFile(page1HeadersPath)
+	if err != nil {
+		t.Fatalf("failed to read page1 headers: %v", err)
+	}
+	var parsedHeaders map[string][]string
+	if err := json.Unmarshal(headers1, &parsedHeaders); err != nil {
+		t.Fatalf("failed to parse page1 headers: %v", err)
+	}
+	if parsedHeaders["content-type"][0] != "text/html" {
+		t.Errorf("unexpected content-type in page1: %v", parsedHeaders["content-type"])
+	}
+
+	t.Logf("CommitBatch test completed successfully with %d versions", len(versions))
+}
+
+func TestCommitBatch_WithDiffs_Integration(t *testing.T) {
+	t.Parallel()
+
+	// Create temp directory for test
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-batch-diffs-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-batch-diffs-test")
+	tr, err := tracker.NewSQLiteTracker(tmpDir, logger)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	// First commit
+	snapshots1 := []*model.Snapshot{
+		{
+			URL:  "https://example.com/page1",
+			Body: []byte("<html><body>Version 1</body></html>"),
+			Meta: map[string]string{
+				"_headers":   `{"Content-Type":["text/html"],"Server":["nginx/1.0"]}`,
+				"_file_path": "page1.html",
+			},
+		},
+	}
+
+	versions1, err := tr.CommitBatch(ctx, snapshots1, "First commit", "test@example.com")
+	if err != nil {
+		t.Fatalf("First CommitBatch returned error: %v", err)
+	}
+
+	// Second commit with changes
+	snapshots2 := []*model.Snapshot{
+		{
+			URL:  "https://example.com/page1",
+			Body: []byte("<html><body>Version 2 - Updated</body></html>"),
+			Meta: map[string]string{
+				"_headers":   `{"Content-Type":["text/html"],"Server":["nginx/2.0"],"X-Custom":["value"]}`,
+				"_file_path": "page1.html",
+			},
+		},
+	}
+
+	versions2, err := tr.CommitBatch(ctx, snapshots2, "Second commit with changes", "test@example.com")
+	if err != nil {
+		t.Fatalf("Second CommitBatch returned error: %v", err)
+	}
+
+	// Verify diff was computed
+	diff, err := tr.Diff(ctx, versions1[0].ID, versions2[0].ID)
+	if err != nil {
+		t.Fatalf("Diff returned error: %v", err)
+	}
+
+	if diff == nil {
+		t.Fatal("Diff returned nil")
+	}
+
+	// Verify body diff has changes
+	if len(diff.Chunks) == 0 {
+		t.Error("expected body diff chunks")
+	}
+
+	t.Logf("CommitBatch with diffs test completed successfully")
 }
