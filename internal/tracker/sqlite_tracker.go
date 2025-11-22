@@ -226,10 +226,20 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 
 	if err == nil {
 		// Diff exists, parse and return
-		// Try to parse as combined diff first (new format)
-		var combined CombinedDiff
-		if err := json.Unmarshal([]byte(diffJSON), &combined); err == nil && len(combined.BodyDiff.Chunks) > 0 {
+		// Detect format by checking for the presence of "body_diff" or "headers_diff" keys
+		// New format has these keys, old format has "base_id", "head_id", "chunks" at top level
+		var rawDiff map[string]interface{}
+		if err := json.Unmarshal([]byte(diffJSON), &rawDiff); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal cached diff: %w", err)
+		}
+
+		// Check if this is the new combined format
+		if _, hasBodyDiff := rawDiff["body_diff"]; hasBodyDiff {
 			// New format with combined diff, extract body diff
+			var combined CombinedDiff
+			if err := json.Unmarshal([]byte(diffJSON), &combined); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal combined diff: %w", err)
+			}
 			result := model.DiffResult{
 				BaseID: combined.BodyDiff.BaseID,
 				HeadID: combined.BodyDiff.HeadID,
@@ -245,7 +255,7 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 			return &result, nil
 		}
 
-		// Try old format (backward compatibility)
+		// Old format - parse directly
 		var result model.DiffResult
 		if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal cached diff: %w", err)
