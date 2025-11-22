@@ -353,7 +353,7 @@ func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, bas
 	}
 
 	// Compute diff (placeholder)
-	diffJSON, err := computeTextDiffJSON(baseBody, headBody)
+	diffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headBody)
 	if err != nil {
 		return fmt.Errorf("failed to compute diff: %w", err)
 	}

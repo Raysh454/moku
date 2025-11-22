@@ -53,7 +53,7 @@ func applySchema(db *sql.DB) error {
 // - Word-level diff for smaller changes
 // - DOM-aware diff for HTML content
 // - Header normalization and canonicalization
-func computeTextDiffJSON(base, head []byte) (string, error) {
+func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, error) {
 	// Placeholder: return empty diff indicating no changes detected
 	// In a real implementation, this would:
 	// 1. Parse both base and head as text or HTML
@@ -62,8 +62,12 @@ func computeTextDiffJSON(base, head []byte) (string, error) {
 	// 4. Return as JSON
 	
 	diff := struct {
+		BaseID string  `json:"base_id,omitempty"`
+		HeadID string  `json:"head_id,omitempty"`
 		Chunks []chunk `json:"chunks"`
 	}{
+		BaseID: baseID,
+		HeadID: headID,
 		Chunks: []chunk{},
 	}
 
