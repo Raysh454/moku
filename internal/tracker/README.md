@@ -2,7 +2,7 @@
 
 ## Overview
 
-The tracker component provides version control for website snapshots, similar to git but optimized for web content. It stores snapshots with headers, manages versions, computes body and header diffs, and provides checkout semantics for historical content. The tracker is designed to integrate seamlessly with the fetcher through an adapter layer.
+The tracker component provides version control for website snapshots, similar to git but optimized for web content. It stores snapshots with headers, manages versions, computes body and header diffs, and provides checkout semantics for historical content. The tracker is designed to be integrated with the fetcher through an adapter layer (integration is optional and can be implemented by the consuming application).
 
 ## Architecture
 
@@ -110,7 +110,7 @@ This ensures:
 
 7. **Compute diffs**: Calculate combined diff (body + headers) from parent version (if exists)
    - Extract text content from both versions
-   - Run diff algorithm (diffmatchpatch for body)
+   - Run diff algorithm (diffmatchpatch for body or a line-based diff)
    - Compute header diff (added, removed, changed, redacted)
    - Store combined diff JSON in diffs table with base_version_id and head_version_id
 
@@ -145,7 +145,7 @@ This is more efficient than individual commits when fetching multiple pages, as 
 - Compute line-based unified diff
 - Return as JSON with chunks: `{type: "added"|"removed"|"modified", content: "...", path: "..."}`
 
-**Header normalization** (implemented):
+**Header normalization**:
 - Normalize HTTP headers before storage and comparison
 - Lowercase header names for case-insensitive handling
 - Trim whitespace from values
@@ -153,7 +153,7 @@ This is more efficient than individual commits when fetching multiple pages, as 
 - Redact sensitive headers (Authorization, Cookie, API keys, etc.)
 - Store normalized form as JSON in snapshots.headers column
 
-**Header diffing** (implemented):
+**Header diffing**:
 - Compute structured diff between normalized headers
 - Track added headers (present in head, not in base)
 - Track removed headers (present in base, not in head)
@@ -226,9 +226,9 @@ This is more efficient than individual commits when fetching multiple pages, as 
 - Helper functions (`fs_helpers.go`, `helpers.go`)
 - Commit flow skeleton with placeholders
 
-**TODO (Next Steps)**:
+**Planned / Next steps**:
 1. Implement actual diff algorithm (text-based unified diff)
-2. Add header canonicalization logic
+2. Add header canonicalization logic and ensure snapshots.headers is used
 3. Implement Checkout method fully
 4. Implement List with pagination
 5. Add GC implementation
@@ -329,7 +329,7 @@ The `diff_json` column in the diffs table contains a combined diff with both bod
 2. **Value trimming**: Leading/trailing whitespace is removed from values
 3. **Sorting**: Multi-value headers are sorted alphabetically (except order-sensitive ones)
 4. **Order preservation**: Headers like `Set-Cookie` preserve original order
-5. **Redaction**: Sensitive headers are replaced with `["[REDACTED]"]`
+5. **Redaction**: Sensitive headers are replaced with `["[REDACTED]"]` if redaction is enabled
 
 ### Sensitive Headers (Redacted)
 
@@ -343,51 +343,11 @@ The following headers are considered sensitive and are redacted in storage and d
 - `x-api-key`
 - `x-auth-token`
 
-## Fetcher Integration
+## Fetcher Integration (note)
 
-The tracker integrates with the fetcher through an adapter layer in `internal/fetcher/adapter.go`. This adapter converts HTTP responses into tracker snapshots without writing files directly to disk.
+Fetcher integration is not enabled by default in this repository. The tracker is intentionally implemented as an independent component that can be integrated with a fetcher via an adapter in the consuming application. This repository provides the tracker APIs and the recommended pattern for integration (fetcher builds Snapshot instances and calls tracker.Commit or tracker.CommitBatch). Integrating the fetcher is left to the application maintainers and is not assumed to be present in the current codebase.
 
-### Using the Fetcher Adapter
-
-```go
-// Initialize tracker
-logger := logging.NewStdoutLogger("tracker")
-tr, err := tracker.NewSQLiteTracker("/path/to/site", logger)
-if err != nil {
-    log.Fatal(err)
-}
-defer tr.Close()
-
-// Fetch a page using webclient
-resp, err := webclient.Get(ctx, "https://example.com")
-if err != nil {
-    log.Fatal(err)
-}
-
-// Commit the response to tracker using the adapter
-version, err := fetcher.CommitResponseToTracker(ctx, tr, resp, "index.html")
-if err != nil {
-    log.Fatal(err)
-}
-
-// For batch commits of multiple pages
-responses := map[string]*http.Response{
-    "page1.html": resp1,
-    "page2.html": resp2,
-    "page3.html": resp3,
-}
-
-versions, err := fetcher.CommitResponseBatchToTracker(ctx, tr, responses, "Fetched multiple pages", "fetcher")
-```
-
-The adapter automatically:
-1. Reads response body
-2. Extracts headers
-3. Constructs a `model.Snapshot` with headers stored in `Meta["_headers"]`
-4. Calls `tracker.Commit` or `tracker.CommitBatch`
-5. Does NOT write files to disk (tracker handles all persistence)
-
-## Example Usage
+## Example Usage (Tracker-only)
 
 ```go
 // Initialize tracker
