@@ -12,26 +12,26 @@ import (
 // Module: fetcher
 // Fetches, Normalizes and stores pages
 type Fetcher struct {
-	MaxConcurrency 	int
-	CommitSize 		int
-	tracker        	interfaces.Tracker
-	wc             	interfaces.WebClient
-	logger         	interfaces.Logger
+	MaxConcurrency int
+	CommitSize     int
+	tracker        interfaces.Tracker
+	wc             interfaces.WebClient
+	logger         interfaces.Logger
 }
 
 // New creates a new Fetcher with the given webclient, logger and tracker
 func New(MaxConcurrency, CommitSize int, tracker interfaces.Tracker, wc interfaces.WebClient, logger interfaces.Logger) (*Fetcher, error) {
 	return &Fetcher{
 		MaxConcurrency: MaxConcurrency,
-		CommitSize:   	CommitSize,
-		tracker: 		tracker,
+		CommitSize:     CommitSize,
+		tracker:        tracker,
 		wc:             wc,
 		logger:         logger,
 	}, nil
 }
 
 // Gets and stores all given HTTP urls to file system
-func (f *Fetcher) Fetch(ctx context.Context, pageUrls[]string) {
+func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.MaxConcurrency)
 	snapCh := make(chan *model.Snapshot)
@@ -76,7 +76,6 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls[]string) {
 		if ctx.Err() != nil {
 			return
 		}
-
 
 		wg.Add(1)
 
