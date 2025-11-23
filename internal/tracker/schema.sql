@@ -82,3 +82,23 @@ CREATE TABLE IF NOT EXISTS seq (
     name TEXT PRIMARY KEY,
     value INTEGER NOT NULL DEFAULT 0
 );
+
+-- Creates per-site endpoints table for persisted discovered URL metadata
+CREATE TABLE IF NOT EXISTS endpoints (
+  id TEXT PRIMARY KEY,
+  raw_url TEXT NOT NULL,
+  canonical_url TEXT NOT NULL UNIQUE,
+  host TEXT NOT NULL,
+  path TEXT NOT NULL,
+  first_discovered_at INTEGER NOT NULL,
+  last_discovered_at INTEGER NOT NULL,
+  last_fetched_version TEXT,
+  last_fetched_at INTEGER,
+  status TEXT,
+  discovery_source TEXT,
+  meta TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_endpoints_host ON endpoints(host);
+CREATE INDEX IF NOT EXISTS idx_endpoints_status ON endpoints(status);
+CREATE INDEX IF NOT EXISTS idx_endpoints_last_discovered_at ON endpoints(last_discovered_at);
