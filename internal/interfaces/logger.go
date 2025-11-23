@@ -22,5 +22,5 @@ type Logger interface {
 // Field is a simple key/value pair for structured logging fields.
 type Field struct {
 	Key   string
-	Value interface{}
+	Value any
 }
