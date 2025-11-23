@@ -706,7 +706,7 @@ func (t *SQLiteTracker) insertVersionFile(ctx context.Context, tx *sql.Tx,
 }
 
 // -----------------------------------------------------------------------------
-// CommitBatch (NO duplicate snapshotData inside)
+// CommitBatch allows committing multiple snapshots in a single transaction.
 // -----------------------------------------------------------------------------
 func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.Version, error) {
 	if len(snapshots) == 0 {

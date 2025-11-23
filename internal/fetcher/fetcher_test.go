@@ -2,147 +2,295 @@ package fetcher_test
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"os"
+	"errors"
+	"sync"
 	"testing"
 	"time"
+	"fmt"
 
-	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/fetcher"
-	"github.com/raysh454/moku/internal/logging"
-	"github.com/raysh454/moku/internal/webclient"
+	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/model"
 )
 
-// Depth 0
-func getRoot(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Got / Request\n")
-	w.Header().Add("Content-Type", "text/html")
-	if _, err := io.WriteString(w, `
-	<a href=/example>example</a>
-	<a href=/blog>blog</a>
-	`); err != nil {
-		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
+//
+// ───────────────────────────────────────────────
+//   Dummy Implementations
+// ───────────────────────────────────────────────
+//
+
+// Dummy WebClient — returns body "ok:<url>" unless FailURLs[url] = true
+type DummyWebClient struct {
+	ResponseDelay time.Duration
+	FailURLs      map[string]bool
+}
+
+func (d *DummyWebClient) Do(ctx context.Context, req *model.Request) (*model.Response, error) {
+	if d.ResponseDelay > 0 {
+		time.Sleep(d.ResponseDelay)
+	}
+	if d.FailURLs != nil && d.FailURLs[req.URL] {
+		return nil, errors.New("dummy fetch fail")
+	}
+
+	return &model.Response{
+		Request:    req,
+		Body:       []byte("ok:" + req.URL),
+		StatusCode: 200,
+		FetchedAt:  time.Now(),
+	}, nil
+}
+
+func (d *DummyWebClient) Get(ctx context.Context, url string) (*model.Response, error) {
+	return d.Do(ctx, &model.Request{Method: "GET", URL: url})
+}
+
+func (d *DummyWebClient) Close() error { return nil }
+
+// Dummy Tracker
+type DummyTracker struct {
+	mu      sync.Mutex
+	Batches [][]*model.Snapshot
+}
+
+func (t *DummyTracker) Commit(ctx context.Context, snap *model.Snapshot, message, author string) (*model.Version, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*model.Snapshot, message, author string) ([]*model.Version, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	copySnaps := append([]*model.Snapshot(nil), snaps...)
+	t.Batches = append(t.Batches, copySnaps)
+	return nil, nil
+}
+
+func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) Get(ctx context.Context, versionID string) (*model.Snapshot, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) List(ctx context.Context, limit int) ([]*model.Version, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) Checkout(ctx context.Context, versionID string) error {
+	return nil
+}
+
+func (t *DummyTracker) Close() error { return nil }
+
+// Dummy Logger implementing the full Logger interface
+type DummyLogger struct {
+	mu     sync.Mutex
+	Errors []string
+	Infos  []string
+	Debugs []string
+	Warns  []string
+}
+
+func (l *DummyLogger) Debug(msg string, fields ...interfaces.Field) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Debugs = append(l.Debugs, msg)
+}
+
+func (l *DummyLogger) Info(msg string, fields ...interfaces.Field) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Infos = append(l.Infos, msg)
+}
+
+func (l *DummyLogger) Warn(msg string, fields ...interfaces.Field) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Warns = append(l.Warns, msg)
+}
+
+func (l *DummyLogger) Error(msg string, fields ...interfaces.Field) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Errors = append(l.Errors, msg)
+}
+
+func (l *DummyLogger) With(fields ...interfaces.Field) interfaces.Logger {
+	// For simplicity, just return itself.
+	return l
+}
+
+//
+// ───────────────────────────────────────────────
+//   TESTS
+// ───────────────────────────────────────────────
+//
+
+func TestFetcher_Batching(t *testing.T) {
+	ctx := context.Background()
+
+	tracker := &DummyTracker{}
+	wc := &DummyWebClient{}
+	logger := &DummyLogger{}
+
+	f, err := fetcher.New(5, 2, tracker, wc, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	urls := []string{"1", "2", "3", "4", "5"}
+	f.Fetch(ctx, urls)
+
+	expected := []int{2, 2, 1}
+
+	if len(tracker.Batches) != len(expected) {
+		t.Fatalf("expected %d batches, got %d", len(expected), len(tracker.Batches))
+	}
+
+	for i, size := range expected {
+		if got := len(tracker.Batches[i]); got != size {
+			t.Fatalf("batch %d expected %d snapshots, got %d", i, size, got)
+		}
 	}
 }
 
-// Depth 1
-func getExample(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Got /example Request\n")
-	w.Header().Add("Content-Type", "text/html")
-	if _, err := io.WriteString(w, `
-	<a href=/example/a>example a</a>
-	<a href=/example/b>example b</a>
-	<a href=/example>example</a>
-	`); err != nil {
-		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
-	}
-}
+func TestFetcher_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 
-// Depth 2
-func getExampleA(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Got /example/a Request\n")
-	w.Header().Add("Content-Type", "text/html")
-	if _, err := io.WriteString(w, `
-	<a href=/example/a/1>example a 1</a>
-	<a href=/blog>blog</a>
-	`); err != nil {
-		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
-	}
-}
+	tracker := &DummyTracker{}
+	wc := &DummyWebClient{ResponseDelay: 50 * time.Millisecond}
+	logger := &DummyLogger{}
 
-// Depth 2
-func getExampleB(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Got /example/b Request\n")
-	w.Header().Add("Content-Type", "text/html")
-	if _, err := io.WriteString(w, `
-	<a href=../example>test</a>
-	`); err != nil {
-		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
-	}
-}
-
-// Depth 3
-func getExampleA1(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Got /example/a/1 Request\n")
-	w.Header().Add("Content-Type", "text/html")
-	if _, err := io.WriteString(w, "example/a/1"); err != nil {
-		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
-	}
-}
-
-// Depth 1
-func getBlog(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Got /blog Request \n")
-	w.Header().Add("Content-Type", "text/html")
-	if _, err := io.WriteString(w, "blog"); err != nil {
-		fmt.Fprintf(os.Stderr, "write response body: %v\n", err)
-	}
-}
-
-func HttpServer(addr string) (*http.Server, error) {
-	mux := http.NewServeMux()
-	server := http.Server{
-		Addr:    addr,
-		Handler: mux,
+	f, err := fetcher.New(10, 3, tracker, wc, logger)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	mux.HandleFunc("/", getRoot)
-	mux.HandleFunc("/example", getExample)
-	mux.HandleFunc("/example/a", getExampleA)
-	mux.HandleFunc("/example/b", getExampleB)
-	mux.HandleFunc("/example/a/1", getExampleA1)
-	mux.HandleFunc("/blog", getBlog)
+	urls := []string{"one", "two", "three", "four"}
 
 	go func() {
-		err := server.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
-			fmt.Printf("err: %v", err)
-		}
+		time.Sleep(10 * time.Millisecond)
+		cancel() // cancel while fetching
 	}()
 
-	return &server, nil
+	f.Fetch(ctx, urls)
+
+	if len(tracker.Batches) > 1 {
+		t.Fatalf("expected at most 1 batch due to cancellation, got %d", len(tracker.Batches))
+	}
 }
 
-func TestSpider(t *testing.T) {
-	addr := "127.0.0.1:3333"
-	server, err := HttpServer(addr)
+func TestFetcher_LogsFetchErrors(t *testing.T) {
+	ctx := context.Background()
+
+	tracker := &DummyTracker{}
+	wc := &DummyWebClient{FailURLs: map[string]bool{"bad": true}}
+	logger := &DummyLogger{}
+
+	f, err := fetcher.New(5, 2, tracker, wc, logger)
 	if err != nil {
-		t.Errorf("Error setting up HttpServer: %v", err)
-	}
-	addr = "http://" + addr
-
-	// Wait for server to start
-	time.Sleep(2 * time.Second)
-
-	urls := []string{
-		addr,
-		addr + "/example",
-		addr + "/blog",
-		addr + "/example/a",
-		addr + "/example/b",
-		addr + "/example/a/1",
+		t.Fatal(err)
 	}
 
-	// Create a simple webclient for testing
-	cfg := &app.Config{WebClientBackend: "nethttp"}
-	logger := logging.NewStdoutLogger("test")
-	wc, err := webclient.NewNetHTTPClient(cfg, logger, nil)
+	f.Fetch(ctx, []string{"a", "bad", "b"})
+
+	if len(logger.Errors) == 0 {
+		t.Fatalf("expected logged errors but got none")
+	}
+}
+
+func TestFetcher_FetchResponseBodies(t *testing.T) {
+	ctx := context.Background()
+
+	tracker := &DummyTracker{}
+	wc := &DummyWebClient{}
+	logger := &DummyLogger{}
+
+	f, err := fetcher.New(5, 2, tracker, wc, logger)
 	if err != nil {
-		return
+		t.Fatal(err)
 	}
 
-	f, err := fetcher.New("", 1, wc, nil)
+	urls := []string{"x", "y", "z"}
+	f.Fetch(ctx, urls)
+
+	// Check that snapshot bodies match "ok:<url>"
+	found := map[string]bool{}
+	for _, batch := range tracker.Batches {
+		for _, snap := range batch {
+			if string(snap.Body) != "ok:"+snap.URL {
+				t.Errorf("unexpected snapshot body: %s", string(snap.Body))
+			}
+			found[snap.URL] = true
+		}
+	}
+
+	for _, u := range urls {
+		if !found[u] {
+			t.Errorf("missing snapshot for url %s", u)
+		}
+	}
+}
+
+func TestFetcher_FinalBatchFlush(t *testing.T) {
+	ctx := context.Background()
+
+	tracker := &DummyTracker{}
+	wc := &DummyWebClient{}
+	logger := &DummyLogger{}
+
+	f, err := fetcher.New(5, 3, tracker, wc, logger)
 	if err != nil {
-		return
+		t.Fatal(err)
 	}
 
-	fmt.Print(f.RootPath)
+	urls := []string{"a", "b", "c", "d"} // 4 snapshots, commit size = 3
+	f.Fetch(ctx, urls)
 
-	f.Fetch(urls)
+	expectedBatches := 2 // one batch of 3, one batch of 1
+	if len(tracker.Batches) != expectedBatches {
+		t.Fatalf("expected %d batches, got %d", expectedBatches, len(tracker.Batches))
+	}
 
-	if err := server.Shutdown(context.Background()); err != nil {
-		t.Fatalf("server shutdown: %v", err)
+	// Ensure last batch has the remaining snapshot
+	lastBatch := tracker.Batches[len(tracker.Batches)-1]
+	if len(lastBatch) != 1 {
+		t.Errorf("expected last batch size 1, got %d", len(lastBatch))
+	}
+}
+
+func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
+	ctx := context.Background()
+
+	tracker := &DummyTracker{}
+	wc := &DummyWebClient{}
+	logger := &DummyLogger{}
+
+	f, err := fetcher.New(20, 5, tracker, wc, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fire multiple Fetch calls concurrently
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			urls := []string{fmt.Sprintf("u%d-1", i), fmt.Sprintf("u%d-2", i)}
+			f.Fetch(ctx, urls)
+		}(i)
+	}
+	wg.Wait()
+
+	// All snapshots should be committed
+	total := 0
+	for _, b := range tracker.Batches {
+		total += len(b)
+	}
+	if total != 6 {
+		t.Errorf("expected 6 snapshots total, got %d", total)
 	}
 }
