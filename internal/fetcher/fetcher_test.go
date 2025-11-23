@@ -3,10 +3,10 @@ package fetcher_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
-	"fmt"
 
 	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/interfaces"

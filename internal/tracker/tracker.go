@@ -44,6 +44,11 @@ func (t *inMemoryTracker) Commit(ctx context.Context, snapshot *model.Snapshot, 
 	return nil, ErrNotImplemented
 }
 
+func (t *inMemoryTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.Version, error) {
+	// TODO: record snapshots and create Version records.
+	return nil, ErrNotImplemented
+}
+
 func (t *inMemoryTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
 	// TODO: compute textual/DOM diffs between snapshots.
 	return nil, ErrNotImplemented
