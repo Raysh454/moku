@@ -53,17 +53,30 @@ type DummyTracker struct {
 	Batches [][]*model.Snapshot
 }
 
-func (t *DummyTracker) Commit(ctx context.Context, snap *model.Snapshot, message, author string) (*model.Version, error) {
-	return nil, nil
+func (t *DummyTracker) Commit(ctx context.Context, snap *model.Snapshot, message, author string) (*model.CommitResult, error) {
+	return &model.CommitResult{}, nil
 }
 
-func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*model.Snapshot, message, author string) ([]*model.Version, error) {
+func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*model.Snapshot, message, author string) ([]*model.CommitResult, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	copySnaps := append([]*model.Snapshot(nil), snaps...)
 	t.Batches = append(t.Batches, copySnaps)
-	return nil, nil
+
+	results := make([]*model.CommitResult, len(snaps))
+	for i := range snaps {
+		results[i] = &model.CommitResult{}
+	}
+	return results, nil
+}
+
+func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *model.CommitResult) error {
+	return nil
+}
+
+func (t *DummyTracker) SetAssessor(a interfaces.Assessor) {
+	// no-op for dummy
 }
 
 func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
