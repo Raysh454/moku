@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -8,8 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/interfaces"
 	"github.com/raysh454/moku/internal/model"
@@ -20,11 +24,12 @@ import (
 // SQLiteTracker implements interfaces.Tracker using SQLite for metadata storage
 // and a content-addressed blob store for file content.
 type SQLiteTracker struct {
-	siteDir string
-	db      *sql.DB
-	store   *FSStore
-	logger  interfaces.Logger
-	config  *Config
+	siteDir  string
+	db       *sql.DB
+	store    *FSStore
+	logger   interfaces.Logger
+	config   *Config
+	assessor interfaces.Assessor
 }
 
 // NewSQLiteTracker creates a new SQLiteTracker instance.
@@ -89,11 +94,18 @@ func NewSQLiteTrackerWithConfig(siteDir string, logger interfaces.Logger, config
 	}, nil
 }
 
+// SetAssessor sets the assessor implementation the tracker should use when scoring.
+func (t *SQLiteTracker) SetAssessor(a interfaces.Assessor) {
+	t.assessor = a
+}
+
 // Ensure SQLiteTracker implements interfaces.Tracker at compile-time.
 var _ interfaces.Tracker = (*SQLiteTracker)(nil)
 
 // Commit stores a snapshot and returns a Version record representing the commit.
-func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.Version, error) {
+// Commit stores a snapshot and returns a model.CommitResult representing the commit.
+// NOTE: signature changed to return model.CommitResult (see internal/tracker/commit_result.go).
+func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.CommitResult, error) {
 	if snapshot == nil {
 		return nil, errors.New("snapshot cannot be nil")
 	}
@@ -211,21 +223,31 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		interfaces.Field{Key: "versionID", Value: versionID},
 		interfaces.Field{Key: "snapshotID", Value: snapshotID})
 
-	// Return the created version
-	return &model.Version{
-		ID:         versionID,
-		Parent:     parentID,
-		Message:    message,
-		Author:     author,
-		SnapshotID: snapshotID,
-		Timestamp:  time.Unix(timestamp, 0),
-	}, nil
+	// Build model.CommitResult for return: attempt to load diff row (if any) and populate blob/file info.
+	var diffID, diffJSON string
+	if err := t.db.QueryRowContext(ctx, `SELECT id, diff_json FROM diffs WHERE head_version_id = ? ORDER BY created_at DESC LIMIT 1`, versionID).Scan(&diffID, &diffJSON); err != nil && err != sql.ErrNoRows {
+		// non-fatal
+		t.logger.Warn("failed to fetch diff row after commit", interfaces.Field{Key: "err", Value: err})
+	}
+
+	cr := &model.CommitResult{
+		Version:         model.Version{ID: versionID, Parent: parentID, Message: message, Author: author, SnapshotID: snapshotID, Timestamp: time.Unix(timestamp, 0)},
+		ParentVersionID: parentID,
+		DiffID:          diffID,
+		DiffJSON:        diffJSON,
+		HeadBody:        snapshot.Body,
+		HeadBlobID:      blobID,
+		HeadFilePath:    filePath,
+		Opts:            model.ScoreOptions{RequestLocations: true},
+	}
+
+	return cr, nil
 }
 
 // Return diff from database, if it exists
 func (t *SQLiteTracker) diffFromCache(diffJSON string) (*model.DiffResult, error) {
 	// Diff exists, parse and return
-	var combined CombinedDiff
+	var combined model.CombinedDiff
 	if err := json.Unmarshal([]byte(diffJSON), &combined); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal combined diff: %w", err)
 	}
@@ -708,7 +730,9 @@ func (t *SQLiteTracker) insertVersionFile(ctx context.Context, tx *sql.Tx,
 // -----------------------------------------------------------------------------
 // CommitBatch allows committing multiple snapshots in a single transaction.
 // -----------------------------------------------------------------------------
-func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.Version, error) {
+// CommitBatch allows committing multiple snapshots in a single transaction and returns model.CommitResults.
+// Each returned model.CommitResult references the same Version (head) but contains per-snapshot HeadBody/HeadBlobID/FilePath.
+func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.CommitResult, error) {
 	if len(snapshots) == 0 {
 		return nil, errors.New("no snapshots to commit")
 	}
@@ -811,20 +835,36 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snap
 
 	_ = t.writeHEAD(versionID)
 
-	// Return version objects
-	versions := make([]*model.Version, len(list))
-	for i := range list {
-		versions[i] = &model.Version{
-			ID:         versionID,
-			Parent:     parentID,
-			Message:    message,
-			Author:     author,
-			SnapshotID: first.snapshotID,
-			Timestamp:  time.Unix(ts, 0),
-		}
+	// After commit: load diff row (if present)
+	var diffID, diffJSON string
+	if err := t.db.QueryRowContext(ctx, `SELECT id, diff_json FROM diffs WHERE head_version_id = ? ORDER BY created_at DESC LIMIT 1`, versionID).Scan(&diffID, &diffJSON); err != nil && err != sql.ErrNoRows {
+		t.logger.Warn("failed to fetch diff row after commit batch", interfaces.Field{Key: "err", Value: err})
 	}
 
-	return versions, nil
+	// Build commit results: one per snapshot as before, all pointing to same Version
+	results := make([]*model.CommitResult, 0, len(list))
+	for _, sd := range list {
+		cr := &model.CommitResult{
+			Version: model.Version{
+				ID:         versionID,
+				Parent:     parentID,
+				Message:    message,
+				Author:     author,
+				SnapshotID: first.snapshotID,
+				Timestamp:  time.Unix(ts, 0),
+			},
+			ParentVersionID: parentID,
+			DiffID:          diffID,
+			DiffJSON:        diffJSON,
+			HeadBody:        sd.snapshot.Body,
+			HeadBlobID:      sd.blobID,
+			HeadFilePath:    sd.filePath,
+			Opts:            model.ScoreOptions{RequestLocations: true},
+		}
+		results = append(results, cr)
+	}
+
+	return results, nil
 }
 
 // writeWorkingTreeFiles writes the convenience files for a snapshot to the working tree.
@@ -865,4 +905,492 @@ func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, b
 	}
 
 	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Scoring & Attribution methods (migrated from the standalone scoring file)
+// These methods are receivers on SQLiteTracker and use t.db, t.logger, t.assessor.
+// They expect to be callable from outside (e.g., worker or after Commit).
+// -----------------------------------------------------------------------------
+
+func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *model.CommitResult) error {
+	if cr == nil {
+		return errors.New("nil model.CommitResult")
+	}
+
+	// Ensure diff JSON is present if possible
+	if cr.DiffJSON == "" && cr.DiffID != "" {
+		if err := t.db.QueryRowContext(ctx, `SELECT diff_json FROM diffs WHERE id = ?`, cr.DiffID).Scan(&cr.DiffJSON); err != nil && err != sql.ErrNoRows {
+			t.logger.Warn("failed to load diff_json for commit", interfaces.Field{Key: "err", Value: err})
+		}
+	}
+
+	// Ensure head body is available (prefer HeadBody, fallback to blob)
+	if len(cr.HeadBody) == 0 && cr.HeadBlobID != "" {
+		if b, err := t.store.Get(cr.HeadBlobID); err == nil {
+			cr.HeadBody = b
+		} else {
+			t.logger.Warn("failed to load head blob for commit", interfaces.Field{Key: "err", Value: err})
+		}
+	}
+
+	// Delegate to existing lower-level method
+	return t.scoreAndAttribute(ctx, cr.Opts, cr.Version.ID, cr.ParentVersionID, cr.DiffID, cr.DiffJSON, cr.HeadBody)
+}
+
+// ScoreAndAttributeVersion scores a single version, persists a version_scores row,
+// persists per-version evidence locations, and creates diff_attributions that
+// reference the persisted evidence rows when a diff is available.
+func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreOptions, versionID, parentVersionID, diffID, diffJSON string, headBody []byte) error {
+	if t.assessor == nil {
+		// no assessor configured; nothing to do
+		return nil
+	}
+
+	// Score the page. Use a bounded timeout.
+	scoreCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	scoreRes, err := t.assessor.ScoreHTML(scoreCtx, headBody, fmt.Sprintf("version:%s", versionID), opts)
+	if err != nil {
+		if t.logger != nil {
+			t.logger.Warn("scoring failed", interfaces.Field{Key: "version_id", Value: versionID}, interfaces.Field{Key: "error", Value: err})
+		}
+		return err
+	}
+
+	// Marshal score JSON for storage
+	scoreJSON, err := json.Marshal(scoreRes)
+	if err != nil {
+		if t.logger != nil {
+			t.logger.Warn("failed to marshal score result", interfaces.Field{Key: "err", Value: err})
+		}
+		scoreJSON = []byte("{}")
+	}
+
+	// Begin DB transaction for atomic persistence of score, evidence locations and attributions
+	tx, err := t.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if rb := tx.Rollback(); rb != nil && rb != sql.ErrTxDone {
+			if t.logger != nil {
+				t.logger.Warn("rollback failed", interfaces.Field{Key: "err", Value: rb})
+			}
+		}
+	}()
+
+	// 1) persist version_scores
+	scoreID := uuid.New().String()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO version_scores
+		  (id, version_id, scoring_version, score, normalized, confidence, score_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, scoreID, versionID, scoreRes.Version, scoreRes.Score, scoreRes.Normalized, scoreRes.Confidence, string(scoreJSON), time.Now().Unix()); err != nil {
+		return fmt.Errorf("insert version_scores: %w", err)
+	}
+
+	// 2) persist version_evidence_locations and obtain map of persisted ids for linking
+	velMap, err := t.persistVersionEvidenceLocations(ctx, tx, versionID, scoreRes)
+	if err != nil {
+		// log and continue: we still want version_scores inserted; attribution will still insert but without FK links
+		if t.logger != nil {
+			t.logger.Warn("persistVersionEvidenceLocations failed", interfaces.Field{Key: "err", Value: err})
+		}
+		// continue with velMap possibly nil
+	}
+
+	// 3) if diff present, compute attributions and insert diff_attributions referencing vel rows when available
+	if parentVersionID != "" && diffID != "" && diffJSON != "" {
+		if err := t.attributeUsingLocations(ctx, tx, diffID, versionID, parentVersionID, diffJSON, headBody, scoreRes, velMap); err != nil {
+			if t.logger != nil {
+				t.logger.Warn("attributeUsingLocations failed", interfaces.Field{Key: "err", Value: err})
+			}
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+
+	return nil
+}
+
+// persistVersionEvidenceLocations persists evidence/location rows and returns a map keyed by "evidenceID:locationIndex" -> inserted id.
+// For evidence items with no locations a single row is inserted with location_index = -1 and key "evidenceID:-1".
+func (t *SQLiteTracker) persistVersionEvidenceLocations(ctx context.Context, tx *sql.Tx, versionID string, scoreRes *model.ScoreResult) (map[string]string, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("persistVersionEvidenceLocations requires tx")
+	}
+	now := time.Now().Unix()
+	velMap := make(map[string]string)
+
+	keyFor := func(evidenceID string, locIndex int) string {
+		return evidenceID + ":" + strconv.Itoa(locIndex)
+	}
+
+	for ei, ev := range scoreRes.Evidence {
+		// ensure evidence ID
+		eid := ev.ID
+		if eid == "" {
+			eid = uuid.New().String()
+			scoreRes.Evidence[ei].ID = eid
+		}
+		evJS, _ := json.Marshal(ev)
+		evJSON := string(evJS)
+
+		// no locations -> insert a global row (location_index = -1)
+		if len(ev.Locations) == 0 {
+			id := uuid.New().String()
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO version_evidence_locations
+				  (id, version_id, evidence_id, evidence_index, location_index, evidence_key, evidence_json, scoring_version, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, id, versionID, eid, ei, -1, ev.Key, evJSON, scoreRes.Version, now); err != nil {
+				return nil, fmt.Errorf("insert version_evidence_locations global: %w", err)
+			}
+			velMap[keyFor(eid, -1)] = id
+			continue
+		}
+
+		// per-location insert
+		for li, loc := range ev.Locations {
+			id := uuid.New().String()
+			locJS, _ := json.Marshal(loc)
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO version_evidence_locations
+				  (id, version_id, evidence_id, evidence_index, location_index,
+				   evidence_key, selector, xpath, node_id, file_path,
+				   byte_start, byte_end, line_start, line_end,
+				   loc_confidence, evidence_json, location_json, scoring_version, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, id, versionID, eid, ei, li,
+				ev.Key,
+				loc.Selector, loc.XPath, loc.NodeID, loc.FilePath,
+				nullableInt(loc.ByteStart), nullableInt(loc.ByteEnd), nullableInt(loc.LineStart), nullableInt(loc.LineEnd),
+				nullableFloat(loc.Confidence), evJSON, string(locJS), scoreRes.Version, now); err != nil {
+				return nil, fmt.Errorf("insert version_evidence_locations: %w", err)
+			}
+			velMap[keyFor(eid, li)] = id
+		}
+	}
+
+	return velMap, nil
+}
+
+// attributeUsingLocations maps assessor-provided EvidenceItem.Locations to diff chunks,
+// builds per-location contributions, and inserts diff_attributions referencing version_evidence_locations when available.
+func (t *SQLiteTracker) attributeUsingLocations(ctx context.Context, tx *sql.Tx, diffID, headVersionID, parentVersionID, diffJSON string, headBody []byte, scoreRes *model.ScoreResult, velMap map[string]string) error {
+	if tx == nil {
+		return fmt.Errorf("attributeUsingLocations requires tx")
+	}
+
+	combined := t.parseCombinedDiff(diffJSON)
+	doc := t.prepareDoc(headBody)
+
+	// collect rows (one per evidence-location or one global per evidence)
+	rows := t.collectLocRows(combined, doc, headBody, scoreRes)
+
+	// insert attributions
+	if err := t.insertAttributionRows(ctx, tx, diffID, headVersionID, parentVersionID, scoreRes, rows, velMap); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ---------------- helpers for rows collection and insertion ----------------
+
+// locRow represents one evidence-location candidate for attribution.
+type locRow struct {
+	EvidenceID  string
+	EvidenceKey string
+	EvidenceIdx int
+	LocationIdx int
+	ChunkIdx    int
+	Weight      float64
+	EvidenceJS  string
+	LocationJS  string
+	Severity    string
+}
+
+// collectLocRows converts ScoreResult.Evidence into locRow entries using mapLocationToChunkStrict
+// and splits evidence-level weight across locations (using per-location confidence when provided).
+func (t *SQLiteTracker) collectLocRows(combined *model.CombinedDiff, doc *goquery.Document, headBody []byte, scoreRes *model.ScoreResult) []locRow {
+	var rows []locRow
+	for ei, ev := range scoreRes.Evidence {
+		// ensure evidence id
+		eid := ev.ID
+		if eid == "" {
+			eid = uuid.New().String()
+			scoreRes.Evidence[ei].ID = eid
+		}
+		evJS, _ := json.Marshal(ev)
+		evJSON := string(evJS)
+
+		// compute base weight: severityWeight * assessor confidence (fallback 1.0)
+		base := severityWeight(ev.Severity) * scoreRes.Confidence
+		if base <= 0 {
+			base = 1.0
+		}
+
+		// no locations -> global row
+		if len(ev.Locations) == 0 {
+			rows = append(rows, locRow{
+				EvidenceID:  eid,
+				EvidenceKey: ev.Key,
+				EvidenceIdx: ei,
+				LocationIdx: -1,
+				ChunkIdx:    -1,
+				Weight:      base,
+				EvidenceJS:  evJSON,
+				LocationJS:  "",
+				Severity:    ev.Severity,
+			})
+			continue
+		}
+
+		// normalize per-location confidences
+		locConfs := make([]float64, len(ev.Locations))
+		sum := 0.0
+		for i, l := range ev.Locations {
+			if l.Confidence != nil && *l.Confidence >= 0 {
+				locConfs[i] = *l.Confidence
+			} else {
+				locConfs[i] = 1.0
+			}
+			sum += locConfs[i]
+		}
+		if sum == 0 {
+			for i := range locConfs {
+				locConfs[i] = 1.0
+			}
+			sum = float64(len(locConfs))
+		}
+
+		// map locations to chunks and produce rows
+		for li, loc := range ev.Locations {
+			chunkIdx, _ := t.mapLocationToChunkStrict(combined, doc, headBody, loc)
+			locJS, _ := json.Marshal(loc)
+			rows = append(rows, locRow{
+				EvidenceID:  eid,
+				EvidenceKey: ev.Key,
+				EvidenceIdx: ei,
+				LocationIdx: li,
+				ChunkIdx:    chunkIdx,
+				Weight:      base * (locConfs[li] / sum),
+				EvidenceJS:  evJSON,
+				LocationJS:  string(locJS),
+				Severity:    ev.Severity,
+			})
+		}
+	}
+	return rows
+}
+
+// insertAttributionRows writes locRows into diff_attributions and references version_evidence_locations via velMap when available.
+func (t *SQLiteTracker) insertAttributionRows(ctx context.Context, tx *sql.Tx, diffID, headVersionID, parentVersionID string, scoreRes *model.ScoreResult, rows []locRow, velMap map[string]string) error {
+	// compute total weight
+	total := 0.0
+	for _, r := range rows {
+		total += r.Weight
+	}
+	if total <= 0 {
+		total = 1.0
+	}
+
+	now := time.Now().Unix()
+	for _, r := range rows {
+		pct := (r.Weight / total) * 100.0
+		id := uuid.New().String()
+
+		// attempt to find corresponding vel id
+		velID := ""
+		if velMap != nil {
+			key := r.EvidenceID + ":" + strconv.Itoa(r.LocationIdx)
+			if v, ok := velMap[key]; ok {
+				velID = v
+			}
+			if velID == "" {
+				// fallback to global key
+				if v, ok := velMap[r.EvidenceID+":-1"]; ok {
+					velID = v
+				}
+			}
+		}
+
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO diff_attributions
+			  (id, diff_id, head_version_id, version_evidence_location_id, evidence_id, evidence_location_index, chunk_index, evidence_key, evidence_json, location_json, scoring_version, contribution, contribution_pct, note, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, id, diffID, headVersionID, nullableString(velID), r.EvidenceID, r.LocationIdx, r.ChunkIdx, r.EvidenceKey, r.EvidenceJS, r.LocationJS, scoreRes.Version, r.Weight, pct, "", now)
+		if err != nil && t.logger != nil {
+			t.logger.Warn("failed to insert diff_attribution", interfaces.Field{Key: "err", Value: err}, interfaces.Field{Key: "evidence_id", Value: r.EvidenceID})
+			// continue inserting others
+		}
+	}
+
+	// log delta vs parent using tx (avoid pool deadlocks)
+	var parentScore sql.NullFloat64
+	if err := tx.QueryRowContext(ctx, `SELECT score FROM version_scores WHERE version_id = ? ORDER BY created_at DESC LIMIT 1`, parentVersionID).Scan(&parentScore); err != nil && err != sql.ErrNoRows {
+		if t.logger != nil {
+			t.logger.Warn("failed to query parent score", interfaces.Field{Key: "err", Value: err})
+		}
+		parentScore = sql.NullFloat64{}
+	}
+	if parentScore.Valid && t.logger != nil {
+		delta := scoreRes.Score - parentScore.Float64
+		t.logger.Info("version scored", interfaces.Field{Key: "version_id", Value: headVersionID}, interfaces.Field{Key: "score", Value: scoreRes.Score}, interfaces.Field{Key: "parent_score", Value: parentScore.Float64}, interfaces.Field{Key: "delta", Value: delta})
+	}
+
+	return nil
+}
+
+// ---------------- mapping helpers ----------------
+
+// mapLocationToChunkStrict maps a structured EvidenceLocation to a chunk index using only
+// selector / byte range / line range matching. Returns chunk index (>=0) or -1 if none matched.
+// Strength return value is unused here (kept for parity); returns 1.0 on exact match, 0.0 otherwise.
+func (t *SQLiteTracker) mapLocationToChunkStrict(combined *model.CombinedDiff, doc *goquery.Document, headBody []byte, loc model.EvidenceLocation) (int, float64) {
+	// prefer selector -> byte-range -> line-range
+	if loc.Selector != "" && doc != nil {
+		if idx, ok := t.matchSelectorToChunks(combined, doc, loc.Selector); ok {
+			return idx, 1.0
+		}
+	}
+	if loc.ByteStart != nil && loc.ByteEnd != nil && len(headBody) > 0 {
+		if idx, ok := t.matchByteRangeToChunks(combined, headBody, *loc.ByteStart, *loc.ByteEnd); ok {
+			return idx, 1.0
+		}
+	}
+	if loc.LineStart != nil && loc.LineEnd != nil && len(headBody) > 0 {
+		if idx, ok := t.matchLineRangeToChunks(combined, headBody, *loc.LineStart, *loc.LineEnd); ok {
+			return idx, 1.0
+		}
+	}
+	return -1, 0.0
+}
+
+// matchSelectorToChunks finds the first chunk containing the outer HTML (or text) of the first node matched by selector.
+func (t *SQLiteTracker) matchSelectorToChunks(combined *model.CombinedDiff, doc *goquery.Document, selector string) (int, bool) {
+	if doc == nil {
+		return -1, false
+	}
+	nodes := doc.Find(selector)
+	if nodes.Length() == 0 {
+		return -1, false
+	}
+	htmlSnippet, err := nodes.First().Html()
+	if err != nil || strings.TrimSpace(htmlSnippet) == "" {
+		htmlSnippet = nodes.First().Text()
+	}
+	sn := strings.ToLower(strings.TrimSpace(htmlSnippet))
+	if sn == "" {
+		return -1, false
+	}
+	for i, c := range combined.BodyDiff.Chunks {
+		if strings.Contains(strings.ToLower(c.Content), sn) {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// matchByteRangeToChunks extracts the snippet from headBody and finds the first chunk containing it.
+func (t *SQLiteTracker) matchByteRangeToChunks(combined *model.CombinedDiff, headBody []byte, start, end int) (int, bool) {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(headBody) {
+		end = len(headBody)
+	}
+	if start >= end {
+		return -1, false
+	}
+	sn := strings.ToLower(strings.TrimSpace(string(headBody[start:end])))
+	if sn == "" {
+		return -1, false
+	}
+	for i, c := range combined.BodyDiff.Chunks {
+		if strings.Contains(strings.ToLower(c.Content), sn) {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// matchLineRangeToChunks extracts the lines and finds the first chunk containing that snippet.
+func (t *SQLiteTracker) matchLineRangeToChunks(combined *model.CombinedDiff, headBody []byte, lineStart, lineEnd int) (int, bool) {
+	lines := bytes.Split(headBody, []byte{'\n'})
+	ls := lineStart - 1
+	le := lineEnd - 1
+	if ls < 0 {
+		ls = 0
+	}
+	if le >= len(lines) {
+		le = len(lines) - 1
+	}
+	if ls > le || ls >= len(lines) {
+		return -1, false
+	}
+	sn := strings.ToLower(strings.TrimSpace(string(bytes.Join(lines[ls:le+1], []byte{'\n'}))))
+	if sn == "" {
+		return -1, false
+	}
+	for i, c := range combined.BodyDiff.Chunks {
+		if strings.Contains(strings.ToLower(c.Content), sn) {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// ---------------- small utilities ----------------
+
+func (t *SQLiteTracker) parseCombinedDiff(diffJSON string) *model.CombinedDiff {
+	var combined model.CombinedDiff
+	_ = json.Unmarshal([]byte(diffJSON), &combined)
+	return &combined
+}
+
+func (t *SQLiteTracker) prepareDoc(headBody []byte) *goquery.Document {
+	if len(headBody) == 0 {
+		return nil
+	}
+	if d, err := goquery.NewDocumentFromReader(bytes.NewReader(headBody)); err == nil {
+		return d
+	}
+	return nil
+}
+
+func nullableInt(p *int) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func nullableFloat(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+// severityWeight maps severity string to numeric weight.
+func severityWeight(s string) float64 {
+	switch strings.ToLower(s) {
+	case "critical":
+		return 5.0
+	case "high":
+		return 3.0
+	case "medium":
+		return 2.0
+	case "low":
+		return 1.0
+	default:
+		return 1.0
+	}
 }

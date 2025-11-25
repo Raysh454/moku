@@ -6,6 +6,7 @@ import (
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/model"
 )
 
 // TestNewHeuristicsAssessor_Construct verifies that NewHeuristicsAssessor returns a non-nil assessor
@@ -48,7 +49,7 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 	source := "test-fixture"
 
 	ctx := context.Background()
-	result, err := a.ScoreHTML(ctx, html, source)
+	result, err := a.ScoreHTML(ctx, html, source, model.ScoreOptions{})
 	if err != nil {
 		t.Fatalf("ScoreHTML returned error: %v", err)
 	}
