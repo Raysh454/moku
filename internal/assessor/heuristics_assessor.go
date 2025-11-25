@@ -33,10 +33,7 @@ func NewHeuristicsAssessor(cfg *Config, logger interfaces.Logger) (interfaces.As
 	l := logger.With(interfaces.Field{Key: "component", Value: "heuristics-assessor"})
 	l.Info("heuristics assessor constructed", interfaces.Field{Key: "scoring_version", Value: cfg.ScoringVersion})
 
-	return &HeuristicsAssessor{
-		cfg:    cfg,
-		logger: l,
-	}, nil
+	return nil, nil
 }
 
 // ScoreHTML evaluates raw HTML bytes. Current scaffold: logs the call and returns a neutral result.

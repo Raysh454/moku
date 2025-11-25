@@ -11,10 +11,16 @@ import (
 type Tracker interface {
 	// Commit stores a snapshot and returns a Version record representing the commit.
 	// 'message' is a human message describing the change; author is optional.
-	Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.Version, error)
+	Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.CommitResult, error)
 
 	// CommitBatch stores multiple snapshots and returns their corresponding Version records.
-	CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.Version, error)
+	CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.CommitResult, error)
+
+	// ScoreAndAttributeVersion assigns a score (security relavance) for a given commit result
+	ScoreAndAttributeVersion(ctx context.Context, cr *model.CommitResult) error
+
+	// SetAssessor sets the Assessor used by ScoreAndAttributeVersion to produce a score.
+	SetAssessor(a Assessor)
 
 	// Diff computes a delta between two versions identified by their IDs.
 	// If baseID == "" treat it as an empty/base snapshot.
