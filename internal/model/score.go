@@ -64,34 +64,35 @@ type EvidenceItem struct {
 
 // ScoreResult is the canonical assessor output for a single document/URL.
 // Example:
-// {
-//   "score": 0.7,
-//   "version": "heuristics-v1",
-//   "confidence": 0.9,
-//   "evidence": [
-//     {
-//       "id": "ev-1",
-//       "key": "insecure-form",
-//       "rule_id": "forms:autocomplete-off",
-//       "severity": "high",
-//       "description": "Login form has autocomplete disabled",
-//       "value": "<form id=\"login\">",
-//       "locations": [
-//         {"selector":"form#login", "line_start":10, "line_end":12, "confidence":1.0}
-//       ]
-//     },
-//     {
-//       "id": "ev-2",
-//       "key": "style-change",
-//       "rule_id": "ui:style-inline",
-//       "severity": "low",
-//       "description": "Inline style added",
-//       "locations": [
-//         {"selector":"style", "line_start":12, "line_end":13, "confidence":0.5}
-//       ]
-//     }
-//   ]
-// }
+//
+//	{
+//	  "score": 0.7,
+//	  "version": "heuristics-v1",
+//	  "confidence": 0.9,
+//	  "evidence": [
+//	    {
+//	      "id": "ev-1",
+//	      "key": "insecure-form",
+//	      "rule_id": "forms:autocomplete-off",
+//	      "severity": "high",
+//	      "description": "Login form has autocomplete disabled",
+//	      "value": "<form id=\"login\">",
+//	      "locations": [
+//	        {"selector":"form#login", "line_start":10, "line_end":12, "confidence":1.0}
+//	      ]
+//	    },
+//	    {
+//	      "id": "ev-2",
+//	      "key": "style-change",
+//	      "rule_id": "ui:style-inline",
+//	      "severity": "low",
+//	      "description": "Inline style added",
+//	      "locations": [
+//	        {"selector":"style", "line_start":12, "line_end":13, "confidence":0.5}
+//	      ]
+//	    }
+//	  ]
+//	}
 type ScoreResult struct {
 	// Score is the normalized internal score range [0.0 .. 1.0].
 	Score float64 `json:"score"`

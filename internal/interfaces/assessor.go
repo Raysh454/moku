@@ -6,7 +6,6 @@ import (
 	"github.com/raysh454/moku/internal/model"
 )
 
-
 // Assessor is the minimal cross-package contract for scoring HTML content.
 // Implementations receive HTML bytes (or an already-fetched model.Response)
 // and return a ScoreResult. The Assessor does NOT perform network I/O.
