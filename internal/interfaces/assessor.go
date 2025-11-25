@@ -23,11 +23,6 @@ type Assessor interface {
 	// ScoreResponse evaluates an already-fetched response (no network).
 	ScoreResponse(ctx context.Context, resp *model.Response, opts model.ScoreOptions) (*model.ScoreResult, error)
 
-	// ExtractEvidence is an optional helper that returns evidence items only
-	// (useful for pre-extraction / fast attribution workflows). Implementations
-	// may return an error ErrNotImplemented if they don't support this fast path.
-	ExtractEvidence(ctx context.Context, html []byte, opts model.ScoreOptions) ([]model.EvidenceItem, error)
-
 	// Close releases any resources held by the assessor.
 	Close() error
 }

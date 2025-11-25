@@ -30,35 +30,77 @@ func NewHeuristicsAssessor(cfg *Config, logger interfaces.Logger) (interfaces.As
 	if logger == nil {
 		return nil, errors.New("assessor: nil logger; please pass a valid interfaces.Logger")
 	}
+
+	// create a context-aware logger for this component and construct the instance
 	l := logger.With(interfaces.Field{Key: "component", Value: "heuristics-assessor"})
+	inst := &HeuristicsAssessor{
+		cfg:    cfg,
+		logger: l,
+	}
+
 	l.Info("heuristics assessor constructed", interfaces.Field{Key: "scoring_version", Value: cfg.ScoringVersion})
 
-	return nil, nil
+	return inst, nil
 }
 
 // ScoreHTML evaluates raw HTML bytes. Current scaffold: logs the call and returns a neutral result.
 // TODO: implement preprocess -> feature extraction -> rule evaluation -> combine heuristics -> produce ScoreResult
-func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source string) (*model.ScoreResult, error) {
+func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source string, opts model.ScoreOptions) (*model.ScoreResult, error) {
+	// defensive: if logger is nil (shouldn't happen when constructed properly), avoid panic
+	if h == nil || h.logger == nil {
+		// return a neutral result based on minimal defaults if we can (avoid panic in tests)
+		defaultCfg := &Config{}
+		now := time.Now().UTC()
+		return &model.ScoreResult{
+			Score:      0.0,
+			Normalized: 0,
+			Confidence: defaultCfg.DefaultConfidence,
+			Version:    defaultCfg.ScoringVersion,
+			Evidence: []model.EvidenceItem{
+				{
+					Key:         "no-evidence",
+					Severity:    "low",
+					Description: "no scoring rules ran (scaffold default)",
+					RuleID:      "scaffold:no_rules",
+				},
+			},
+			MatchedRules: []string{},
+			RawFeatures:  map[string]float64{},
+			Meta: map[string]any{
+				"source": source,
+			},
+			Timestamp: now,
+		}, nil
+	}
+
 	h.logger.Info("heuristics-assessor: ScoreHTML called", interfaces.Field{Key: "source", Value: source}, interfaces.Field{Key: "size_bytes", Value: len(html)})
+
+	// For now return scaffold default result; opts is accepted for future behavior
 	return h.defaultResult(source), nil
 }
 
 // ScoreResponse delegates to ScoreHTML by extracting resp.Body.
 // If resp is nil or has no body, returns a neutral result.
-func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *model.Response) (*model.ScoreResult, error) {
+func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *model.Response, opts model.ScoreOptions) (*model.ScoreResult, error) {
 	source := ""
-	if resp != nil {
+	if resp != nil && resp.Request != nil {
 		source = resp.Request.URL
 	}
 	if resp == nil || len(resp.Body) == 0 {
-		h.logger.Warn("heuristics-assessor: ScoreResponse called with empty body", interfaces.Field{Key: "source", Value: source})
+		if h != nil && h.logger != nil {
+			h.logger.Warn("heuristics-assessor: ScoreResponse called with empty body", interfaces.Field{Key: "source", Value: source})
+		}
 		return h.defaultResult(source), nil
 	}
-	return h.ScoreHTML(ctx, resp.Body, source)
+	return h.ScoreHTML(ctx, resp.Body, source, opts)
 }
 
 // Close releases resources (currently a no-op) and logs lifecycle.
 func (h *HeuristicsAssessor) Close() error {
+	if h == nil || h.logger == nil {
+		// nothing to do
+		return nil
+	}
 	h.logger.Info("heuristics-assessor: closed")
 	return nil
 }
@@ -67,11 +109,18 @@ func (h *HeuristicsAssessor) Close() error {
 // safely before rules/heuristics are implemented.
 func (h *HeuristicsAssessor) defaultResult(source string) *model.ScoreResult {
 	now := time.Now().UTC()
+	// defensive: if cfg is missing, use small defaults
+	conf := 0.0
+	ver := ""
+	if h != nil && h.cfg != nil {
+		conf = h.cfg.DefaultConfidence
+		ver = h.cfg.ScoringVersion
+	}
 	return &model.ScoreResult{
 		Score:      0.0,
 		Normalized: 0,
-		Confidence: h.cfg.DefaultConfidence,
-		Version:    h.cfg.ScoringVersion,
+		Confidence: conf,
+		Version:    ver,
 		Evidence: []model.EvidenceItem{
 			{
 				Key:         "no-evidence",
