@@ -213,7 +213,6 @@ func isOrderSensitiveHeader(name string) bool {
 	return slices.Contains(orderSensitiveHeaders, name)
 }
 
-
 // diffHeaders computes a structured diff between two sets of normalized headers.
 // If redactSensitive is true, sensitive headers are marked as redacted in the diff.
 func diffHeaders(base, head map[string][]string, redactSensitive bool) model.HeaderDiff {

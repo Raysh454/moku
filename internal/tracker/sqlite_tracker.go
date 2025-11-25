@@ -102,9 +102,7 @@ func (t *SQLiteTracker) SetAssessor(a interfaces.Assessor) {
 // Ensure SQLiteTracker implements interfaces.Tracker at compile-time.
 var _ interfaces.Tracker = (*SQLiteTracker)(nil)
 
-// Commit stores a snapshot and returns a Version record representing the commit.
-// Commit stores a snapshot and returns a model.CommitResult representing the commit.
-// NOTE: signature changed to return model.CommitResult (see internal/tracker/commit_result.go).
+// Commit stores a snapshot and returns a CommitResult.
 func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.CommitResult, error) {
 	if snapshot == nil {
 		return nil, errors.New("snapshot cannot be nil")
@@ -117,14 +115,12 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		interfaces.Field{Key: "url", Value: snapshot.URL},
 		interfaces.Field{Key: "message", Value: message})
 
-	// Step 1: Store snapshot body as a blob
 	blobID, err := t.store.Put(snapshot.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to store snapshot body: %w", err)
 	}
 	t.logger.Debug("Stored snapshot body", interfaces.Field{Key: "blobID", Value: blobID})
 
-	// Step 2: Generate IDs
 	snapshotID := uuid.New().String()
 	versionID := uuid.New().String()
 	timestamp := time.Now().Unix()
@@ -132,13 +128,11 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		timestamp = snapshot.CreatedAt.Unix()
 	}
 
-	// Step 3: Get parent version (current HEAD)
 	parentID, err := t.readHEAD()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("failed to read HEAD: %w", err)
 	}
 
-	// Step 4: Begin transaction
 	tx, err := t.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -149,18 +143,13 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		}
 	}()
 
-	// Step 5: Extract and normalize headers from snapshot metadata
-	headers := snapshot.Headers
-
-	// Normalize and serialize headers
 	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
-	normalizedHeaders := normalizeHeaders(headers, redactSensitive)
+	normalizedHeaders := normalizeHeaders(snapshot.Headers, redactSensitive)
 	headersJSON, err := json.Marshal(normalizedHeaders)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal headers: %w", err)
 	}
 
-	// Step 6: Insert snapshot record with headers
 	urlTools, err := utils.NewURLTools(snapshot.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse snapshot URL: %w", err)
@@ -175,7 +164,6 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		return nil, fmt.Errorf("failed to insert snapshot: %w", err)
 	}
 
-	// Step 7: Insert version record
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO versions (id, parent_id, snapshot_id, message, author, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -184,7 +172,6 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		return nil, fmt.Errorf("failed to insert version: %w", err)
 	}
 
-	// Step 8: Insert version_files record
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO version_files (version_id, file_path, blob_id, size)
 		VALUES (?, ?, ?, ?)
@@ -193,44 +180,34 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		return nil, fmt.Errorf("failed to insert version_files: %w", err)
 	}
 
-	// Step 9: Compute and store diff (if parent exists)
 	if parentID != "" {
 		if err := t.computeAndStoreDiff(ctx, tx, parentID, versionID); err != nil {
 			t.logger.Warn("Failed to compute diff, continuing", interfaces.Field{Key: "error", Value: err.Error()})
-			// Don't fail the commit if diff computation fails
 		}
 	}
 
-	// Step 10: Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Step 11: Write working-tree convenience files
 	if err := t.writeWorkingTreeFiles(filePath, snapshot.StatusCode, snapshot.Body, normalizedHeaders); err != nil {
 		t.logger.Warn("Failed to write working-tree files", interfaces.Field{Key: "error", Value: err.Error()})
-		// Don't fail the commit if working-tree writes fail - DB is authoritative
-		// Schedule reconciliation if needed
 	}
 
-	// Step 12: Write HEAD
 	if err := t.writeHEAD(versionID); err != nil {
 		t.logger.Warn("Failed to update HEAD", interfaces.Field{Key: "error", Value: err.Error()})
-		// Don't fail the commit if HEAD update fails
 	}
 
 	t.logger.Info("Commit successful",
 		interfaces.Field{Key: "versionID", Value: versionID},
 		interfaces.Field{Key: "snapshotID", Value: snapshotID})
 
-	// Build model.CommitResult for return: attempt to load diff row (if any) and populate blob/file info.
 	var diffID, diffJSON string
 	if err := t.db.QueryRowContext(ctx, `SELECT id, diff_json FROM diffs WHERE head_version_id = ? ORDER BY created_at DESC LIMIT 1`, versionID).Scan(&diffID, &diffJSON); err != nil && err != sql.ErrNoRows {
-		// non-fatal
 		t.logger.Warn("failed to fetch diff row after commit", interfaces.Field{Key: "err", Value: err})
 	}
 
-	cr := &model.CommitResult{
+	return &model.CommitResult{
 		Version:         model.Version{ID: versionID, Parent: parentID, Message: message, Author: author, SnapshotID: snapshotID, Timestamp: time.Unix(timestamp, 0)},
 		ParentVersionID: parentID,
 		DiffID:          diffID,
@@ -239,14 +216,10 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *model.Snapshot, me
 		HeadBlobID:      blobID,
 		HeadFilePath:    filePath,
 		Opts:            model.ScoreOptions{RequestLocations: true},
-	}
-
-	return cr, nil
+	}, nil
 }
 
-// Return diff from database, if it exists
 func (t *SQLiteTracker) diffFromCache(diffJSON string) (*model.DiffResult, error) {
-	// Diff exists, parse and return
 	var combined model.CombinedDiff
 	if err := json.Unmarshal([]byte(diffJSON), &combined); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal combined diff: %w", err)
@@ -257,41 +230,32 @@ func (t *SQLiteTracker) diffFromCache(diffJSON string) (*model.DiffResult, error
 		Chunks: make([]model.DiffChunk, len(combined.BodyDiff.Chunks)),
 	}
 	for i, c := range combined.BodyDiff.Chunks {
-		result.Chunks[i] = model.DiffChunk{
-			Type:    c.Type,
-			Path:    c.Path,
-			Content: c.Content,
-		}
+		result.Chunks[i] = model.DiffChunk(c)
 	}
 	return &result, nil
 }
 
-// Compute diff if it doesn't exist
 func (t *SQLiteTracker) computeDiff(ctx context.Context, baseID, headID string) (*model.DiffResult, string, error) {
 	var baseBody, headBody []byte
-	var err2 error
+	var err error
 
-	// Get base version body (if baseID is not empty)
 	if baseID != "" {
-		baseBody, err2 = t.getVersionBodyByID(ctx, baseID)
-		if err2 != nil {
-			return nil, "", fmt.Errorf("failed to get base version body: %w", err2)
+		baseBody, err = t.getVersionBodyByID(ctx, baseID)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to get base version body: %w", err)
 		}
 	}
 
-	// Get head version body
-	headBody, err2 = t.getVersionBodyByID(ctx, headID)
-	if err2 != nil {
-		return nil, "", fmt.Errorf("failed to get head version body: %w", err2)
+	headBody, err = t.getVersionBodyByID(ctx, headID)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get head version body: %w", err)
 	}
 
-	// Compute diff
-	diffJSON, err2 := computeTextDiffJSON(baseID, headID, baseBody, headBody)
-	if err2 != nil {
-		return nil, "", fmt.Errorf("failed to compute diff: %w", err2)
+	diffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headBody)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to compute diff: %w", err)
 	}
 
-	// Parse the diff result
 	var result model.DiffResult
 	if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
 		return nil, "", fmt.Errorf("failed to unmarshal computed diff: %w", err)
@@ -306,7 +270,6 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 		interfaces.Field{Key: "baseID", Value: baseID},
 		interfaces.Field{Key: "headID", Value: headID})
 
-	// Check if diff already exists in cache
 	var diffJSON string
 	err := t.db.QueryRowContext(ctx, `
 		SELECT diff_json FROM diffs
@@ -319,20 +282,17 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 		return nil, fmt.Errorf("failed to query cached diff: %w", err)
 	}
 
-	// Diff not cached, compute it
 	result, diffJSON, err := t.computeDiff(ctx, baseID, headID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the diff for future use
 	diffID := uuid.New().String()
 	_, err = t.db.ExecContext(ctx, `
 		INSERT INTO diffs (id, base_version_id, head_version_id, diff_json, created_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, diffID, nullableString(baseID), headID, diffJSON, time.Now().Unix())
 	if err != nil {
-		// Log but don't fail if caching fails
 		t.logger.Warn("Failed to cache diff", interfaces.Field{Key: "error", Value: err.Error()})
 	}
 
@@ -343,7 +303,6 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*model.Snapshot, error) {
 	t.logger.Debug("Getting snapshot", interfaces.Field{Key: "versionID", Value: versionID})
 
-	// Query snapshot ID from version
 	var snapshotID, url, filePath string
 	var createdAt int64
 	var statucode int
@@ -362,7 +321,6 @@ func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*model.Snaps
 		return nil, fmt.Errorf("failed to query snapshot: %w", err)
 	}
 
-	// Get blob ID for the file
 	var blobID string
 	err = t.db.QueryRowContext(ctx, `
 		SELECT blob_id FROM version_files
@@ -376,7 +334,6 @@ func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*model.Snaps
 		return nil, fmt.Errorf("failed to query version_files: %w", err)
 	}
 
-	// Get blob content
 	body, err := t.store.Get(blobID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get blob: %w", err)
@@ -384,8 +341,7 @@ func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*model.Snaps
 
 	headersJSON := headersJSONSQL.String
 	var headers map[string][]string
-	err = json.Unmarshal([]byte(headersJSON), &headers)
-	if err != nil {
+	if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
 		t.logger.Warn("Failed to parse headers", interfaces.Field{Key: "error", Value: err.Error()})
 	}
 
@@ -404,7 +360,7 @@ func (t *SQLiteTracker) List(ctx context.Context, limit int) ([]*model.Version, 
 	t.logger.Debug("Listing versions", interfaces.Field{Key: "limit", Value: limit})
 
 	if limit <= 0 {
-		limit = 10 // Default limit
+		limit = 10
 	}
 
 	rows, err := t.db.QueryContext(ctx, `
@@ -447,11 +403,9 @@ func (t *SQLiteTracker) List(ctx context.Context, limit int) ([]*model.Version, 
 }
 
 // Checkout updates the working tree to match a specific version.
-// This restores all files from the specified version to the working directory.
 func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 	t.logger.Debug("Checkout version", interfaces.Field{Key: "versionID", Value: versionID})
 
-	// Verify version exists
 	var exists int
 	err := t.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM versions WHERE id = ?
@@ -463,7 +417,6 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 		return fmt.Errorf("version not found: %s", versionID)
 	}
 
-	// Get all files for this version
 	type fileEntry struct {
 		path   string
 		blobID string
@@ -491,15 +444,12 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 		return fmt.Errorf("error iterating version files: %w", err)
 	}
 
-	// Restore each file to the working tree
 	for _, file := range files {
-		// Get blob content
 		content, err := t.store.Get(file.blobID)
 		if err != nil {
 			return fmt.Errorf("failed to get blob %s: %w", file.blobID, err)
 		}
 
-		// Get headers and status_code for this file from snapshot
 		var headersJSON sql.NullString
 		var statusCode int
 		err = t.db.QueryRowContext(ctx, `
@@ -514,19 +464,8 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 				interfaces.Field{Key: "error", Value: err.Error()})
 		}
 
-		// Parse headers
-		var headers map[string][]string
-		if headersJSON.Valid && headersJSON.String != "" {
-			if err := json.Unmarshal([]byte(headersJSON.String), &headers); err != nil {
-				t.logger.Warn("Failed to parse headers",
-					interfaces.Field{Key: "error", Value: err.Error()})
-				headers = make(map[string][]string)
-			}
-		} else {
-			headers = make(map[string][]string)
-		}
+		headers := t.parseHeaders(headersJSON)
 
-		// Write working-tree files (.page_body and .page_headers.json)
 		if err := t.writeWorkingTreeFiles(file.path, statusCode, content, headers); err != nil {
 			return fmt.Errorf("failed to write working-tree files for %s: %w", file.path, err)
 		}
@@ -536,7 +475,6 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 			interfaces.Field{Key: "blobID", Value: file.blobID})
 	}
 
-	// Update HEAD to point to this version
 	if err := t.writeHEAD(versionID); err != nil {
 		return fmt.Errorf("failed to update HEAD: %w", err)
 	}
@@ -548,6 +486,18 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 	return nil
 }
 
+func (t *SQLiteTracker) parseHeaders(headersJSON sql.NullString) map[string][]string {
+	if !headersJSON.Valid || headersJSON.String == "" {
+		return make(map[string][]string)
+	}
+	var headers map[string][]string
+	if err := json.Unmarshal([]byte(headersJSON.String), &headers); err != nil {
+		t.logger.Warn("Failed to parse headers", interfaces.Field{Key: "error", Value: err.Error()})
+		return make(map[string][]string)
+	}
+	return headers
+}
+
 // Close releases resources used by the tracker.
 func (t *SQLiteTracker) Close() error {
 	t.logger.Info("Closing SQLiteTracker")
@@ -557,11 +507,7 @@ func (t *SQLiteTracker) Close() error {
 	return nil
 }
 
-// Helper methods
-
-// computeAndStoreDiff computes a diff between base and head versions and stores it.
 func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, baseID, headID string) error {
-	// Get snapshot bodies and headers for both versions
 	baseBody, baseHeaders, err := t.getVersionData(ctx, tx, baseID)
 	if err != nil {
 		return fmt.Errorf("failed to get base version data: %w", err)
@@ -572,14 +518,12 @@ func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, bas
 		return fmt.Errorf("failed to get head version data: %w", err)
 	}
 
-	// Compute combined diff (body + headers)
 	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
 	diffJSON, err := computeCombinedDiff(baseID, headID, baseBody, headBody, baseHeaders, headHeaders, redactSensitive)
 	if err != nil {
 		return fmt.Errorf("failed to compute combined diff: %w", err)
 	}
 
-	// Store diff
 	diffID := uuid.New().String()
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO diffs (id, base_version_id, head_version_id, diff_json, created_at)
@@ -589,9 +533,7 @@ func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, bas
 	return err
 }
 
-// getVersionData retrieves both body and headers for a version (transaction version).
 func (t *SQLiteTracker) getVersionData(ctx context.Context, tx *sql.Tx, versionID string) ([]byte, map[string][]string, error) {
-	// Get blob ID from version_files and headers from snapshots
 	var blobID string
 	var headersJSON sql.NullString
 	err := tx.QueryRowContext(ctx, `
@@ -607,29 +549,15 @@ func (t *SQLiteTracker) getVersionData(ctx context.Context, tx *sql.Tx, versionI
 		return nil, nil, fmt.Errorf("failed to query version data: %w", err)
 	}
 
-	// Get blob content
 	body, err := t.store.Get(blobID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get blob: %w", err)
 	}
 
-	// Parse headers
-	var headers map[string][]string
-	if headersJSON.Valid && headersJSON.String != "" {
-		if err := json.Unmarshal([]byte(headersJSON.String), &headers); err != nil {
-			t.logger.Warn("Failed to parse headers", interfaces.Field{Key: "error", Value: err.Error()})
-			headers = make(map[string][]string)
-		}
-	} else {
-		headers = make(map[string][]string)
-	}
-
-	return body, headers, nil
+	return body, t.parseHeaders(headersJSON), nil
 }
 
-// getVersionBodyByID retrieves the body content for a version (non-transaction version).
 func (t *SQLiteTracker) getVersionBodyByID(ctx context.Context, versionID string) ([]byte, error) {
-	// Get blob ID from version_files (assuming single file for now)
 	var blobID string
 	err := t.db.QueryRowContext(ctx, `
 		SELECT blob_id FROM version_files
@@ -641,11 +569,9 @@ func (t *SQLiteTracker) getVersionBodyByID(ctx context.Context, versionID string
 		return nil, err
 	}
 
-	// Get blob content
 	return t.store.Get(blobID)
 }
 
-// readHEAD reads the current HEAD version ID.
 func (t *SQLiteTracker) readHEAD() (string, error) {
 	headPath := filepath.Join(t.siteDir, ".moku", "HEAD")
 	data, err := os.ReadFile(headPath)
@@ -655,13 +581,11 @@ func (t *SQLiteTracker) readHEAD() (string, error) {
 	return string(data), nil
 }
 
-// writeHEAD writes the current HEAD version ID.
 func (t *SQLiteTracker) writeHEAD(versionID string) error {
 	headPath := filepath.Join(t.siteDir, ".moku", "HEAD")
 	return AtomicWriteFile(headPath, []byte(versionID), 0644)
 }
 
-// nullableString converts an empty string to sql.NullString.
 func nullableString(s string) sql.NullString {
 	return sql.NullString{
 		String: s,
@@ -669,9 +593,6 @@ func nullableString(s string) sql.NullString {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Internal helper struct (defined ONCE, outside CommitBatch)
-// -----------------------------------------------------------------------------
 type snapshotData struct {
 	snapshot    *model.Snapshot
 	snapshotID  string
@@ -680,9 +601,6 @@ type snapshotData struct {
 	headersJSON string
 }
 
-// -----------------------------------------------------------------------------
-// Helper methods
-// -----------------------------------------------------------------------------
 func (t *SQLiteTracker) insertSnapshot(ctx context.Context, tx *sql.Tx, sd snapshotData) error {
 	_, err := tx.ExecContext(ctx, `
         INSERT INTO snapshots (id, status_code, url, file_path, created_at, headers)
@@ -727,11 +645,7 @@ func (t *SQLiteTracker) insertVersionFile(ctx context.Context, tx *sql.Tx,
 	return err
 }
 
-// -----------------------------------------------------------------------------
-// CommitBatch allows committing multiple snapshots in a single transaction.
-// -----------------------------------------------------------------------------
-// CommitBatch allows committing multiple snapshots in a single transaction and returns model.CommitResults.
-// Each returned model.CommitResult references the same Version (head) but contains per-snapshot HeadBody/HeadBlobID/FilePath.
+// CommitBatch commits multiple snapshots in a single transaction.
 func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.CommitResult, error) {
 	if len(snapshots) == 0 {
 		return nil, errors.New("no snapshots to commit")
@@ -742,7 +656,6 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snap
 
 	t.logger.Info("Starting batch commit", interfaces.Field{Key: "count", Value: len(snapshots)})
 
-	// Build snapshotData list using the single shared struct
 	var list []snapshotData
 	for _, snap := range snapshots {
 		if snap == nil {
@@ -835,13 +748,11 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snap
 
 	_ = t.writeHEAD(versionID)
 
-	// After commit: load diff row (if present)
 	var diffID, diffJSON string
 	if err := t.db.QueryRowContext(ctx, `SELECT id, diff_json FROM diffs WHERE head_version_id = ? ORDER BY created_at DESC LIMIT 1`, versionID).Scan(&diffID, &diffJSON); err != nil && err != sql.ErrNoRows {
 		t.logger.Warn("failed to fetch diff row after commit batch", interfaces.Field{Key: "err", Value: err})
 	}
 
-	// Build commit results: one per snapshot as before, all pointing to same Version
 	results := make([]*model.CommitResult, 0, len(list))
 	for _, sd := range list {
 		cr := &model.CommitResult{
@@ -867,33 +778,18 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*model.Snap
 	return results, nil
 }
 
-// writeWorkingTreeFiles writes the convenience files for a snapshot to the working tree.
-// These files are:
-// - .page_body: The raw body content
-// - .page_headers.json: The normalized headers as JSON
-//
-// Both files are written atomically to prevent corruption.
-// The working tree is a convenience layer; the authoritative data is in .moku/
-//
-// The filePath is treated as a directory name (following fetcher conventions),
-// so files are written to siteDir/filePath/.page_body and siteDir/filePath/.page_headers.json
 func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, body []byte, headers map[string][]string) error {
-	// Build directory path in working tree
-	// The filePath is treated as a directory (e.g., "page1.html" becomes a directory)
 	dirPath := filepath.Join(t.siteDir, filePath)
 
-	// Ensure directory exists
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
 	}
 
-	// Write .page_body
 	bodyPath := filepath.Join(dirPath, ".page_body")
 	if err := AtomicWriteFile(bodyPath, body, 0644); err != nil {
 		return fmt.Errorf("failed to write .page_body: %w", err)
 	}
 
-	// Write .page_headers.json
 	headers["Status-Code"] = []string{fmt.Sprintf("%d", statusCode)}
 	headersJSON, err := json.MarshalIndent(headers, "", "  ")
 	if err != nil {
@@ -907,25 +803,17 @@ func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, b
 	return nil
 }
 
-// -----------------------------------------------------------------------------
-// Scoring & Attribution methods (migrated from the standalone scoring file)
-// These methods are receivers on SQLiteTracker and use t.db, t.logger, t.assessor.
-// They expect to be callable from outside (e.g., worker or after Commit).
-// -----------------------------------------------------------------------------
-
 func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *model.CommitResult) error {
 	if cr == nil {
 		return errors.New("nil model.CommitResult")
 	}
 
-	// Ensure diff JSON is present if possible
 	if cr.DiffJSON == "" && cr.DiffID != "" {
 		if err := t.db.QueryRowContext(ctx, `SELECT diff_json FROM diffs WHERE id = ?`, cr.DiffID).Scan(&cr.DiffJSON); err != nil && err != sql.ErrNoRows {
 			t.logger.Warn("failed to load diff_json for commit", interfaces.Field{Key: "err", Value: err})
 		}
 	}
 
-	// Ensure head body is available (prefer HeadBody, fallback to blob)
 	if len(cr.HeadBody) == 0 && cr.HeadBlobID != "" {
 		if b, err := t.store.Get(cr.HeadBlobID); err == nil {
 			cr.HeadBody = b
@@ -934,20 +822,14 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *model.
 		}
 	}
 
-	// Delegate to existing lower-level method
 	return t.scoreAndAttribute(ctx, cr.Opts, cr.Version.ID, cr.ParentVersionID, cr.DiffID, cr.DiffJSON, cr.HeadBody)
 }
 
-// ScoreAndAttributeVersion scores a single version, persists a version_scores row,
-// persists per-version evidence locations, and creates diff_attributions that
-// reference the persisted evidence rows when a diff is available.
 func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreOptions, versionID, parentVersionID, diffID, diffJSON string, headBody []byte) error {
 	if t.assessor == nil {
-		// no assessor configured; nothing to do
 		return nil
 	}
 
-	// Score the page. Use a bounded timeout.
 	scoreCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
@@ -959,7 +841,6 @@ func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreO
 		return err
 	}
 
-	// Marshal score JSON for storage
 	scoreJSON, err := json.Marshal(scoreRes)
 	if err != nil {
 		if t.logger != nil {
@@ -968,7 +849,6 @@ func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreO
 		scoreJSON = []byte("{}")
 	}
 
-	// Begin DB transaction for atomic persistence of score, evidence locations and attributions
 	tx, err := t.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -981,7 +861,6 @@ func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreO
 		}
 	}()
 
-	// 1) persist version_scores
 	scoreID := uuid.New().String()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT OR REPLACE INTO version_scores
@@ -991,17 +870,13 @@ func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreO
 		return fmt.Errorf("insert version_scores: %w", err)
 	}
 
-	// 2) persist version_evidence_locations and obtain map of persisted ids for linking
 	velMap, err := t.persistVersionEvidenceLocations(ctx, tx, versionID, scoreRes)
 	if err != nil {
-		// log and continue: we still want version_scores inserted; attribution will still insert but without FK links
 		if t.logger != nil {
 			t.logger.Warn("persistVersionEvidenceLocations failed", interfaces.Field{Key: "err", Value: err})
 		}
-		// continue with velMap possibly nil
 	}
 
-	// 3) if diff present, compute attributions and insert diff_attributions referencing vel rows when available
 	if parentVersionID != "" && diffID != "" && diffJSON != "" {
 		if err := t.attributeUsingLocations(ctx, tx, diffID, versionID, parentVersionID, diffJSON, headBody, scoreRes, velMap); err != nil {
 			if t.logger != nil {
@@ -1010,7 +885,6 @@ func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreO
 		}
 	}
 
-	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
@@ -1018,8 +892,6 @@ func (t *SQLiteTracker) scoreAndAttribute(ctx context.Context, opts model.ScoreO
 	return nil
 }
 
-// persistVersionEvidenceLocations persists evidence/location rows and returns a map keyed by "evidenceID:locationIndex" -> inserted id.
-// For evidence items with no locations a single row is inserted with location_index = -1 and key "evidenceID:-1".
 func (t *SQLiteTracker) persistVersionEvidenceLocations(ctx context.Context, tx *sql.Tx, versionID string, scoreRes *model.ScoreResult) (map[string]string, error) {
 	if tx == nil {
 		return nil, fmt.Errorf("persistVersionEvidenceLocations requires tx")
@@ -1032,7 +904,6 @@ func (t *SQLiteTracker) persistVersionEvidenceLocations(ctx context.Context, tx 
 	}
 
 	for ei, ev := range scoreRes.Evidence {
-		// ensure evidence ID
 		eid := ev.ID
 		if eid == "" {
 			eid = uuid.New().String()
@@ -1041,7 +912,6 @@ func (t *SQLiteTracker) persistVersionEvidenceLocations(ctx context.Context, tx 
 		evJS, _ := json.Marshal(ev)
 		evJSON := string(evJS)
 
-		// no locations -> insert a global row (location_index = -1)
 		if len(ev.Locations) == 0 {
 			id := uuid.New().String()
 			if _, err := tx.ExecContext(ctx, `
@@ -1055,7 +925,6 @@ func (t *SQLiteTracker) persistVersionEvidenceLocations(ctx context.Context, tx 
 			continue
 		}
 
-		// per-location insert
 		for li, loc := range ev.Locations {
 			id := uuid.New().String()
 			locJS, _ := json.Marshal(loc)
@@ -1080,8 +949,6 @@ func (t *SQLiteTracker) persistVersionEvidenceLocations(ctx context.Context, tx 
 	return velMap, nil
 }
 
-// attributeUsingLocations maps assessor-provided EvidenceItem.Locations to diff chunks,
-// builds per-location contributions, and inserts diff_attributions referencing version_evidence_locations when available.
 func (t *SQLiteTracker) attributeUsingLocations(ctx context.Context, tx *sql.Tx, diffID, headVersionID, parentVersionID, diffJSON string, headBody []byte, scoreRes *model.ScoreResult, velMap map[string]string) error {
 	if tx == nil {
 		return fmt.Errorf("attributeUsingLocations requires tx")
@@ -1089,11 +956,8 @@ func (t *SQLiteTracker) attributeUsingLocations(ctx context.Context, tx *sql.Tx,
 
 	combined := t.parseCombinedDiff(diffJSON)
 	doc := t.prepareDoc(headBody)
-
-	// collect rows (one per evidence-location or one global per evidence)
 	rows := t.collectLocRows(combined, doc, headBody, scoreRes)
 
-	// insert attributions
 	if err := t.insertAttributionRows(ctx, tx, diffID, headVersionID, parentVersionID, scoreRes, rows, velMap); err != nil {
 		return err
 	}
@@ -1101,9 +965,6 @@ func (t *SQLiteTracker) attributeUsingLocations(ctx context.Context, tx *sql.Tx,
 	return nil
 }
 
-// ---------------- helpers for rows collection and insertion ----------------
-
-// locRow represents one evidence-location candidate for attribution.
 type locRow struct {
 	EvidenceID  string
 	EvidenceKey string
@@ -1116,12 +977,9 @@ type locRow struct {
 	Severity    string
 }
 
-// collectLocRows converts ScoreResult.Evidence into locRow entries using mapLocationToChunkStrict
-// and splits evidence-level weight across locations (using per-location confidence when provided).
 func (t *SQLiteTracker) collectLocRows(combined *model.CombinedDiff, doc *goquery.Document, headBody []byte, scoreRes *model.ScoreResult) []locRow {
 	var rows []locRow
 	for ei, ev := range scoreRes.Evidence {
-		// ensure evidence id
 		eid := ev.ID
 		if eid == "" {
 			eid = uuid.New().String()
@@ -1130,13 +988,11 @@ func (t *SQLiteTracker) collectLocRows(combined *model.CombinedDiff, doc *goquer
 		evJS, _ := json.Marshal(ev)
 		evJSON := string(evJS)
 
-		// compute base weight: severityWeight * assessor confidence (fallback 1.0)
 		base := severityWeight(ev.Severity) * scoreRes.Confidence
 		if base <= 0 {
 			base = 1.0
 		}
 
-		// no locations -> global row
 		if len(ev.Locations) == 0 {
 			rows = append(rows, locRow{
 				EvidenceID:  eid,
@@ -1152,7 +1008,6 @@ func (t *SQLiteTracker) collectLocRows(combined *model.CombinedDiff, doc *goquer
 			continue
 		}
 
-		// normalize per-location confidences
 		locConfs := make([]float64, len(ev.Locations))
 		sum := 0.0
 		for i, l := range ev.Locations {
@@ -1170,7 +1025,6 @@ func (t *SQLiteTracker) collectLocRows(combined *model.CombinedDiff, doc *goquer
 			sum = float64(len(locConfs))
 		}
 
-		// map locations to chunks and produce rows
 		for li, loc := range ev.Locations {
 			chunkIdx, _ := t.mapLocationToChunkStrict(combined, doc, headBody, loc)
 			locJS, _ := json.Marshal(loc)
@@ -1190,9 +1044,7 @@ func (t *SQLiteTracker) collectLocRows(combined *model.CombinedDiff, doc *goquer
 	return rows
 }
 
-// insertAttributionRows writes locRows into diff_attributions and references version_evidence_locations via velMap when available.
 func (t *SQLiteTracker) insertAttributionRows(ctx context.Context, tx *sql.Tx, diffID, headVersionID, parentVersionID string, scoreRes *model.ScoreResult, rows []locRow, velMap map[string]string) error {
-	// compute total weight
 	total := 0.0
 	for _, r := range rows {
 		total += r.Weight
@@ -1206,7 +1058,6 @@ func (t *SQLiteTracker) insertAttributionRows(ctx context.Context, tx *sql.Tx, d
 		pct := (r.Weight / total) * 100.0
 		id := uuid.New().String()
 
-		// attempt to find corresponding vel id
 		velID := ""
 		if velMap != nil {
 			key := r.EvidenceID + ":" + strconv.Itoa(r.LocationIdx)
@@ -1214,7 +1065,6 @@ func (t *SQLiteTracker) insertAttributionRows(ctx context.Context, tx *sql.Tx, d
 				velID = v
 			}
 			if velID == "" {
-				// fallback to global key
 				if v, ok := velMap[r.EvidenceID+":-1"]; ok {
 					velID = v
 				}
@@ -1228,11 +1078,9 @@ func (t *SQLiteTracker) insertAttributionRows(ctx context.Context, tx *sql.Tx, d
 		`, id, diffID, headVersionID, nullableString(velID), r.EvidenceID, r.LocationIdx, r.ChunkIdx, r.EvidenceKey, r.EvidenceJS, r.LocationJS, scoreRes.Version, r.Weight, pct, "", now)
 		if err != nil && t.logger != nil {
 			t.logger.Warn("failed to insert diff_attribution", interfaces.Field{Key: "err", Value: err}, interfaces.Field{Key: "evidence_id", Value: r.EvidenceID})
-			// continue inserting others
 		}
 	}
 
-	// log delta vs parent using tx (avoid pool deadlocks)
 	var parentScore sql.NullFloat64
 	if err := tx.QueryRowContext(ctx, `SELECT score FROM version_scores WHERE version_id = ? ORDER BY created_at DESC LIMIT 1`, parentVersionID).Scan(&parentScore); err != nil && err != sql.ErrNoRows {
 		if t.logger != nil {

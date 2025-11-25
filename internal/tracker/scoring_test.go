@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -134,6 +135,28 @@ func countRows(t *testing.T, db *sql.DB, q string, args ...any) int {
 	return cnt
 }
 
+// scoreAndAttributeVersionForTest is a test helper that calls the internal scoreAndAttribute method
+// with a minimal tracker setup for unit testing scoring logic.
+func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger interfaces.Logger, assessor interfaces.Assessor, opts model.ScoreOptions, versionID, parentVersionID, diffID, diffJSON string, headBody []byte) error {
+	// Create a minimal temp directory for the tracker
+	tmpDir, err := os.MkdirTemp("", "scoring-test-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test tracker with the provided db
+	t := &SQLiteTracker{
+		siteDir:  tmpDir,
+		db:       db,
+		logger:   logger,
+		assessor: assessor,
+		config:   &Config{},
+	}
+
+	return t.scoreAndAttribute(ctx, opts, versionID, parentVersionID, diffID, diffJSON, headBody)
+}
+
 // Test initial page (no parent) persists version_scores and version_evidence_locations
 func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testing.T) {
 	db := openTestDB(t)
@@ -163,8 +186,8 @@ func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testi
 	versionID := uuid.New().String()
 
 	// Call with no parent/diff
-	if err := ScoreAndAttributeVersion(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, "", "", "", []byte(`<html><body><form id="login"></form></body></html>`)); err != nil {
-		t.Fatalf("ScoreAndAttributeVersion failed: %v", err)
+	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, "", "", "", []byte(`<html><body><form id="login"></form></body></html>`)); err != nil {
+		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
 	}
 
 	// version_scores row exists
@@ -232,8 +255,8 @@ func TestScoreAndAttributeVersion_WithDiff_AttributesLocations(t *testing.T) {
 	logger := interfaces.Logger(nil)
 	versionID := uuid.New().String()
 
-	if err := ScoreAndAttributeVersion(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><form id="login"><input name="username"/></form></body></html>`)); err != nil {
-		t.Fatalf("ScoreAndAttributeVersion failed: %v", err)
+	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><form id="login"><input name="username"/></form></body></html>`)); err != nil {
+		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
 	}
 
 	// one version_evidence_locations row created
@@ -305,8 +328,8 @@ func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) 
 	logger := interfaces.Logger(nil)
 	versionID := uuid.New().String()
 
-	if err := ScoreAndAttributeVersion(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><div class="a">one</div><div class="b">two</div></body></html>`)); err != nil {
-		t.Fatalf("ScoreAndAttributeVersion failed: %v", err)
+	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><div class="a">one</div><div class="b">two</div></body></html>`)); err != nil {
+		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
 	}
 
 	// Expect two diff_attributions rows for this diff
@@ -327,6 +350,5 @@ func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) 
 	}
 }
 
-// helpers
-func intPtr(i int) *int       { return &i }
+func intPtr(i int) *int           { return &i }
 func floatPtr(f float64) *float64 { return &f }

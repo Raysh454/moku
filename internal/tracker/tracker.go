@@ -39,14 +39,23 @@ type inMemoryTracker struct {
 // Ensure inMemoryTracker implements interfaces.Tracker at compile-time.
 var _ interfaces.Tracker = (*inMemoryTracker)(nil)
 
-func (t *inMemoryTracker) Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.Version, error) {
-	// TODO: record snapshot and create a Version record.
+func (t *inMemoryTracker) Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.CommitResult, error) {
+	// TODO: record snapshot and create a CommitResult record.
 	return nil, ErrNotImplemented
 }
 
-func (t *inMemoryTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.Version, error) {
-	// TODO: record snapshots and create Version records.
+func (t *inMemoryTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.CommitResult, error) {
+	// TODO: record snapshots and create CommitResult records.
 	return nil, ErrNotImplemented
+}
+
+func (t *inMemoryTracker) ScoreAndAttributeVersion(ctx context.Context, cr *model.CommitResult) error {
+	// TODO: implement scoring
+	return ErrNotImplemented
+}
+
+func (t *inMemoryTracker) SetAssessor(a interfaces.Assessor) {
+	// TODO: implement
 }
 
 func (t *inMemoryTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
