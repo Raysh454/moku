@@ -98,15 +98,16 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 
 	// Commit the snapshot
 	ctx := context.Background()
-	version, err := tr.Commit(ctx, snapshot, "Initial commit", "test@example.com")
+	commitResult, err := tr.Commit(ctx, snapshot, "Initial commit", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit returned error: %v", err)
 	}
 
-	if version == nil {
-		t.Fatal("Commit returned nil version")
+	if commitResult == nil {
+		t.Fatal("Commit returned nil result")
 	}
 
+	version := &commitResult.Version
 	if version.ID == "" {
 		t.Error("version ID is empty")
 	}
@@ -219,7 +220,7 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 		URL:  "https://example.com",
 		Body: []byte("<html><body>Version 1</body></html>"),
 	}
-	version1, err := tr.Commit(ctx, snapshot1, "First commit", "test@example.com")
+	result1, err := tr.Commit(ctx, snapshot1, "First commit", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit 1 returned error: %v", err)
 	}
@@ -229,13 +230,13 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 		URL:  "https://example.com",
 		Body: []byte("<html><body>Version 2</body></html>"),
 	}
-	version2, err := tr.Commit(ctx, snapshot2, "Second commit", "test@example.com")
+	result2, err := tr.Commit(ctx, snapshot2, "Second commit", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit 2 returned error: %v", err)
 	}
 
 	// Compute diff
-	diff, err := tr.Diff(ctx, version1.ID, version2.ID)
+	diff, err := tr.Diff(ctx, result1.Version.ID, result2.Version.ID)
 	if err != nil {
 		t.Fatalf("Diff returned error: %v", err)
 	}
@@ -244,12 +245,12 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 		t.Fatal("Diff returned nil")
 	}
 
-	if diff.BaseID != version1.ID {
-		t.Errorf("expected BaseID %q, got %q", version1.ID, diff.BaseID)
+	if diff.BaseID != result1.Version.ID {
+		t.Errorf("expected BaseID %q, got %q", result1.Version.ID, diff.BaseID)
 	}
 
-	if diff.HeadID != version2.ID {
-		t.Errorf("expected HeadID %q, got %q", version2.ID, diff.HeadID)
+	if diff.HeadID != result2.Version.ID {
+		t.Errorf("expected HeadID %q, got %q", result2.Version.ID, diff.HeadID)
 	}
 
 	// Should have at least one chunk (actual diff implementation)
@@ -297,7 +298,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 		URL:  "https://example.com",
 		Body: []byte("<html><body>First Version</body></html>"),
 	}
-	version1, err := tr.Commit(ctx, snapshot1, "First commit", "test@example.com")
+	result1, err := tr.Commit(ctx, snapshot1, "First commit", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit 1 returned error: %v", err)
 	}
@@ -307,13 +308,13 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 		URL:  "https://example.com",
 		Body: []byte("<html><body>Second Version</body></html>"),
 	}
-	version2, err := tr.Commit(ctx, snapshot2, "Second commit", "test@example.com")
+	result2, err := tr.Commit(ctx, snapshot2, "Second commit", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit 2 returned error: %v", err)
 	}
 
 	// Checkout first version
-	err = tr.Checkout(ctx, version1.ID)
+	err = tr.Checkout(ctx, result1.Version.ID)
 	if err != nil {
 		t.Fatalf("Checkout returned error: %v", err)
 	}
@@ -338,7 +339,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	}
 
 	// Checkout second version
-	err = tr.Checkout(ctx, version2.ID)
+	err = tr.Checkout(ctx, result2.Version.ID)
 	if err != nil {
 		t.Fatalf("Checkout of version 2 returned error: %v", err)
 	}
@@ -361,7 +362,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 		t.Fatalf("failed to read HEAD: %v", err)
 	}
 
-	if string(headContent) != version2.ID {
-		t.Errorf("expected HEAD to be %q, got %q", version2.ID, string(headContent))
+	if string(headContent) != result2.Version.ID {
+		t.Errorf("expected HEAD to be %q, got %q", result2.Version.ID, string(headContent))
 	}
 }

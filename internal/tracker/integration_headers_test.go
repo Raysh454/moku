@@ -43,16 +43,16 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		Headers:    headers,
 	}
 
-	version1, err := tr.Commit(ctx, snapshot1, "Initial commit with headers", "test@example.com")
+	result1, err := tr.Commit(ctx, snapshot1, "Initial commit with headers", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit 1 returned error: %v", err)
 	}
 
-	if version1 == nil {
-		t.Fatal("Commit returned nil version")
+	if result1 == nil {
+		t.Fatal("Commit returned nil result")
 	}
 
-	retrievedSnapshot, err := tr.Get(ctx, version1.ID)
+	retrievedSnapshot, err := tr.Get(ctx, result1.Version.ID)
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
@@ -75,12 +75,12 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		Headers:    headers2,
 	}
 
-	version2, err := tr.Commit(ctx, snapshot2, "Update with header changes", "test@example.com")
+	result2, err := tr.Commit(ctx, snapshot2, "Update with header changes", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit 2 returned error: %v", err)
 	}
 
-	diff, err := tr.Diff(ctx, version1.ID, version2.ID)
+	diff, err := tr.Diff(ctx, result1.Version.ID, result2.Version.ID)
 	if err != nil {
 		t.Fatalf("Diff returned error: %v", err)
 	}
@@ -127,13 +127,13 @@ func TestHeaderNormalization_Integration(t *testing.T) {
 		Headers:    headers,
 	}
 
-	version, err := tr.Commit(ctx, snapshot, "Test normalization", "test@example.com")
+	result, err := tr.Commit(ctx, snapshot, "Test normalization", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit returned error: %v", err)
 	}
 
-	if version == nil {
-		t.Fatal("Commit returned nil version")
+	if result == nil {
+		t.Fatal("Commit returned nil result")
 	}
 
 	t.Log("Header normalization test completed successfully")
@@ -171,13 +171,13 @@ func TestSensitiveHeaderRedaction_Integration(t *testing.T) {
 		Headers:    headers,
 	}
 
-	version, err := tr.Commit(ctx, snapshot, "Test with sensitive headers", "test@example.com")
+	result, err := tr.Commit(ctx, snapshot, "Test with sensitive headers", "test@example.com")
 	if err != nil {
 		t.Fatalf("Commit returned error: %v", err)
 	}
 
-	if version == nil {
-		t.Fatal("Commit returned nil version")
+	if result == nil {
+		t.Fatal("Commit returned nil result")
 	}
 
 	t.Log("Sensitive header redaction test completed successfully")
@@ -201,44 +201,44 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 
 	ctx := context.Background()
 
-	versions := make([]*model.Version, 0, 3)
+	var versionIDs []string
 
 	headers1 := map[string][]string{
 		"Content-Type": {"text/html"},
 		"Server":       {"nginx/1.20.0"},
 	}
-	v1, err := commitWithHeaders(ctx, tr, headers1, "Version 1", 1)
+	r1, err := commitWithHeaders(ctx, tr, headers1, "Version 1", 1)
 	if err != nil {
 		t.Fatalf("Failed to commit version 1: %v", err)
 	}
-	versions = append(versions, v1)
+	versionIDs = append(versionIDs, r1.Version.ID)
 
 	headers2 := map[string][]string{
 		"Content-Type":  {"text/html"},
 		"Server":        {"nginx/1.20.0"},
 		"Cache-Control": {"no-cache"},
 	}
-	v2, err := commitWithHeaders(ctx, tr, headers2, "Version 2", 2)
+	r2, err := commitWithHeaders(ctx, tr, headers2, "Version 2", 2)
 	if err != nil {
 		t.Fatalf("Failed to commit version 2: %v", err)
 	}
-	versions = append(versions, v2)
+	versionIDs = append(versionIDs, r2.Version.ID)
 
 	headers3 := map[string][]string{
 		"Content-Type":  {"application/json"},
 		"Cache-Control": {"no-cache"},
 	}
-	v3, err := commitWithHeaders(ctx, tr, headers3, "Version 3", 3)
+	r3, err := commitWithHeaders(ctx, tr, headers3, "Version 3", 3)
 	if err != nil {
 		t.Fatalf("Failed to commit version 3: %v", err)
 	}
-	versions = append(versions, v3)
+	versionIDs = append(versionIDs, r3.Version.ID)
 
-	if len(versions) != 3 {
-		t.Fatalf("Expected 3 versions, got %d", len(versions))
+	if len(versionIDs) != 3 {
+		t.Fatalf("Expected 3 versions, got %d", len(versionIDs))
 	}
 
-	diff12, err := tr.Diff(ctx, v1.ID, v2.ID)
+	diff12, err := tr.Diff(ctx, r1.Version.ID, r2.Version.ID)
 	if err != nil {
 		t.Fatalf("Failed to compute diff 1->2: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 		t.Fatal("Diff 1->2 returned nil")
 	}
 
-	diff23, err := tr.Diff(ctx, v2.ID, v3.ID)
+	diff23, err := tr.Diff(ctx, r2.Version.ID, r3.Version.ID)
 	if err != nil {
 		t.Fatalf("Failed to compute diff 2->3: %v", err)
 	}
@@ -254,11 +254,11 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 		t.Fatal("Diff 2->3 returned nil")
 	}
 
-	t.Logf("Successfully committed and diffed %d versions with header changes", len(versions))
+	t.Logf("Successfully committed and diffed %d versions with header changes", len(versionIDs))
 }
 
 // Helper to commit snapshot with headers using new model.Snapshot
-func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers map[string][]string, message string, versionNum int) (*model.Version, error) {
+func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers map[string][]string, message string, versionNum int) (*model.CommitResult, error) {
 	snapshot := &model.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
