@@ -21,6 +21,11 @@ import (
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
+var (
+	ErrProjectIDEmpty    = errors.New("project id is empty")
+	ErrProjectIDMismatch = errors.New("project id mismatch")
+)
+
 // SQLiteTracker implements interfaces.Tracker using SQLite for metadata storage
 // and a content-addressed blob store for file content.
 type SQLiteTracker struct {
@@ -85,18 +90,98 @@ func NewSQLiteTrackerWithConfig(siteDir string, logger interfaces.Logger, config
 
 	logger.Info("SQLiteTracker initialized", interfaces.Field{Key: "siteDir", Value: siteDir})
 
-	return &SQLiteTracker{
+	t := &SQLiteTracker{
 		siteDir: siteDir,
 		db:      db,
 		store:   store,
 		logger:  logger,
 		config:  config,
-	}, nil
+	}
+
+	if config.ProjectID != "" {
+		if err := t.SetProjectID(context.Background(), config.ProjectID, config.ForceProjectID); err != nil {
+			// prefer failing fast so mismatch doesn't go unnoticed:
+			db.Close()
+			return nil, fmt.Errorf("project id mismatch or set failed: %w", err)
+		}
+	} else {
+		// optionally read and log
+		if pid, _ := t.GetProjectID(context.Background()); pid == "" {
+			t.logger.Info("no project_id set in DB meta; set via t.SetProjectID when available")
+		} else {
+			t.logger.Info("project_id loaded from DB meta", interfaces.Field{Key: "project_id", Value: pid})
+		}
+	}
+
+	return t, nil
 }
 
 // SetAssessor sets the assessor implementation the tracker should use when scoring.
 func (t *SQLiteTracker) SetAssessor(a interfaces.Assessor) {
 	t.assessor = a
+}
+
+// GetProjectID returns the project_id from meta or sql.ErrNoRows if not present.
+func (t *SQLiteTracker) GetProjectID(ctx context.Context) (string, error) {
+	var v sql.NullString
+	if err := t.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, "project_id").Scan(&v); err != nil {
+		return "", err
+	}
+	if !v.Valid {
+		return "", nil
+	}
+	return v.String, nil
+}
+
+// SetProjectID sets project_id in meta.
+// If force==false and an existing value differs, returns ErrProjectIDMismatch.
+// The operation is atomic via a short transaction.
+func (t *SQLiteTracker) SetProjectID(ctx context.Context, projectID string, force bool) error {
+	if projectID == "" {
+		return ErrProjectIDEmpty
+	}
+
+	tx, err := t.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	var existing sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, "project_id").Scan(&existing)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("query meta: %w", err)
+	}
+
+	if err == sql.ErrNoRows || !existing.Valid {
+		// insert
+		if _, err := tx.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES (?, ?)`, "project_id", projectID); err != nil {
+			return fmt.Errorf("insert meta: %w", err)
+		}
+	} else {
+		// existing present
+		if existing.String == projectID {
+			// idempotent no-op
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("commit: %w", err)
+			}
+			return nil
+		}
+		if !force {
+			return ErrProjectIDMismatch
+		}
+		// overwrite intentionally
+		if _, err := tx.ExecContext(ctx, `UPDATE meta SET value = ? WHERE key = ?`, projectID, "project_id"); err != nil {
+			return fmt.Errorf("update meta: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
 }
 
 // Ensure SQLiteTracker implements interfaces.Tracker at compile-time.
