@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 //
@@ -25,7 +27,7 @@ type DummyWebClient struct {
 	FailURLs      map[string]bool
 }
 
-func (d *DummyWebClient) Do(ctx context.Context, req *model.Request) (*model.Response, error) {
+func (d *DummyWebClient) Do(ctx context.Context, req *webclient.Request) (*webclient.Response, error) {
 	if d.ResponseDelay > 0 {
 		time.Sleep(d.ResponseDelay)
 	}
@@ -33,7 +35,7 @@ func (d *DummyWebClient) Do(ctx context.Context, req *model.Request) (*model.Res
 		return nil, errors.New("dummy fetch fail")
 	}
 
-	return &model.Response{
+	return &webclient.Response{
 		Request:    req,
 		Body:       []byte("ok:" + req.URL),
 		StatusCode: 200,
@@ -41,8 +43,8 @@ func (d *DummyWebClient) Do(ctx context.Context, req *model.Request) (*model.Res
 	}, nil
 }
 
-func (d *DummyWebClient) Get(ctx context.Context, url string) (*model.Response, error) {
-	return d.Do(ctx, &model.Request{Method: "GET", URL: url})
+func (d *DummyWebClient) Get(ctx context.Context, url string) (*webclient.Response, error) {
+	return d.Do(ctx, &webclient.Request{Method: "GET", URL: url})
 }
 
 func (d *DummyWebClient) Close() error { return nil }
@@ -50,44 +52,44 @@ func (d *DummyWebClient) Close() error { return nil }
 // Dummy Tracker
 type DummyTracker struct {
 	mu      sync.Mutex
-	Batches [][]*model.Snapshot
+	Batches [][]*tracker.Snapshot
 }
 
-func (t *DummyTracker) Commit(ctx context.Context, snap *model.Snapshot, message, author string) (*model.CommitResult, error) {
-	return &model.CommitResult{}, nil
+func (t *DummyTracker) Commit(ctx context.Context, snap *tracker.Snapshot, message, author string) (*tracker.CommitResult, error) {
+	return &tracker.CommitResult{}, nil
 }
 
-func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*model.Snapshot, message, author string) ([]*model.CommitResult, error) {
+func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*tracker.Snapshot, message, author string) ([]*tracker.CommitResult, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	copySnaps := append([]*model.Snapshot(nil), snaps...)
+	copySnaps := append([]*tracker.Snapshot(nil), snaps...)
 	t.Batches = append(t.Batches, copySnaps)
 
-	results := make([]*model.CommitResult, len(snaps))
+	results := make([]*tracker.CommitResult, len(snaps))
 	for i := range snaps {
-		results[i] = &model.CommitResult{}
+		results[i] = &tracker.CommitResult{}
 	}
 	return results, nil
 }
 
-func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *model.CommitResult) error {
+func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *tracker.CommitResult) error {
 	return nil
 }
 
-func (t *DummyTracker) SetAssessor(a interfaces.Assessor) {
+func (t *DummyTracker) SetAssessor(a assessor.Assessor) {
 	// no-op for dummy
 }
 
-func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
+func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*tracker.DiffResult, error) {
 	return nil, nil
 }
 
-func (t *DummyTracker) Get(ctx context.Context, versionID string) (*model.Snapshot, error) {
+func (t *DummyTracker) Get(ctx context.Context, versionID string) (*tracker.Snapshot, error) {
 	return nil, nil
 }
 
-func (t *DummyTracker) List(ctx context.Context, limit int) ([]*model.Version, error) {
+func (t *DummyTracker) List(ctx context.Context, limit int) ([]*tracker.Version, error) {
 	return nil, nil
 }
 
@@ -106,31 +108,31 @@ type DummyLogger struct {
 	Warns  []string
 }
 
-func (l *DummyLogger) Debug(msg string, fields ...interfaces.Field) {
+func (l *DummyLogger) Debug(msg string, fields ...logging.Field) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.Debugs = append(l.Debugs, msg)
 }
 
-func (l *DummyLogger) Info(msg string, fields ...interfaces.Field) {
+func (l *DummyLogger) Info(msg string, fields ...logging.Field) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.Infos = append(l.Infos, msg)
 }
 
-func (l *DummyLogger) Warn(msg string, fields ...interfaces.Field) {
+func (l *DummyLogger) Warn(msg string, fields ...logging.Field) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.Warns = append(l.Warns, msg)
 }
 
-func (l *DummyLogger) Error(msg string, fields ...interfaces.Field) {
+func (l *DummyLogger) Error(msg string, fields ...logging.Field) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.Errors = append(l.Errors, msg)
 }
 
-func (l *DummyLogger) With(fields ...interfaces.Field) interfaces.Logger {
+func (l *DummyLogger) With(fields ...logging.Field) logging.Logger {
 	// For simplicity, just return itself.
 	return l
 }

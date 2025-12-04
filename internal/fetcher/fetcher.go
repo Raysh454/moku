@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // Module: fetcher
@@ -14,13 +15,13 @@ import (
 type Fetcher struct {
 	MaxConcurrency int
 	CommitSize     int
-	tracker        interfaces.Tracker
-	wc             interfaces.WebClient
-	logger         interfaces.Logger
+	tracker        tracker.Tracker
+	wc             webclient.WebClient
+	logger         logging.Logger
 }
 
 // New creates a new Fetcher with the given webclient, logger and tracker
-func New(MaxConcurrency, CommitSize int, tracker interfaces.Tracker, wc interfaces.WebClient, logger interfaces.Logger) (*Fetcher, error) {
+func New(MaxConcurrency, CommitSize int, tracker tracker.Tracker, wc webclient.WebClient, logger logging.Logger) (*Fetcher, error) {
 	return &Fetcher{
 		MaxConcurrency: MaxConcurrency,
 		CommitSize:     CommitSize,
@@ -34,19 +35,19 @@ func New(MaxConcurrency, CommitSize int, tracker interfaces.Tracker, wc interfac
 func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.MaxConcurrency)
-	snapCh := make(chan *model.Snapshot)
+	snapCh := make(chan *tracker.Snapshot)
 	batcherDone := make(chan struct{})
 
 	// Commit snapshots goroutine
 	go func() {
 		defer close(batcherDone)
-		batch := make([]*model.Snapshot, 0, f.CommitSize)
+		batch := make([]*tracker.Snapshot, 0, f.CommitSize)
 		flush := func() {
 			if len(batch) > 0 {
 				if _, err := f.tracker.CommitBatch(ctx, batch, "some kind of message", "^_^"); err != nil {
 					if f.logger != nil {
 						f.logger.Error("error while committing snapshot batch",
-							interfaces.Field{Key: "error", Value: err})
+							logging.Field{Key: "error", Value: err})
 					}
 				}
 				batch = batch[:0]
@@ -89,13 +90,13 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 			if err != nil {
 				if f.logger != nil {
 					f.logger.Error("error while fetching page",
-						interfaces.Field{Key: "url", Value: pageUrl},
-						interfaces.Field{Key: "error", Value: err})
+						logging.Field{Key: "url", Value: pageUrl},
+						logging.Field{Key: "error", Value: err})
 				}
 				return
 			}
 
-			snap := model.NewSnapshotFromResponse(response)
+			snap := tracker.NewSnapshotFromResponse(response)
 			select {
 			case <-ctx.Done():
 				return
@@ -110,7 +111,7 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 }
 
 // Makes an HTTP GET Request to the given parameter and returns reference Page struct
-func (f *Fetcher) HTTPGet(ctx context.Context, page string) (*model.Response, error) {
+func (f *Fetcher) HTTPGet(ctx context.Context, page string) (*webclient.Response, error) {
 	if f.wc == nil {
 		return nil, fmt.Errorf("fetcher: webclient is nil")
 	}

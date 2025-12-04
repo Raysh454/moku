@@ -6,19 +6,18 @@ import (
 	"testing"
 
 	"github.com/raysh454/moku/internal/app"
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
 // noopLogger is a test-local logger implementation that discards all log messages
 type chromedpNoopLogger struct{}
 
-func (n *chromedpNoopLogger) Debug(msg string, fields ...interfaces.Field) {}
-func (n *chromedpNoopLogger) Info(msg string, fields ...interfaces.Field)  {}
-func (n *chromedpNoopLogger) Warn(msg string, fields ...interfaces.Field)  {}
-func (n *chromedpNoopLogger) Error(msg string, fields ...interfaces.Field) {}
-func (n *chromedpNoopLogger) With(fields ...interfaces.Field) interfaces.Logger {
+func (n *chromedpNoopLogger) Debug(msg string, fields ...logging.Field) {}
+func (n *chromedpNoopLogger) Info(msg string, fields ...logging.Field)  {}
+func (n *chromedpNoopLogger) Warn(msg string, fields ...logging.Field)  {}
+func (n *chromedpNoopLogger) Error(msg string, fields ...logging.Field) {}
+func (n *chromedpNoopLogger) With(fields ...logging.Field) logging.Logger {
 	return n
 }
 
@@ -62,7 +61,7 @@ func TestChromedpClient_DoSupportsGET(t *testing.T) {
 	// Test that Do() with GET is callable (even if it fails due to network/url issues)
 	// We're testing the interface, not performing real network calls
 	ctx := context.Background()
-	req := &model.Request{
+	req := &webclient.Request{
 		Method: "GET",
 		URL:    "about:blank",
 	}
@@ -89,7 +88,7 @@ func TestChromedpClient_DoRejectsNonGET(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
-	req := &model.Request{
+	req := &webclient.Request{
 		Method: "POST",
 		URL:    "http://example.com",
 	}

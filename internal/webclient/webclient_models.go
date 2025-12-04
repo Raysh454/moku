@@ -1,4 +1,4 @@
-package model
+package webclient
 
 import (
 	"net/http"

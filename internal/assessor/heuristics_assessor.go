@@ -3,10 +3,11 @@ package assessor
 import (
 	"context"
 	"errors"
+	"regexp"
 	"time"
 
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // HeuristicsAssessor is a scaffolded, heuristics-driven implementation
@@ -15,48 +16,62 @@ import (
 // without an implementation of any scoring logic yet.
 type HeuristicsAssessor struct {
 	cfg    *Config
-	logger interfaces.Logger
+	logger logging.Logger
+	rules  []Rule
 }
 
 // NewHeuristicsAssessor constructs a heuristics-based assessor scaffold.
-// It returns interfaces.Assessor so callers can depend on the interfaces package contract.
+// It returns Assessor so callers can depend on the interfaces package contract.
 //
 // Note: this constructor requires a non-nil logger. If you prefer a no-op logger
 // fallback, I can add a small noop logger implementation under internal/logging.
-func NewHeuristicsAssessor(cfg *Config, logger interfaces.Logger) (interfaces.Assessor, error) {
+func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (Assessor, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig()
 	}
 	if logger == nil {
-		return nil, errors.New("assessor: nil logger; please pass a valid interfaces.Logger")
+		return nil, errors.New("assessor: nil logger; please pass a valid logging.Logger")
 	}
 
 	// create a context-aware logger for this component and construct the instance
-	l := logger.With(interfaces.Field{Key: "component", Value: "heuristics-assessor"})
+	l := logger.With(logging.Field{Key: "component", Value: "heuristics-assessor"})
+
+	for i := range rules {
+		if rules[i].Regex != "" {
+			compiled, err := regexp.Compile(rules[i].Regex)
+			if err != nil {
+				logger.Warn("failed to compile regex rule", logging.Field{Key: "rule", Value: rules[i].ID}, logging.Field{Key: "err", Value: err})
+				continue
+			}
+			rules[i].compiled = compiled
+		}
+	}
+
 	inst := &HeuristicsAssessor{
 		cfg:    cfg,
 		logger: l,
+		rules:  rules,
 	}
 
-	l.Info("heuristics assessor constructed", interfaces.Field{Key: "scoring_version", Value: cfg.ScoringVersion})
+	l.Info("heuristics assessor constructed", logging.Field{Key: "scoring_version", Value: cfg.ScoringVersion})
 
 	return inst, nil
 }
 
 // ScoreHTML evaluates raw HTML bytes. Current scaffold: logs the call and returns a neutral result.
 // TODO: implement preprocess -> feature extraction -> rule evaluation -> combine heuristics -> produce ScoreResult
-func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source string, opts model.ScoreOptions) (*model.ScoreResult, error) {
+func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source string, opts ScoreOptions) (*ScoreResult, error) {
 	// defensive: if logger is nil (shouldn't happen when constructed properly), avoid panic
 	if h == nil || h.logger == nil {
 		// return a neutral result based on minimal defaults if we can (avoid panic in tests)
 		defaultCfg := &Config{}
 		now := time.Now().UTC()
-		return &model.ScoreResult{
+		return &ScoreResult{
 			Score:      0.0,
 			Normalized: 0,
 			Confidence: defaultCfg.DefaultConfidence,
 			Version:    defaultCfg.ScoringVersion,
-			Evidence: []model.EvidenceItem{
+			Evidence: []EvidenceItem{
 				{
 					Key:         "no-evidence",
 					Severity:    "low",
@@ -73,24 +88,25 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source 
 		}, nil
 	}
 
-	h.logger.Info("heuristics-assessor: ScoreHTML called", interfaces.Field{Key: "source", Value: source}, interfaces.Field{Key: "size_bytes", Value: len(html)})
+	h.logger.Info("heuristics-assessor: ScoreHTML called", logging.Field{Key: "size_bytes", Value: len(html)})
 
 	// For now return scaffold default result; opts is accepted for future behavior
-	return h.defaultResult(source), nil
+	return h.defaultResult(), nil
 }
 
 // ScoreResponse delegates to ScoreHTML by extracting resp.Body.
 // If resp is nil or has no body, returns a neutral result.
-func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *model.Response, opts model.ScoreOptions) (*model.ScoreResult, error) {
+func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response, opts ScoreOptions) (*ScoreResult, error) {
+
 	source := ""
 	if resp != nil && resp.Request != nil {
 		source = resp.Request.URL
 	}
 	if resp == nil || len(resp.Body) == 0 {
 		if h != nil && h.logger != nil {
-			h.logger.Warn("heuristics-assessor: ScoreResponse called with empty body", interfaces.Field{Key: "source", Value: source})
+			h.logger.Warn("heuristics-assessor: ScoreResponse called with empty body", logging.Field{Key: "source", Value: source})
 		}
-		return h.defaultResult(source), nil
+		return h.defaultResult(), nil
 	}
 	return h.ScoreHTML(ctx, resp.Body, source, opts)
 }
@@ -107,7 +123,7 @@ func (h *HeuristicsAssessor) Close() error {
 
 // defaultResult returns a neutral scaffold result so the assessor can be used
 // safely before rules/heuristics are implemented.
-func (h *HeuristicsAssessor) defaultResult(source string) *model.ScoreResult {
+func (h *HeuristicsAssessor) defaultResult() *ScoreResult {
 	now := time.Now().UTC()
 	// defensive: if cfg is missing, use small defaults
 	conf := 0.0
@@ -116,12 +132,12 @@ func (h *HeuristicsAssessor) defaultResult(source string) *model.ScoreResult {
 		conf = h.cfg.DefaultConfidence
 		ver = h.cfg.ScoringVersion
 	}
-	return &model.ScoreResult{
+	return &ScoreResult{
 		Score:      0.0,
 		Normalized: 0,
 		Confidence: conf,
 		Version:    ver,
-		Evidence: []model.EvidenceItem{
+		Evidence: []EvidenceItem{
 			{
 				Key:         "no-evidence",
 				Severity:    "low",
@@ -131,10 +147,7 @@ func (h *HeuristicsAssessor) defaultResult(source string) *model.ScoreResult {
 		},
 		MatchedRules: []string{},
 		RawFeatures:  map[string]float64{},
-		Meta: map[string]any{
-			"source": source,
-		},
-		Timestamp: now,
+		Timestamp:    now,
 	}
 }
 

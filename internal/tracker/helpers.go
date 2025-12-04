@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/webclient"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -68,7 +68,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 	diffs = dmp.DiffCleanupSemantic(diffs)
 
 	// Convert diffs to our chunk format
-	chunks := make([]model.Chunk, 0)
+	chunks := make([]Chunk, 0)
 	for _, d := range diffs {
 		var chunkType string
 		switch d.Type {
@@ -83,7 +83,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 
 		// Only include non-empty chunks
 		if strings.TrimSpace(d.Text) != "" {
-			chunks = append(chunks, model.Chunk{
+			chunks = append(chunks, Chunk{
 				Type:    chunkType,
 				Path:    "",
 				Content: d.Text,
@@ -92,7 +92,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 	}
 
 	// Return structured body diff
-	bodyDiff := model.BodyDiff{
+	bodyDiff := BodyDiff{
 		BaseID: baseID,
 		HeadID: headID,
 		Chunks: chunks,
@@ -106,7 +106,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 	return string(data), nil
 }
 
-// computemodel.CombinedDiff computes both body and header diffs and combines them.
+// computeCombinedDiff computes both body and header diffs and combines them.
 // If redactSensitive is true, sensitive headers are marked as redacted in the diff.
 func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseHeaders, headHeaders map[string][]string, redactSensitive bool) (string, error) {
 	// Compute body diff
@@ -115,7 +115,7 @@ func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseH
 		return "", fmt.Errorf("failed to compute body diff: %w", err)
 	}
 
-	var bodyDiff model.BodyDiff
+	var bodyDiff BodyDiff
 	if err := json.Unmarshal([]byte(bodyDiffJSON), &bodyDiff); err != nil {
 		return "", fmt.Errorf("failed to unmarshal body diff: %w", err)
 	}
@@ -124,7 +124,7 @@ func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseH
 	headersDiff := diffHeaders(baseHeaders, headHeaders, redactSensitive)
 
 	// Combine both diffs
-	combined := model.CombinedDiff{
+	combined := CombinedDiff{
 		BodyDiff:    bodyDiff,
 		HeadersDiff: headersDiff,
 	}
@@ -215,11 +215,11 @@ func isOrderSensitiveHeader(name string) bool {
 
 // diffHeaders computes a structured diff between two sets of normalized headers.
 // If redactSensitive is true, sensitive headers are marked as redacted in the diff.
-func diffHeaders(base, head map[string][]string, redactSensitive bool) model.HeaderDiff {
-	diff := model.HeaderDiff{
+func diffHeaders(base, head map[string][]string, redactSensitive bool) HeaderDiff {
+	diff := HeaderDiff{
 		Added:    make(map[string][]string),
 		Removed:  make(map[string][]string),
-		Changed:  make(map[string]model.Change),
+		Changed:  make(map[string]Change),
 		Redacted: make([]string, 0),
 	}
 
@@ -243,7 +243,7 @@ func diffHeaders(base, head map[string][]string, redactSensitive bool) model.Hea
 			diff.Added[name] = headValues
 		} else if !equalStringSlices(baseValues, headValues) {
 			// Header changed
-			diff.Changed[name] = model.Change{
+			diff.Changed[name] = Change{
 				From: baseValues,
 				To:   headValues,
 			}
@@ -289,4 +289,22 @@ func equalStringSlices(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// NewSnapshotFromResponse converts a webclient.Response to a model.Snapshot.
+func NewSnapshotFromResponse(resp *webclient.Response) *Snapshot {
+	if resp == nil {
+		return nil
+	}
+
+	snap := &Snapshot{
+		// ID left empty; tracker will assign one when persisting
+		StatusCode: resp.StatusCode,
+		URL:        resp.Request.URL,
+		Body:       resp.Body, // caller may reuse resp.Body; if you want a copy, copy bytes here
+		Headers:    resp.Headers,
+		CreatedAt:  resp.FetchedAt,
+	}
+
+	return snap
 }

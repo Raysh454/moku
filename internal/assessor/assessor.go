@@ -1,9 +1,9 @@
-package interfaces
+package assessor
 
 import (
 	"context"
 
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // Assessor is the minimal cross-package contract for scoring HTML content.
@@ -15,13 +15,12 @@ import (
 // a precise locator (CSS selector, XPath, byte/line offsets). This makes
 // attribution deterministic and avoids fuzzy heuristics.
 type Assessor interface {
-	// ScoreHTML evaluates raw HTML bytes. 'source' is a user-provided identifier
-	// for the content (e.g., URL) used for logging/evidence meta. The opts
-	// parameter can request locations or a lightweight pass.
-	ScoreHTML(ctx context.Context, html []byte, source string, opts model.ScoreOptions) (*model.ScoreResult, error)
+	// ScoreHTML evaluates raw HTML bytes.
+	// The opts parameter can request locations or a lightweight pass.
+	ScoreHTML(ctx context.Context, html []byte, source string, opts ScoreOptions) (*ScoreResult, error)
 
 	// ScoreResponse evaluates an already-fetched response (no network).
-	ScoreResponse(ctx context.Context, resp *model.Response, opts model.ScoreOptions) (*model.ScoreResult, error)
+	ScoreResponse(ctx context.Context, resp *webclient.Response, opts ScoreOptions) (*ScoreResult, error)
 
 	// Close releases any resources held by the assessor.
 	Close() error

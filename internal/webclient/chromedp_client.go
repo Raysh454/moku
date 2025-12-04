@@ -12,8 +12,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/raysh454/moku/internal/app"
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/logging"
 )
 
 // ChromeDPClient is a chromedp-backed implementation of the WebClient interface.
@@ -29,12 +28,12 @@ type ChromeDPClient struct {
 	wg sync.WaitGroup
 
 	idleAfter time.Duration
-	logger    interfaces.Logger
+	logger    logging.Logger
 }
 
-func NewChromedpClient(cfg *app.Config, logger interfaces.Logger) (interfaces.WebClient, error) {
+func NewChromedpClient(cfg *app.Config, logger logging.Logger) (WebClient, error) {
 	// Create component-scoped logger
-	componentLogger := logger.With(interfaces.Field{Key: "backend", Value: "chromedp"})
+	componentLogger := logger.With(logging.Field{Key: "backend", Value: "chromedp"})
 
 	// Note: chromedp backend is not fully implemented in dev branch
 	componentLogger.Warn("chromedp webclient is not fully implemented in dev branch")
@@ -47,12 +46,12 @@ func NewChromedpClient(cfg *app.Config, logger interfaces.Logger) (interfaces.We
 
 	if err := chromedp.Run(ctx); err != nil {
 		cancel()
-		componentLogger.Warn("failed to start chromedp client", interfaces.Field{Key: "error", Value: err.Error()})
+		componentLogger.Warn("failed to start chromedp client", logging.Field{Key: "error", Value: err.Error()})
 		return nil, fmt.Errorf("starting chromedp client: %w", err)
 	}
 
 	componentLogger.Info("created chromedp webclient",
-		interfaces.Field{Key: "idle_after", Value: idleAfter.String()})
+		logging.Field{Key: "idle_after", Value: idleAfter.String()})
 
 	return &ChromeDPClient{
 		baseCtx:   ctx,
@@ -179,7 +178,7 @@ func (cdc *ChromeDPClient) AssembleHeaders(src *network.Headers, dest *http.Head
 
 // Make a request using headless chrome (chromedp).
 // Currently only supports GET
-func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.Response, error) {
+func (cdc *ChromeDPClient) Do(ctx context.Context, req *Request) (*Response, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil request")
 	}
@@ -190,13 +189,13 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 	}
 	if method != http.MethodGet {
 		cdc.logger.Warn("chromedp client only supports GET",
-			interfaces.Field{Key: "method", Value: method})
+			logging.Field{Key: "method", Value: method})
 		return nil, fmt.Errorf("chromedp client: method %q not supported", method)
 	}
 
 	cdc.logger.Debug("chromedp request",
-		interfaces.Field{Key: "method", Value: method},
-		interfaces.Field{Key: "url", Value: req.URL})
+		logging.Field{Key: "method", Value: method},
+		logging.Field{Key: "url", Value: req.URL})
 
 	cdc.mu.Lock()
 	if cdc.closed {
@@ -271,7 +270,7 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 
 	}
 
-	return &model.Response{
+	return &Response{
 		Request:    req,
 		StatusCode: statusCode,
 		Headers:    responseHeaders,
@@ -282,8 +281,8 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *model.Request) (*model.R
 }
 
 // Get is a convenience method for simple GET requests
-func (cdc *ChromeDPClient) Get(ctx context.Context, url string) (*model.Response, error) {
-	req := &model.Request{
+func (cdc *ChromeDPClient) Get(ctx context.Context, url string) (*Response, error) {
+	req := &Request{
 		Method: "GET",
 		URL:    url,
 	}

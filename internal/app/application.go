@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/raysh454/moku/internal/cli"
-	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/logging"
 )
 
 // Minimal orchestrator contract used for wiring in the dev branch.
@@ -29,7 +29,7 @@ type Application struct {
 	Args   *cli.CLIArgs
 
 	// Use the shared logger interface from internal/interfaces
-	Logger interfaces.Logger
+	Logger logging.Logger
 	Orch   Orchestrator
 
 	// internal context for cancellation / lifecycle
@@ -40,7 +40,7 @@ type Application struct {
 // NewApplication constructs an Application from the provided parts.
 // Keep the constructor simple: pass already-constructed parts so this function
 // is easy to test and does not import heavy dependencies.
-func NewApplication(cfg *Config, args *cli.CLIArgs, logger interfaces.Logger, orch Orchestrator) *Application {
+func NewApplication(cfg *Config, args *cli.CLIArgs, logger logging.Logger, orch Orchestrator) *Application {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Application{
@@ -62,7 +62,7 @@ func (a *Application) Start() error {
 		return errors.New("application is nil")
 	}
 	if a.Logger != nil {
-		a.Logger.Info("application starting", interfaces.Field{Key: "target", Value: a.Args.Target})
+		a.Logger.Info("application starting", logging.Field{Key: "target", Value: a.Args.Target})
 	}
 	return nil
 }
@@ -83,7 +83,7 @@ func (a *Application) Shutdown(ctx context.Context) error {
 	if a.Orch != nil {
 		if err := a.Orch.Shutdown(shutdownCtx); err != nil {
 			if a.Logger != nil {
-				a.Logger.Info("orchestrator shutdown returned error", interfaces.Field{Key: "error", Value: err.Error()})
+				a.Logger.Info("orchestrator shutdown returned error", logging.Field{Key: "error", Value: err.Error()})
 			}
 		}
 	}

@@ -68,7 +68,7 @@ func countEndpoints(t *testing.T, db *sql.DB) int {
 	return cnt
 }
 
-func getEndpointByCanonical(t *testing.T, db *sql.DB, canonical string) (map[string]interface{}, error) {
+func getEndpointByCanonical(t *testing.T, db *sql.DB, canonical string) (map[string]any, error) {
 	t.Helper()
 	row := db.QueryRow(`SELECT id, raw_url, canonical_url, host, path, first_discovered_at, last_discovered_at, last_fetched_version, last_fetched_at, status, discovery_source, meta FROM endpoints WHERE canonical_url = ? LIMIT 1`, canonical)
 	var id, raw, canon, host, pathStr, lastFetchedVersion, status, source, meta sql.NullString
@@ -76,7 +76,7 @@ func getEndpointByCanonical(t *testing.T, db *sql.DB, canonical string) (map[str
 	if err := row.Scan(&id, &raw, &canon, &host, &pathStr, &firstDisc, &lastDisc, &lastFetchedVersion, &lastFetchedAt, &status, &source, &meta); err != nil {
 		return nil, err
 	}
-	out := map[string]interface{}{}
+	out := map[string]any{}
 	out["id"] = id.String
 	out["raw_url"] = raw.String
 	out["canonical_url"] = canon.String

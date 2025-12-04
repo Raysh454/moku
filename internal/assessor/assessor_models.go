@@ -1,6 +1,9 @@
-package model
+package assessor
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 // EvidenceLocation points to a specific part of the document for precise attribution.
 // Assessor implementations should populate one or more locations per EvidenceItem when
@@ -62,37 +65,6 @@ type EvidenceItem struct {
 	Locations []EvidenceLocation `json:"locations,omitempty"`
 }
 
-// ScoreResult is the canonical assessor output for a single document/URL.
-// Example:
-//
-//	{
-//	  "score": 0.7,
-//	  "version": "heuristics-v1",
-//	  "confidence": 0.9,
-//	  "evidence": [
-//	    {
-//	      "id": "ev-1",
-//	      "key": "insecure-form",
-//	      "rule_id": "forms:autocomplete-off",
-//	      "severity": "high",
-//	      "description": "Login form has autocomplete disabled",
-//	      "value": "<form id=\"login\">",
-//	      "locations": [
-//	        {"selector":"form#login", "line_start":10, "line_end":12, "confidence":1.0}
-//	      ]
-//	    },
-//	    {
-//	      "id": "ev-2",
-//	      "key": "style-change",
-//	      "rule_id": "ui:style-inline",
-//	      "severity": "low",
-//	      "description": "Inline style added",
-//	      "locations": [
-//	        {"selector":"style", "line_start":12, "line_end":13, "confidence":0.5}
-//	      ]
-//	    }
-//	  ]
-//	}
 type ScoreResult struct {
 	// Score is the normalized internal score range [0.0 .. 1.0].
 	Score float64 `json:"score"`
@@ -113,11 +85,11 @@ type ScoreResult struct {
 	// MatchedRules lists IDs of rules that matched during evaluation.
 	MatchedRules []string `json:"matched_rules,omitempty"`
 
-	// RawFeatures contains extracted numeric features (featureName -> value).
-	RawFeatures map[string]float64 `json:"raw_features,omitempty"`
-
-	// Meta contains any auxiliary metadata (source, timing hints, etc).
+	// Meta contains any additional metadata about the scoring process.
 	Meta map[string]any `json:"meta,omitempty"`
+
+	// RawFeatures contains extracted numeric features (featureName -> value), e.g: "has_password_field": 1.0, num_forms: 3.0
+	RawFeatures map[string]float64 `json:"raw_features,omitempty"`
 
 	// Timestamp is the time when this ScoreResult was produced.
 	Timestamp time.Time `json:"timestamp"`
@@ -139,4 +111,18 @@ type ScoreOptions struct {
 
 	// Timeout for a scoring operation. (12 Seconds by default)
 	Timeout time.Duration
+}
+
+// Rule defines a single heuristic check the assessor will run.
+// Either Selector (CSS) or Regex (PCRE) can be used (both may be set).
+type Rule struct {
+	ID         string  // unique rule id (eg. "forms:autocomplete-off")
+	Key        string  // short key presented in UI (eg. "autocomplete-off")
+	Severity   string  // "low"|"medium"|"high"|"critical"
+	Weight     float64 // numeric weight used to build score
+	Selector   string  // optional CSS selector to match nodes
+	Regex      string  // optional regex pattern (compiled at constructor)
+	MinMatches int     // minimum matches required to consider this rule present
+	// compiled regex (populated by constructor)
+	compiled *regexp.Regexp
 }

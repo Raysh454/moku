@@ -7,15 +7,16 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/utils"
+	"github.com/raysh454/moku/internal/webclient"
 	"golang.org/x/net/html"
 )
 
 type Spider struct {
 	MaxDepth int
-	wc       interfaces.WebClient
-	logger   interfaces.Logger
+	wc       webclient.WebClient
+	logger   logging.Logger
 }
 
 type spiderHelper struct {
@@ -28,7 +29,7 @@ type spiderHelper struct {
 
 // NewSpider creates a new Spider with the given webclient and logger.
 // TODO: Update call sites to pass wc and logger when wiring modules in cmd/main or composition root.
-func NewSpider(maxDepth int, wc interfaces.WebClient, logger interfaces.Logger) *Spider {
+func NewSpider(maxDepth int, wc webclient.WebClient, logger logging.Logger) *Spider {
 	return &Spider{
 		MaxDepth: maxDepth,
 		wc:       wc,
@@ -64,8 +65,8 @@ func (sh *spiderHelper) resolveFullUrls(baseUrl string, links []string) ([]strin
 		if err != nil {
 			if sh.spider.logger != nil {
 				sh.spider.logger.Warn("couldn't resolve full url",
-					interfaces.Field{Key: "url", Value: v},
-					interfaces.Field{Key: "error", Value: err})
+					logging.Field{Key: "url", Value: v},
+					logging.Field{Key: "error", Value: err})
 			}
 			continue
 		}
@@ -149,8 +150,8 @@ func (sh *spiderHelper) appendPages(pages []string, lastDepth int) {
 		if err != nil {
 			if sh.spider.logger != nil {
 				sh.spider.logger.Warn("error parsing page url",
-					interfaces.Field{Key: "url", Value: page},
-					interfaces.Field{Key: "error", Value: err})
+					logging.Field{Key: "url", Value: page},
+					logging.Field{Key: "error", Value: err})
 			}
 			continue
 		}
@@ -179,8 +180,8 @@ func (sh *spiderHelper) run(ctx context.Context) error {
 		if err != nil {
 			if sh.spider.logger != nil {
 				sh.spider.logger.Error("error while crawling page",
-					interfaces.Field{Key: "url", Value: sh.results[currPage]},
-					interfaces.Field{Key: "error", Value: err})
+					logging.Field{Key: "url", Value: sh.results[currPage]},
+					logging.Field{Key: "error", Value: err})
 			}
 		}
 

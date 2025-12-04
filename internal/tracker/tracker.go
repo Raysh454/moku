@@ -2,83 +2,41 @@ package tracker
 
 import (
 	"context"
-	"errors"
 
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/assessor"
 )
 
-// ErrNotImplemented is returned by scaffold methods that are yet to be implemented.
-var ErrNotImplemented = errors.New("tracker: not implemented (scaffold)")
+// Tracker is the minimal cross-package contract for versioning website snapshots.
+// Implementations should be safe for concurrent use.
+type Tracker interface {
+	// Commit stores a snapshot and returns a Version record representing the commit.
+	// 'message' is a human message describing the change; author is optional.
+	Commit(ctx context.Context, snapshot *Snapshot, message string, author string) (*CommitResult, error)
 
-// NewInMemoryTracker constructs a simple in-memory tracker scaffold.
-// The returned instance implements interfaces.Tracker but methods return ErrNotImplemented
-// until you add concrete behavior (persisting snapshots, diffs, etc).
-func NewInMemoryTracker(cfg *Config, logger interfaces.Logger) (interfaces.Tracker, error) {
-	// Keep the constructor minimal; callers must pass a non-nil logger.
-	if cfg == nil {
-		cfg = &Config{}
-	}
-	if logger == nil {
-		return nil, errors.New("tracker: nil logger provided")
-	}
+	// CommitBatch stores multiple snapshots and returns their corresponding Version records.
+	CommitBatch(ctx context.Context, snapshots []*Snapshot, message, author string) ([]*CommitResult, error)
 
-	// TODO: initialize any internal in-memory structures here when implementing.
-	return &inMemoryTracker{
-		cfg:    cfg,
-		logger: logger,
-	}, nil
-}
+	// ScoreAndAttributeVersion assigns a score (security relavance) for a given commit result
+	ScoreAndAttributeVersion(ctx context.Context, cr *CommitResult) error
 
-// inMemoryTracker is a minimal scaffold implementation.
-type inMemoryTracker struct {
-	cfg    *Config
-	logger interfaces.Logger
-}
+	// SetAssessor sets the Assessor used by ScoreAndAttributeVersion to produce a score.
+	SetAssessor(a assessor.Assessor)
 
-// Ensure inMemoryTracker implements interfaces.Tracker at compile-time.
-var _ interfaces.Tracker = (*inMemoryTracker)(nil)
+	// Diff computes a delta between two versions identified by their IDs.
+	// If baseID == "" treat it as an empty/base snapshot.
+	Diff(ctx context.Context, baseID, headID string) (*DiffResult, error)
 
-func (t *inMemoryTracker) Commit(ctx context.Context, snapshot *model.Snapshot, message string, author string) (*model.CommitResult, error) {
-	// TODO: record snapshot and create a CommitResult record.
-	return nil, ErrNotImplemented
-}
+	// Get returns the snapshot for a specific version ID.
+	Get(ctx context.Context, versionID string) (*Snapshot, error)
 
-func (t *inMemoryTracker) CommitBatch(ctx context.Context, snapshots []*model.Snapshot, message, author string) ([]*model.CommitResult, error) {
-	// TODO: record snapshots and create CommitResult records.
-	return nil, ErrNotImplemented
-}
+	// List returns recent versions (e.g., head-first). The semantics of pagination
+	// can be added later.
+	List(ctx context.Context, limit int) ([]*Version, error)
 
-func (t *inMemoryTracker) ScoreAndAttributeVersion(ctx context.Context, cr *model.CommitResult) error {
-	// TODO: implement scoring
-	return ErrNotImplemented
-}
+	// Checkout updates the working tree to match a specific version.
+	// This restores all files from the specified version to the working directory.
+	Checkout(ctx context.Context, versionID string) error
 
-func (t *inMemoryTracker) SetAssessor(a interfaces.Assessor) {
-	// TODO: implement
-}
-
-func (t *inMemoryTracker) Diff(ctx context.Context, baseID, headID string) (*model.DiffResult, error) {
-	// TODO: compute textual/DOM diffs between snapshots.
-	return nil, ErrNotImplemented
-}
-
-func (t *inMemoryTracker) Get(ctx context.Context, versionID string) (*model.Snapshot, error) {
-	// TODO: return the snapshot for versionID.
-	return nil, ErrNotImplemented
-}
-
-func (t *inMemoryTracker) List(ctx context.Context, limit int) ([]*model.Version, error) {
-	// TODO: return recent versions up to limit.
-	return nil, ErrNotImplemented
-}
-
-func (t *inMemoryTracker) Checkout(ctx context.Context, versionID string) error {
-	// TODO: restore working tree from versionID.
-	return ErrNotImplemented
-}
-
-func (t *inMemoryTracker) Close() error {
-	// No resources in scaffold; return nil.
-	return nil
+	// Close releases resources used by the tracker.
+	Close() error
 }

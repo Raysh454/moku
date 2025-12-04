@@ -4,18 +4,18 @@ import (
 	"testing"
 
 	"github.com/raysh454/moku/internal/app"
-	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
 // factoryNoopLogger is a test-local logger implementation that discards all log messages
 type factoryNoopLogger struct{}
 
-func (n *factoryNoopLogger) Debug(msg string, fields ...interfaces.Field) {}
-func (n *factoryNoopLogger) Info(msg string, fields ...interfaces.Field)  {}
-func (n *factoryNoopLogger) Warn(msg string, fields ...interfaces.Field)  {}
-func (n *factoryNoopLogger) Error(msg string, fields ...interfaces.Field) {}
-func (n *factoryNoopLogger) With(fields ...interfaces.Field) interfaces.Logger {
+func (n *factoryNoopLogger) Debug(msg string, fields ...logging.Field) {}
+func (n *factoryNoopLogger) Info(msg string, fields ...logging.Field)  {}
+func (n *factoryNoopLogger) Warn(msg string, fields ...logging.Field)  {}
+func (n *factoryNoopLogger) Error(msg string, fields ...logging.Field) {}
+func (n *factoryNoopLogger) With(fields ...logging.Field) logging.Logger {
 	return n
 }
 

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/raysh454/moku/internal/logging"
-	"github.com/raysh454/moku/internal/model"
 	"github.com/raysh454/moku/internal/tracker"
 )
 
@@ -36,7 +35,7 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		"Server":        {"nginx/1.20.0"},
 	}
 
-	snapshot1 := &model.Snapshot{
+	snapshot1 := &tracker.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Version 1</body></html>"),
@@ -68,7 +67,7 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		"X-Custom":      {"value"},
 	}
 
-	snapshot2 := &model.Snapshot{
+	snapshot2 := &tracker.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Version 2</body></html>"),
@@ -120,7 +119,7 @@ func TestHeaderNormalization_Integration(t *testing.T) {
 		"CACHE-CONTROL": {"no-cache"},
 	}
 
-	snapshot := &model.Snapshot{
+	snapshot := &tracker.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Test</body></html>"),
@@ -164,7 +163,7 @@ func TestSensitiveHeaderRedaction_Integration(t *testing.T) {
 		"X-Api-Key":     {"super-secret-key"},
 	}
 
-	snapshot := &model.Snapshot{
+	snapshot := &tracker.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Protected Content</body></html>"),
@@ -257,9 +256,9 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 	t.Logf("Successfully committed and diffed %d versions with header changes", len(versionIDs))
 }
 
-// Helper to commit snapshot with headers using new model.Snapshot
-func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers map[string][]string, message string, versionNum int) (*model.CommitResult, error) {
-	snapshot := &model.Snapshot{
+// Helper to commit snapshot with headers using new tracker.Snapshot
+func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers map[string][]string, message string, versionNum int) (*tracker.CommitResult, error) {
+	snapshot := &tracker.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte(fmt.Sprintf("<html><body>Version %d</body></html>", versionNum)),

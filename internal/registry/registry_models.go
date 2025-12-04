@@ -1,4 +1,4 @@
-package model
+package registry
 
 // Project is a logical grouping of websites.
 type Project struct {
