@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"github.com/raysh454/moku/internal/interfaces"
 )
 
 // StdoutLogger is a tiny, structured logger used during development.
-// It implements interfaces.Logger and prints JSON lines to stdout.
+// It implements Logger and prints JSON lines to stdout.
 type StdoutLogger struct {
 	component string
 }
@@ -21,7 +19,7 @@ func NewStdoutLogger(component string) *StdoutLogger {
 	return &StdoutLogger{component: component}
 }
 
-func (s *StdoutLogger) log(level string, msg string, fields ...interfaces.Field) {
+func (s *StdoutLogger) log(level string, msg string, fields ...Field) {
 	type outEntry struct {
 		Level     string         `json:"level"`
 		Msg       string         `json:"msg"`
@@ -49,23 +47,23 @@ func (s *StdoutLogger) log(level string, msg string, fields ...interfaces.Field)
 	fmt.Fprintln(os.Stdout, string(enc))
 }
 
-func (s *StdoutLogger) Debug(msg string, fields ...interfaces.Field) {
+func (s *StdoutLogger) Debug(msg string, fields ...Field) {
 	s.log("debug", msg, fields...)
 }
 
-func (s *StdoutLogger) Info(msg string, fields ...interfaces.Field) {
+func (s *StdoutLogger) Info(msg string, fields ...Field) {
 	s.log("info", msg, fields...)
 }
 
-func (s *StdoutLogger) Warn(msg string, fields ...interfaces.Field) {
+func (s *StdoutLogger) Warn(msg string, fields ...Field) {
 	s.log("warn", msg, fields...)
 }
 
-func (s *StdoutLogger) Error(msg string, fields ...interfaces.Field) {
+func (s *StdoutLogger) Error(msg string, fields ...Field) {
 	s.log("error", msg, fields...)
 }
 
-func (s *StdoutLogger) With(fields ...interfaces.Field) interfaces.Logger {
+func (s *StdoutLogger) With(fields ...Field) Logger {
 	// create a child logger with component appended (simple implementation)
 	child := &StdoutLogger{component: s.component}
 	// If fields include a component key, prefer that as the component name

@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/raysh454/moku/internal/interfaces"
+	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/utils"
 )
 
 // Index persists and queries discovered endpoints in the site DB.
 type Index struct {
 	db     *sql.DB
-	logger interfaces.Logger
+	logger logging.Logger
 	// canonicalization options can be made configurable later
 	canonOpts utils.CanonicalizeOptions
 }
@@ -33,7 +33,7 @@ type Endpoint struct {
 	Meta               string
 }
 
-func NewIndex(db *sql.DB, logger interfaces.Logger, opts utils.CanonicalizeOptions) *Index {
+func NewIndex(db *sql.DB, logger logging.Logger, opts utils.CanonicalizeOptions) *Index {
 	return &Index{db: db, logger: logger, canonOpts: opts}
 }
 
@@ -53,7 +53,7 @@ func (ix *Index) AddEndpoints(ctx context.Context, rawUrls []string, source stri
 		if rerr := tx.Rollback(); rerr != nil && rerr != sql.ErrTxDone {
 			if ix.logger != nil {
 				ix.logger.Warn("index: tx rollback failed",
-					interfaces.Field{Key: "error", Value: rerr})
+					logging.Field{Key: "error", Value: rerr})
 			}
 		}
 	}()
@@ -80,7 +80,7 @@ func (ix *Index) AddEndpoints(ctx context.Context, rawUrls []string, source stri
 		canon, err := utils.Canonicalize(ru, ix.canonOpts)
 		if err != nil {
 			if ix.logger != nil {
-				ix.logger.Warn("index: canonicalize failed", interfaces.Field{Key: "url", Value: ru}, interfaces.Field{Key: "err", Value: err})
+				ix.logger.Warn("index: canonicalize failed", logging.Field{Key: "url", Value: ru}, logging.Field{Key: "err", Value: err})
 			}
 			continue
 		}
@@ -88,7 +88,7 @@ func (ix *Index) AddEndpoints(ctx context.Context, rawUrls []string, source stri
 		u, err := utils.NewURLTools(canon)
 		if err != nil {
 			if ix.logger != nil {
-				ix.logger.Warn("index: NewURLTools failed", interfaces.Field{Key: "url", Value: canon}, interfaces.Field{Key: "err", Value: err})
+				ix.logger.Warn("index: NewURLTools failed", logging.Field{Key: "url", Value: canon}, logging.Field{Key: "err", Value: err})
 			}
 			continue
 		}

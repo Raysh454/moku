@@ -6,7 +6,6 @@ import (
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
-	"github.com/raysh454/moku/internal/model"
 )
 
 // TestNewHeuristicsAssessor_Construct verifies that NewHeuristicsAssessor returns a non-nil assessor
@@ -18,7 +17,7 @@ func TestNewHeuristicsAssessor_Construct(t *testing.T) {
 	}
 	logger := logging.NewStdoutLogger("assessor-test")
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, []assessor.Rule{}, logger)
 	if err != nil {
 		t.Fatalf("NewHeuristicsAssessor returned error: %v", err)
 	}
@@ -38,7 +37,7 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 	}
 	logger := logging.NewStdoutLogger("assessor-test")
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, []assessor.Rule{}, logger)
 	if err != nil {
 		t.Fatalf("NewHeuristicsAssessor returned error: %v", err)
 	}
@@ -46,10 +45,9 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 
 	// Small HTML fixture
 	html := []byte(`<html><body><h1>Test</h1></body></html>`)
-	source := "test-fixture"
 
 	ctx := context.Background()
-	result, err := a.ScoreHTML(ctx, html, source, model.ScoreOptions{})
+	result, err := a.ScoreHTML(ctx, html, "source", assessor.ScoreOptions{})
 	if err != nil {
 		t.Fatalf("ScoreHTML returned error: %v", err)
 	}
@@ -90,7 +88,7 @@ func TestHeuristicsAssessor_Close(t *testing.T) {
 	}
 	logger := logging.NewStdoutLogger("assessor-test")
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, []assessor.Rule{}, logger)
 	if err != nil {
 		t.Fatalf("NewHeuristicsAssessor returned error: %v", err)
 	}

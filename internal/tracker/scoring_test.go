@@ -9,31 +9,32 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // dummyAssessor returns a preconfigured ScoreResult for tests.
 type dummyAssessor struct {
-	res *model.ScoreResult
+	res *assessor.ScoreResult
 }
 
-func (d *dummyAssessor) ScoreHTML(ctx context.Context, html []byte, source string, opts model.ScoreOptions) (*model.ScoreResult, error) {
+func (d *dummyAssessor) ScoreHTML(ctx context.Context, html []byte, source string, opts assessor.ScoreOptions) (*assessor.ScoreResult, error) {
 	// return a deep copy so tests can mutate without colliding
 	b, _ := json.Marshal(d.res)
-	var out model.ScoreResult
+	var out assessor.ScoreResult
 	_ = json.Unmarshal(b, &out)
 	return &out, nil
 }
-func (d *dummyAssessor) ScoreResponse(ctx context.Context, resp *model.Response, opts model.ScoreOptions) (*model.ScoreResult, error) {
-	return d.ScoreHTML(ctx, nil, "", model.ScoreOptions{})
+func (d *dummyAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response, opts assessor.ScoreOptions) (*assessor.ScoreResult, error) {
+	return d.ScoreHTML(ctx, nil, "", assessor.ScoreOptions{})
 }
-func (d *dummyAssessor) ExtractEvidence(ctx context.Context, html []byte, opts model.ScoreOptions) ([]model.EvidenceItem, error) {
+func (d *dummyAssessor) ExtractEvidence(ctx context.Context, html []byte, opts assessor.ScoreOptions) ([]assessor.EvidenceItem, error) {
 	if d.res == nil {
 		return nil, nil
 	}
 	b, _ := json.Marshal(d.res.Evidence)
-	var out []model.EvidenceItem
+	var out []assessor.EvidenceItem
 	_ = json.Unmarshal(b, &out)
 	return out, nil
 }
@@ -137,7 +138,7 @@ func countRows(t *testing.T, db *sql.DB, q string, args ...any) int {
 
 // scoreAndAttributeVersionForTest is a test helper that calls the internal scoreAndAttribute method
 // with a minimal tracker setup for unit testing scoring logic.
-func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger interfaces.Logger, assessor interfaces.Assessor, opts model.ScoreOptions, versionID, parentVersionID, diffID, diffJSON string, headBody []byte) error {
+func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger logging.Logger, assessor assessor.Assessor, opts assessor.ScoreOptions, versionID, parentVersionID, diffID, diffJSON string, headBody []byte) error {
 	// Create a minimal temp directory for the tracker
 	tmpDir, err := os.MkdirTemp("", "scoring-test-*")
 	if err != nil {
@@ -162,18 +163,18 @@ func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testi
 	db := openTestDB(t)
 	defer db.Close()
 
-	score := &model.ScoreResult{
+	score := &assessor.ScoreResult{
 		Score:      0.8,
 		Normalized: 80,
 		Confidence: 0.9,
 		Version:    "v-test-1",
-		Evidence: []model.EvidenceItem{
+		Evidence: []assessor.EvidenceItem{
 			{
 				ID:       "ev-1",
 				Key:      "login-form",
 				RuleID:   "forms:login",
 				Severity: "high",
-				Locations: []model.EvidenceLocation{
+				Locations: []assessor.EvidenceLocation{
 					{Selector: "form#login", LineStart: intPtr(10), LineEnd: intPtr(12), Confidence: floatPtr(1.0)},
 				},
 			},
@@ -181,12 +182,12 @@ func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testi
 	}
 
 	assr := &dummyAssessor{res: score}
-	logger := interfaces.Logger(nil)
+	logger := logging.Logger(nil)
 
 	versionID := uuid.New().String()
 
 	// Call with no parent/diff
-	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, "", "", "", []byte(`<html><body><form id="login"></form></body></html>`)); err != nil {
+	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, assessor.ScoreOptions{RequestLocations: true}, versionID, "", "", "", []byte(`<html><body><form id="login"></form></body></html>`)); err != nil {
 		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
 	}
 
@@ -233,18 +234,18 @@ func TestScoreAndAttributeVersion_WithDiff_AttributesLocations(t *testing.T) {
 	}`
 
 	// assessor returns evidence with selector matching form#login
-	score := &model.ScoreResult{
+	score := &assessor.ScoreResult{
 		Score:      0.7,
 		Normalized: 70,
 		Confidence: 0.9,
 		Version:    "v-test-2",
-		Evidence: []model.EvidenceItem{
+		Evidence: []assessor.EvidenceItem{
 			{
 				ID:       "ev-2",
 				Key:      "login-form",
 				RuleID:   "forms:login",
 				Severity: "high",
-				Locations: []model.EvidenceLocation{
+				Locations: []assessor.EvidenceLocation{
 					{Selector: "form#login", LineStart: intPtr(2), LineEnd: intPtr(4), Confidence: floatPtr(1.0)},
 				},
 			},
@@ -252,10 +253,10 @@ func TestScoreAndAttributeVersion_WithDiff_AttributesLocations(t *testing.T) {
 	}
 
 	assr := &dummyAssessor{res: score}
-	logger := interfaces.Logger(nil)
+	logger := logging.Logger(nil)
 	versionID := uuid.New().String()
 
-	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><form id="login"><input name="username"/></form></body></html>`)); err != nil {
+	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, assessor.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><form id="login"><input name="username"/></form></body></html>`)); err != nil {
 		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
 	}
 
@@ -305,18 +306,18 @@ func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) 
 	}`
 
 	// evidence with two locations, confidences 1.0 and 0.5 (expected weights 2:1)
-	score := &model.ScoreResult{
+	score := &assessor.ScoreResult{
 		Score:      0.6,
 		Normalized: 60,
 		Confidence: 0.8,
 		Version:    "v-test-3",
-		Evidence: []model.EvidenceItem{
+		Evidence: []assessor.EvidenceItem{
 			{
 				ID:       "ev-3",
 				Key:      "repeated-pattern",
 				RuleID:   "patterns:repeat",
 				Severity: "medium",
-				Locations: []model.EvidenceLocation{
+				Locations: []assessor.EvidenceLocation{
 					{Selector: ".a", Confidence: floatPtr(1.0)},
 					{Selector: ".b", Confidence: floatPtr(0.5)},
 				},
@@ -325,10 +326,10 @@ func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) 
 	}
 
 	assr := &dummyAssessor{res: score}
-	logger := interfaces.Logger(nil)
+	logger := logging.Logger(nil)
 	versionID := uuid.New().String()
 
-	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, model.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><div class="a">one</div><div class="b">two</div></body></html>`)); err != nil {
+	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, assessor.ScoreOptions{RequestLocations: true}, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><div class="a">one</div><div class="b">two</div></body></html>`)); err != nil {
 		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
 	}
 

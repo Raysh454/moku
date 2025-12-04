@@ -10,19 +10,18 @@ import (
 	"time"
 
 	"github.com/raysh454/moku/internal/app"
-	"github.com/raysh454/moku/internal/interfaces"
-	"github.com/raysh454/moku/internal/model"
+	"github.com/raysh454/moku/internal/logging"
 )
 
 // net/http backed implementation of webclient.
 type NetHTTPClient struct {
 	client *http.Client
-	logger interfaces.Logger
+	logger logging.Logger
 }
 
-func NewNetHTTPClient(cfg *app.Config, logger interfaces.Logger, httpClient *http.Client) (interfaces.WebClient, error) {
+func NewNetHTTPClient(cfg *app.Config, logger logging.Logger, httpClient *http.Client) (WebClient, error) {
 	// Create component-scoped logger
-	componentLogger := logger.With(interfaces.Field{Key: "backend", Value: "nethttp"})
+	componentLogger := logger.With(logging.Field{Key: "backend", Value: "nethttp"})
 
 	// If httpClient is nil, construct a sensible default with timeout from cfg or fallback to 30s
 	if httpClient == nil {
@@ -31,7 +30,7 @@ func NewNetHTTPClient(cfg *app.Config, logger interfaces.Logger, httpClient *htt
 	}
 
 	componentLogger.Info("created nethttp webclient",
-		interfaces.Field{Key: "timeout", Value: httpClient.Timeout.String()})
+		logging.Field{Key: "timeout", Value: httpClient.Timeout.String()})
 
 	return &NetHTTPClient{
 		client: httpClient,
@@ -40,7 +39,7 @@ func NewNetHTTPClient(cfg *app.Config, logger interfaces.Logger, httpClient *htt
 }
 
 // Do implements the generic request execution using net/http.
-func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Response, error) {
+func (nhc *NetHTTPClient) Do(ctx context.Context, req *Request) (*Response, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil request")
 	}
@@ -48,8 +47,8 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Re
 	method := strings.ToUpper(req.Method)
 
 	nhc.logger.Debug("sending http request",
-		interfaces.Field{Key: "method", Value: method},
-		interfaces.Field{Key: "url", Value: req.URL})
+		logging.Field{Key: "method", Value: method},
+		logging.Field{Key: "url", Value: req.URL})
 
 	var bodyReader io.Reader
 	if len(req.Body) > 0 {
@@ -72,9 +71,9 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Re
 	resp, err := nhc.client.Do(httpReq)
 	if err != nil {
 		nhc.logger.Warn("http request failed",
-			interfaces.Field{Key: "method", Value: method},
-			interfaces.Field{Key: "url", Value: req.URL},
-			interfaces.Field{Key: "error", Value: err.Error()})
+			logging.Field{Key: "method", Value: method},
+			logging.Field{Key: "url", Value: req.URL},
+			logging.Field{Key: "error", Value: err.Error()})
 		return nil, fmt.Errorf("http do: %w", err)
 	}
 
@@ -82,13 +81,13 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Re
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		nhc.logger.Warn("failed to read response body",
-			interfaces.Field{Key: "method", Value: method},
-			interfaces.Field{Key: "url", Value: req.URL},
-			interfaces.Field{Key: "error", Value: err.Error()})
+			logging.Field{Key: "method", Value: method},
+			logging.Field{Key: "url", Value: req.URL},
+			logging.Field{Key: "error", Value: err.Error()})
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	return &model.Response{
+	return &Response{
 		Request:    req,
 		Body:       body,
 		Headers:    resp.Header,
@@ -98,8 +97,8 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *model.Request) (*model.Re
 }
 
 // Get is a convenience method for simple GET requests
-func (nhc *NetHTTPClient) Get(ctx context.Context, url string) (*model.Response, error) {
-	req := &model.Request{
+func (nhc *NetHTTPClient) Get(ctx context.Context, url string) (*Response, error) {
+	req := &Request{
 		Method: "GET",
 		URL:    url,
 	}

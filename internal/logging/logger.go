@@ -1,4 +1,4 @@
-package interfaces
+package logging
 
 // Logger is a deliberately small, framework-agnostic logging interface.
 // Keep implementations outside internal packages so you can swap in any logger.

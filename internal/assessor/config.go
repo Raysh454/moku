@@ -1,7 +1,5 @@
 package assessor
 
-import "time"
-
 // Config holds runtime settings for the assessor. Keep small initially.
 type Config struct {
 	// ScoringVersion allows safe evolution of scoring logic.
@@ -12,7 +10,4 @@ type Config struct {
 
 	// RuleWeights allows configuring weights per rule id (optional).
 	RuleWeights map[string]float64 `json:"rule_weights"`
-
-	// (Optional) future field for timeouts, etc.
-	FetchTimeout time.Duration `json:"fetch_timeout"`
 }

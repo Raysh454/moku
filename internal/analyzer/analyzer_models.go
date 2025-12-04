@@ -1,6 +1,11 @@
-package model
+package analyzer
 
-import "time"
+import (
+	"time"
+
+	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/webclient"
+)
 
 // ScanRequest represents a request to submit a URL for analysis.
 type ScanRequest struct {
@@ -23,10 +28,10 @@ type ScanResult struct {
 	URL string `json:"url"`
 
 	// Response contains the HTTP response details if available.
-	Response *Response `json:"response,omitempty"`
+	Response *webclient.Response `json:"response,omitempty"`
 
 	// Score contains the assessment result if scoring was performed.
-	Score *ScoreResult `json:"score,omitempty"`
+	Score *assessor.ScoreResult `json:"score,omitempty"`
 
 	// Error contains error details if the scan failed.
 	Error string `json:"error,omitempty"`
