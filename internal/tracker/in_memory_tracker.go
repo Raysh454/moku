@@ -63,8 +63,8 @@ func (t *inMemoryTracker) Diff(ctx context.Context, baseID, headID string) (*Dif
 	return nil, ErrNotImplemented
 }
 
-func (t *inMemoryTracker) Get(ctx context.Context, versionID string) (*Snapshot, error) {
-	// TODO: return the snapshot for versionID.
+func (t *inMemoryTracker) Get(ctx context.Context, versionID string) ([]*Snapshot, error) {
+	// TODO: return all snapshots for versionID.
 	return nil, ErrNotImplemented
 }
 
