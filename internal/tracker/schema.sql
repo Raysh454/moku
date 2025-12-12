@@ -8,47 +8,49 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 
 -- Insert schema version
-INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2');
 
 -- Snapshots: captured web content at a point in time
+-- Each snapshot represents a single URL fetch and corresponds to exactly one file
 CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,
     status_code INTEGER NOT NULL,
     url TEXT NOT NULL,
     file_path TEXT NOT NULL,
+    blob_id TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     headers TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_url ON snapshots(url);
+CREATE INDEX IF NOT EXISTS idx_snapshots_blob_id ON snapshots(blob_id);
 
 -- Versions: commits/history entries
+-- A version represents a commit that may reference many snapshots
 CREATE TABLE IF NOT EXISTS versions (
     id TEXT PRIMARY KEY,
     parent_id TEXT,
-    snapshot_id TEXT NOT NULL,
     message TEXT NOT NULL,
     author TEXT,
     timestamp INTEGER NOT NULL,
-    FOREIGN KEY (parent_id) REFERENCES versions(id),
-    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id)
+    FOREIGN KEY (parent_id) REFERENCES versions(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_versions_timestamp ON versions(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_versions_parent_id ON versions(parent_id);
-CREATE INDEX IF NOT EXISTS idx_versions_snapshot_id ON versions(snapshot_id);
 
-CREATE TABLE IF NOT EXISTS version_files (
+-- Version snapshots: many-to-many relationship between versions and snapshots
+CREATE TABLE IF NOT EXISTS version_snapshots (
     version_id TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    blob_id TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    PRIMARY KEY (version_id, file_path),
-    FOREIGN KEY (version_id) REFERENCES versions(id)
+    snapshot_id TEXT NOT NULL,
+    PRIMARY KEY (version_id, snapshot_id),
+    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_version_files_blob_id ON version_files(blob_id);
+CREATE INDEX IF NOT EXISTS idx_version_snapshots_version_id ON version_snapshots(version_id);
+CREATE INDEX IF NOT EXISTS idx_version_snapshots_snapshot_id ON version_snapshots(snapshot_id);
 
 -- Diffs: precomputed diffs between versions
 CREATE TABLE IF NOT EXISTS diffs (
