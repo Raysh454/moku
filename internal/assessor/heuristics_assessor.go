@@ -79,7 +79,7 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source 
 					RuleID:      "scaffold:no_rules",
 				},
 			},
-			MatchedRules: []string{},
+			MatchedRules: []Rule{},
 			RawFeatures:  map[string]float64{},
 			Meta: map[string]any{
 				"source": source,
@@ -145,7 +145,7 @@ func (h *HeuristicsAssessor) defaultResult() *ScoreResult {
 				RuleID:      "scaffold:no_rules",
 			},
 		},
-		MatchedRules: []string{},
+		MatchedRules: []Rule{},
 		RawFeatures:  map[string]float64{},
 		Timestamp:    now,
 	}

@@ -20,7 +20,7 @@ func TestHeaderStorage_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-test")
-	tr, err := tracker.NewSQLiteTracker(tmpDir, logger)
+	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestHeaderNormalization_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-norm-test")
-	tr, err := tracker.NewSQLiteTracker(tmpDir, logger)
+	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestSensitiveHeaderRedaction_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-redact-test")
-	tr, err := tracker.NewSQLiteTracker(tmpDir, logger)
+	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-multi-test")
-	tr, err := tracker.NewSQLiteTracker(tmpDir, logger)
+	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}

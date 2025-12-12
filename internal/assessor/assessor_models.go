@@ -82,8 +82,8 @@ type ScoreResult struct {
 	// Evidence is the list of contributing evidence items.
 	Evidence []EvidenceItem `json:"evidence,omitempty"`
 
-	// MatchedRules lists IDs of rules that matched during evaluation.
-	MatchedRules []string `json:"matched_rules,omitempty"`
+	// MatchedRules lists rules that matched during evaluation.
+	MatchedRules []Rule `json:"matched_rules,omitempty"`
 
 	// Meta contains any additional metadata about the scoring process.
 	Meta map[string]any `json:"meta,omitempty"`
@@ -102,10 +102,6 @@ type ScoreOptions struct {
 	// skip expensive DOM location extraction.
 	RequestLocations bool
 
-	// Lightweight mode asks assessor to run a cheap, fast pass (may produce
-	// less evidence). Use for low-latency paths.
-	Lightweight bool
-
 	// (Optional) MaxEvidence controls how many evidence items to return.
 	MaxEvidence int
 
@@ -116,13 +112,11 @@ type ScoreOptions struct {
 // Rule defines a single heuristic check the assessor will run.
 // Either Selector (CSS) or Regex (PCRE) can be used (both may be set).
 type Rule struct {
-	ID         string  // unique rule id (eg. "forms:autocomplete-off")
-	Key        string  // short key presented in UI (eg. "autocomplete-off")
-	Severity   string  // "low"|"medium"|"high"|"critical"
-	Weight     float64 // numeric weight used to build score
-	Selector   string  // optional CSS selector to match nodes
-	Regex      string  // optional regex pattern (compiled at constructor)
-	MinMatches int     // minimum matches required to consider this rule present
-	// compiled regex (populated by constructor)
+	ID       string  // unique rule id (eg. "forms:autocomplete-off")
+	Key      string  // short key presented in UI (eg. "autocomplete-off")
+	Severity string  // "low"|"medium"|"high"|"critical"
+	Weight   float64 // numeric weight used to build score
+	Selector string  // optional CSS selector to match nodes
+	Regex    string  // optional regex pattern (compiled at constructor)
 	compiled *regexp.Regexp
 }

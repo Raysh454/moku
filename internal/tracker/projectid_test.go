@@ -15,7 +15,7 @@ func TestSetAndGetProjectID(t *testing.T) {
 	logger := logging.NewStdoutLogger("tracker-test")
 
 	// create tracker without a preconfigured project id
-	tr, err := NewSQLiteTrackerWithConfig(siteDir, logger, &Config{})
+	tr, err := NewSQLiteTracker(logger, &Config{StoragePath: siteDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig failed: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestSetProjectID_MismatchAndForce(t *testing.T) {
 	siteDir := t.TempDir()
 	logger := logging.NewStdoutLogger("tracker-test")
 
-	tr, err := NewSQLiteTrackerWithConfig(siteDir, logger, &Config{})
+	tr, err := NewSQLiteTracker(logger, &Config{StoragePath: siteDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig failed: %v", err)
 	}
@@ -103,8 +103,8 @@ func TestNewSQLiteTrackerWithConfig_ProjectID(t *testing.T) {
 	logger := logging.NewStdoutLogger("tracker-test")
 
 	// create tracker A with project id "p-a"
-	cfgA := &Config{ProjectID: "p-a"}
-	trA, err := NewSQLiteTrackerWithConfig(siteDir, logger, cfgA)
+	cfgA := &Config{ProjectID: "p-a", StoragePath: siteDir}
+	trA, err := NewSQLiteTracker(logger, cfgA)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig (A) failed: %v", err)
 	}
@@ -112,15 +112,15 @@ func TestNewSQLiteTrackerWithConfig_ProjectID(t *testing.T) {
 	trA.Close()
 
 	// attempt to create tracker B with different project id -> should fail
-	cfgB := &Config{ProjectID: "p-b", ForceProjectID: false}
-	_, err = NewSQLiteTrackerWithConfig(siteDir, logger, cfgB)
+	cfgB := &Config{ProjectID: "p-b", ForceProjectID: false, StoragePath: siteDir}
+	_, err = NewSQLiteTracker(logger, cfgB)
 	if err == nil {
 		t.Fatalf("expected NewSQLiteTrackerWithConfig to fail on project id mismatch, but it succeeded")
 	}
 
 	// create tracker C with force overwrite -> should succeed and set project id to p-b
-	cfgC := &Config{ProjectID: "p-b", ForceProjectID: true}
-	trC, err := NewSQLiteTrackerWithConfig(siteDir, logger, cfgC)
+	cfgC := &Config{ProjectID: "p-b", ForceProjectID: true, StoragePath: siteDir}
+	trC, err := NewSQLiteTracker(logger, cfgC)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig (C) failed with force: %v", err)
 	}

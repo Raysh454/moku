@@ -148,11 +148,10 @@ func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger log
 
 	// Create a test tracker with the provided db
 	t := &SQLiteTracker{
-		siteDir:  tmpDir,
 		db:       db,
 		logger:   logger,
 		assessor: assessor,
-		config:   &Config{},
+		config:   &Config{StoragePath: tmpDir},
 	}
 
 	return t.scoreAndAttribute(ctx, opts, versionID, parentVersionID, diffID, diffJSON, headBody)
