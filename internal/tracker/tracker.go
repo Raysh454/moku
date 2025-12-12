@@ -26,8 +26,9 @@ type Tracker interface {
 	// If baseID == "" treat it as an empty/base snapshot.
 	Diff(ctx context.Context, baseID, headID string) (*DiffResult, error)
 
-	// Get returns the snapshot for a specific version ID.
-	Get(ctx context.Context, versionID string) (*Snapshot, error)
+	// Get returns all snapshots for a specific version ID.
+	// A version may reference multiple snapshots through the version_snapshots join table.
+	Get(ctx context.Context, versionID string) ([]*Snapshot, error)
 
 	// List returns recent versions (e.g., head-first). The semantics of pagination
 	// can be added later.

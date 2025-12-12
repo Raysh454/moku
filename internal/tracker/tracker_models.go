@@ -41,9 +41,6 @@ type Version struct {
 	// Author is optional metadata about who committed.
 	Author string `json:"author,omitempty"`
 
-	// SnapshotID references the stored snapshot (may match ID).
-	SnapshotID string `json:"snapshot_id,omitempty"`
-
 	// Timestamp is the commit time.
 	Timestamp time.Time `json:"timestamp"`
 }
