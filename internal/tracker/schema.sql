@@ -12,6 +12,13 @@ INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2');
 
 -- Snapshots: captured web content at a point in time
 -- Each snapshot represents a single URL fetch and corresponds to exactly one file
+
+-- Currently, each commit creates a new snapshot regardless of whether the file is changed, we can fix this by:
+--  adding: fetched_at, shows when content was last fetched, is updated if content is not changed and no new snapshot needs to be created
+--  adding: content_hash, sha256(status_code + headers + body), to detect changed content, only create new snapshot if changed
+-- but this all seems useless as we currently do not have a way to detect meaningful changes deterministically.
+-- Headers and page data change constantly, so we would have a lot of snapshots eitherways
+
 CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,
     status_code INTEGER NOT NULL,
