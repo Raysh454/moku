@@ -29,7 +29,6 @@ var (
 // SQLiteTracker implements interfaces.Tracker using SQLite for metadata storage
 // and a content-addressed blob store for file content.
 type SQLiteTracker struct {
-	siteDir  string
 	db       *sql.DB
 	store    *FSStore
 	logger   logging.Logger
@@ -37,15 +36,9 @@ type SQLiteTracker struct {
 	assessor assessor.Assessor
 }
 
-// NewSQLiteTracker creates a new SQLiteTracker instance.
-// It initializes the SQLite database at siteDir/.moku/moku.db and sets up the blob store.
-func NewSQLiteTracker(siteDir string, logger logging.Logger) (*SQLiteTracker, error) {
-	return NewSQLiteTrackerWithConfig(siteDir, logger, nil)
-}
-
-// NewSQLiteTrackerWithConfig creates a new SQLiteTracker instance with custom configuration.
+// NewSQLiteTracker creates a new SQLiteTracker instance with custom configuration.
 // If config is nil, default configuration is used.
-func NewSQLiteTrackerWithConfig(siteDir string, logger logging.Logger, config *Config) (*SQLiteTracker, error) {
+func NewSQLiteTracker(logger logging.Logger, config *Config) (*SQLiteTracker, error) {
 	if logger == nil {
 		return nil, errors.New("tracker: nil logger provided")
 	}
@@ -62,7 +55,7 @@ func NewSQLiteTrackerWithConfig(siteDir string, logger logging.Logger, config *C
 	}
 
 	// Ensure .moku directory exists
-	mokuDir := filepath.Join(siteDir, ".moku")
+	mokuDir := filepath.Join(config.StoragePath, ".moku")
 	if err := os.MkdirAll(mokuDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create .moku directory: %w", err)
 	}
@@ -88,14 +81,13 @@ func NewSQLiteTrackerWithConfig(siteDir string, logger logging.Logger, config *C
 		return nil, fmt.Errorf("failed to create FSStore: %w", err)
 	}
 
-	logger.Info("SQLiteTracker initialized", logging.Field{Key: "siteDir", Value: siteDir})
+	logger.Info("SQLiteTracker initialized", logging.Field{Key: "config.StoragePath", Value: config.StoragePath})
 
 	t := &SQLiteTracker{
-		siteDir: siteDir,
-		db:      db,
-		store:   store,
-		logger:  logger,
-		config:  config,
+		db:     db,
+		store:  store,
+		logger: logger,
+		config: config,
 	}
 
 	if config.ProjectID != "" {
@@ -385,8 +377,9 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*DiffR
 }
 
 // Get returns the snapshot for a specific version ID.
+// TODO: Multiple snapshots can have the same version, so return all of them.
 func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*Snapshot, error) {
-	t.logger.Debug("Getting snapshot", logging.Field{Key: "versionID", Value: versionID})
+	t.logger.Debug("Getting snapshots", logging.Field{Key: "versionID", Value: versionID})
 
 	var snapshotID, url, filePath string
 	var createdAt int64
@@ -658,7 +651,7 @@ func (t *SQLiteTracker) getVersionBodyByID(ctx context.Context, versionID string
 }
 
 func (t *SQLiteTracker) readHEAD() (string, error) {
-	headPath := filepath.Join(t.siteDir, ".moku", "HEAD")
+	headPath := filepath.Join(t.config.StoragePath, ".moku", "HEAD")
 	data, err := os.ReadFile(headPath)
 	if err != nil {
 		return "", err
@@ -667,7 +660,7 @@ func (t *SQLiteTracker) readHEAD() (string, error) {
 }
 
 func (t *SQLiteTracker) writeHEAD(versionID string) error {
-	headPath := filepath.Join(t.siteDir, ".moku", "HEAD")
+	headPath := filepath.Join(t.config.StoragePath, ".moku", "HEAD")
 	return AtomicWriteFile(headPath, []byte(versionID), 0644)
 }
 
@@ -864,7 +857,7 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*Snapshot, 
 }
 
 func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, body []byte, headers map[string][]string) error {
-	dirPath := filepath.Join(t.siteDir, filePath)
+	dirPath := filepath.Join(t.config.StoragePath, filePath)
 
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)

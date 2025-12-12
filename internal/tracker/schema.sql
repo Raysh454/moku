@@ -39,7 +39,6 @@ CREATE INDEX IF NOT EXISTS idx_versions_timestamp ON versions(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_versions_parent_id ON versions(parent_id);
 CREATE INDEX IF NOT EXISTS idx_versions_snapshot_id ON versions(snapshot_id);
 
--- Version files: many-to-many relationship between versions and file blobs (Not necessary for now but maybe useful later)
 CREATE TABLE IF NOT EXISTS version_files (
     version_id TEXT NOT NULL,
     file_path TEXT NOT NULL,
