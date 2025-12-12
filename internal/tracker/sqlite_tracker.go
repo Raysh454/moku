@@ -241,28 +241,31 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *Snapshot, message 
 	}
 	filePath := urlTools.GetPath()
 
+	// Insert snapshot with blob_id
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO snapshots (id, status_code, url, file_path, created_at, headers)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, snapshotID, snapshot.StatusCode, snapshot.URL, filePath, timestamp, string(headersJSON))
+		INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, snapshotID, snapshot.StatusCode, snapshot.URL, filePath, blobID, timestamp, string(headersJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert snapshot: %w", err)
 	}
 
+	// Insert version without snapshot_id
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO versions (id, parent_id, snapshot_id, message, author, timestamp)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, versionID, nullableString(parentID), snapshotID, message, nullableString(author), timestamp)
+		INSERT INTO versions (id, parent_id, message, author, timestamp)
+		VALUES (?, ?, ?, ?, ?)
+	`, versionID, nullableString(parentID), message, nullableString(author), timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert version: %w", err)
 	}
 
+	// Link version to snapshot via version_snapshots join table
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO version_files (version_id, file_path, blob_id, size)
-		VALUES (?, ?, ?, ?)
-	`, versionID, filePath, blobID, len(snapshot.Body))
+		INSERT INTO version_snapshots (version_id, snapshot_id)
+		VALUES (?, ?)
+	`, versionID, snapshotID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert version_files: %w", err)
+		return nil, fmt.Errorf("failed to insert version_snapshots: %w", err)
 	}
 
 	if parentID != "" {
@@ -293,7 +296,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *Snapshot, message 
 	}
 
 	return &CommitResult{
-		Version:         Version{ID: versionID, Parent: parentID, Message: message, Author: author, SnapshotID: snapshotID, Timestamp: time.Unix(timestamp, 0)},
+		Version:         Version{ID: versionID, Parent: parentID, Message: message, Author: author, Timestamp: time.Unix(timestamp, 0)},
 		ParentVersionID: parentID,
 		DiffID:          diffID,
 		DiffJSON:        diffJSON,
@@ -384,60 +387,65 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*DiffR
 	return result, nil
 }
 
-// Get returns the snapshot for a specific version ID.
-func (t *SQLiteTracker) Get(ctx context.Context, versionID string) (*Snapshot, error) {
-	t.logger.Debug("Getting snapshot", logging.Field{Key: "versionID", Value: versionID})
+// Get returns all snapshots for a specific version ID.
+func (t *SQLiteTracker) Get(ctx context.Context, versionID string) ([]*Snapshot, error) {
+	t.logger.Debug("Getting snapshots", logging.Field{Key: "versionID", Value: versionID})
 
-	var snapshotID, url, filePath string
-	var createdAt int64
-	var statucode int
-	var headersJSONSQL sql.NullString
-	err := t.db.QueryRowContext(ctx, `
-		SELECT s.id, s.status_code, s.url, s.file_path, s.created_at, s.headers
+	// Query all snapshots linked to this version via version_snapshots
+	rows, err := t.db.QueryContext(ctx, `
+		SELECT s.id, s.status_code, s.url, s.file_path, s.blob_id, s.created_at, s.headers
 		FROM snapshots s
-		JOIN versions v ON s.id = v.snapshot_id
-		WHERE v.id = ?
-	`, versionID).Scan(&snapshotID, &statucode, &url, &filePath, &createdAt, &headersJSONSQL)
+		JOIN version_snapshots vs ON s.id = vs.snapshot_id
+		WHERE vs.version_id = ?
+		ORDER BY s.file_path
+	`, versionID)
 
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("version not found: %s", versionID)
-	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query snapshot: %w", err)
+		return nil, fmt.Errorf("failed to query snapshots: %w", err)
+	}
+	defer rows.Close()
+
+	var snapshots []*Snapshot
+	for rows.Next() {
+		var snapshotID, url, filePath, blobID string
+		var createdAt int64
+		var statusCode int
+		var headersJSONSQL sql.NullString
+
+		if err := rows.Scan(&snapshotID, &statusCode, &url, &filePath, &blobID, &createdAt, &headersJSONSQL); err != nil {
+			return nil, fmt.Errorf("failed to scan snapshot: %w", err)
+		}
+
+		body, err := t.store.Get(blobID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get blob %s: %w", blobID, err)
+		}
+
+		headersJSON := headersJSONSQL.String
+		var headers map[string][]string
+		if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
+			t.logger.Warn("Failed to parse headers", logging.Field{Key: "error", Value: err.Error()})
+		}
+
+		snapshots = append(snapshots, &Snapshot{
+			ID:         snapshotID,
+			StatusCode: statusCode,
+			URL:        url,
+			Body:       body,
+			Headers:    headers,
+			CreatedAt:  time.Unix(createdAt, 0),
+		})
 	}
 
-	var blobID string
-	err = t.db.QueryRowContext(ctx, `
-		SELECT blob_id FROM version_files
-		WHERE version_id = ? AND file_path = ?
-	`, versionID, filePath).Scan(&blobID)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("file not found in version: %s", filePath)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query version_files: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating snapshots: %w", err)
 	}
 
-	body, err := t.store.Get(blobID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get blob: %w", err)
+	if len(snapshots) == 0 {
+		return nil, fmt.Errorf("version not found or has no snapshots: %s", versionID)
 	}
 
-	headersJSON := headersJSONSQL.String
-	var headers map[string][]string
-	if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
-		t.logger.Warn("Failed to parse headers", logging.Field{Key: "error", Value: err.Error()})
-	}
-
-	return &Snapshot{
-		ID:         snapshotID,
-		StatusCode: statucode,
-		URL:        url,
-		Body:       body,
-		Headers:    headers,
-		CreatedAt:  time.Unix(createdAt, 0),
-	}, nil
+	return snapshots, nil
 }
 
 // List returns recent versions (head-first).
@@ -449,7 +457,7 @@ func (t *SQLiteTracker) List(ctx context.Context, limit int) ([]*Version, error)
 	}
 
 	rows, err := t.db.QueryContext(ctx, `
-		SELECT id, parent_id, snapshot_id, message, author, timestamp
+		SELECT id, parent_id, message, author, timestamp
 		FROM versions
 		ORDER BY timestamp DESC
 		LIMIT ?
@@ -465,7 +473,7 @@ func (t *SQLiteTracker) List(ctx context.Context, limit int) ([]*Version, error)
 		var parentID, author sql.NullString
 		var timestamp int64
 
-		if err := rows.Scan(&v.ID, &parentID, &v.SnapshotID, &v.Message, &author, &timestamp); err != nil {
+		if err := rows.Scan(&v.ID, &parentID, &v.Message, &author, &timestamp); err != nil {
 			return nil, fmt.Errorf("failed to scan version: %w", err)
 		}
 
@@ -508,12 +516,15 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 	}
 	var files []fileEntry
 
+	// Get all snapshots for this version
 	rows, err := t.db.QueryContext(ctx, `
-		SELECT file_path, blob_id FROM version_files
-		WHERE version_id = ?
+		SELECT s.file_path, s.blob_id
+		FROM snapshots s
+		JOIN version_snapshots vs ON s.id = vs.snapshot_id
+		WHERE vs.version_id = ?
 	`, versionID)
 	if err != nil {
-		return fmt.Errorf("failed to query version files: %w", err)
+		return fmt.Errorf("failed to query version snapshots: %w", err)
 	}
 	defer rows.Close()
 
@@ -526,7 +537,7 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 	}
 
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("error iterating version files: %w", err)
+		return fmt.Errorf("error iterating version snapshots: %w", err)
 	}
 
 	for _, file := range files {
@@ -540,8 +551,8 @@ func (t *SQLiteTracker) Checkout(ctx context.Context, versionID string) error {
 		err = t.db.QueryRowContext(ctx, `
 			SELECT s.headers, s.status_code
 			FROM snapshots s
-			JOIN versions v ON s.id = v.snapshot_id
-			WHERE v.id = ? AND s.file_path = ?
+			JOIN version_snapshots vs ON s.id = vs.snapshot_id
+			WHERE vs.version_id = ? AND s.file_path = ?
 		`, versionID, file.path).Scan(&headersJSON, &statusCode)
 		if err != nil && err != sql.ErrNoRows {
 			t.logger.Warn("Failed to get headers for file",
@@ -622,11 +633,10 @@ func (t *SQLiteTracker) getVersionData(ctx context.Context, tx *sql.Tx, versionI
 	var blobID string
 	var headersJSON sql.NullString
 	err := tx.QueryRowContext(ctx, `
-		SELECT vf.blob_id, s.headers
-		FROM version_files vf
-		JOIN versions v ON vf.version_id = v.id
-		JOIN snapshots s ON v.snapshot_id = s.id
-		WHERE vf.version_id = ?
+		SELECT s.blob_id, s.headers
+		FROM snapshots s
+		JOIN version_snapshots vs ON s.id = vs.snapshot_id
+		WHERE vs.version_id = ?
 		LIMIT 1
 	`, versionID).Scan(&blobID, &headersJSON)
 
@@ -645,8 +655,10 @@ func (t *SQLiteTracker) getVersionData(ctx context.Context, tx *sql.Tx, versionI
 func (t *SQLiteTracker) getVersionBodyByID(ctx context.Context, versionID string) ([]byte, error) {
 	var blobID string
 	err := t.db.QueryRowContext(ctx, `
-		SELECT blob_id FROM version_files
-		WHERE version_id = ?
+		SELECT s.blob_id
+		FROM snapshots s
+		JOIN version_snapshots vs ON s.id = vs.snapshot_id
+		WHERE vs.version_id = ?
 		LIMIT 1
 	`, versionID).Scan(&blobID)
 
@@ -688,13 +700,14 @@ type snapshotData struct {
 
 func (t *SQLiteTracker) insertSnapshot(ctx context.Context, tx *sql.Tx, sd snapshotData) error {
 	_, err := tx.ExecContext(ctx, `
-        INSERT INTO snapshots (id, status_code, url, file_path, created_at, headers)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
 		sd.snapshotID,
 		sd.snapshot.StatusCode,
 		sd.snapshot.URL,
 		sd.filePath,
+		sd.blobID,
 		sd.snapshot.CreatedAt.Unix(),
 		sd.headersJSON,
 	)
@@ -702,15 +715,14 @@ func (t *SQLiteTracker) insertSnapshot(ctx context.Context, tx *sql.Tx, sd snaps
 }
 
 func (t *SQLiteTracker) insertVersion(ctx context.Context, tx *sql.Tx,
-	versionID, parentID, firstSnapshotID, message, author string, ts int64) error {
+	versionID, parentID, message, author string, ts int64) error {
 
 	_, err := tx.ExecContext(ctx, `
-        INSERT INTO versions (id, parent_id, snapshot_id, message, author, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO versions (id, parent_id, message, author, timestamp)
+        VALUES (?, ?, ?, ?, ?)
     `,
 		versionID,
 		nullableString(parentID),
-		firstSnapshotID,
 		message,
 		nullableString(author),
 		ts,
@@ -718,14 +730,14 @@ func (t *SQLiteTracker) insertVersion(ctx context.Context, tx *sql.Tx,
 	return err
 }
 
-func (t *SQLiteTracker) insertVersionFile(ctx context.Context, tx *sql.Tx,
-	versionID, path, blobID string, size int) error {
+func (t *SQLiteTracker) insertVersionSnapshot(ctx context.Context, tx *sql.Tx,
+	versionID, snapshotID string) error {
 
 	_, err := tx.ExecContext(ctx, `
-        INSERT INTO version_files (version_id, file_path, blob_id, size)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO version_snapshots (version_id, snapshot_id)
+        VALUES (?, ?)
     `,
-		versionID, path, blobID, size,
+		versionID, snapshotID,
 	)
 	return err
 }
@@ -791,27 +803,22 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*Snapshot, 
 		}
 	}()
 
-	// First snapshot
-	first := list[0]
-	if err := t.insertSnapshot(ctx, tx, first); err != nil {
-		return nil, fmt.Errorf("insert first snapshot: %w", err)
-	}
-
-	if err := t.insertVersion(ctx, tx, versionID, parentID, first.snapshotID, message, author, ts); err != nil {
-		return nil, fmt.Errorf("insert version: %w", err)
-	}
-
-	if err := t.insertVersionFile(ctx, tx, versionID, first.filePath, first.blobID, len(first.snapshot.Body)); err != nil {
-		return nil, fmt.Errorf("insert version file: %w", err)
-	}
-
-	// Remaining snapshots
-	for _, sd := range list[1:] {
+	// Insert all snapshots
+	for _, sd := range list {
 		if err := t.insertSnapshot(ctx, tx, sd); err != nil {
 			return nil, fmt.Errorf("insert snapshot: %w", err)
 		}
-		if err := t.insertVersionFile(ctx, tx, versionID, sd.filePath, sd.blobID, len(sd.snapshot.Body)); err != nil {
-			return nil, fmt.Errorf("insert version file: %w", err)
+	}
+
+	// Insert version (without snapshot_id)
+	if err := t.insertVersion(ctx, tx, versionID, parentID, message, author, ts); err != nil {
+		return nil, fmt.Errorf("insert version: %w", err)
+	}
+
+	// Link all snapshots to the version via version_snapshots
+	for _, sd := range list {
+		if err := t.insertVersionSnapshot(ctx, tx, versionID, sd.snapshotID); err != nil {
+			return nil, fmt.Errorf("insert version snapshot: %w", err)
 		}
 	}
 
@@ -842,12 +849,11 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*Snapshot, 
 	for _, sd := range list {
 		cr := &CommitResult{
 			Version: Version{
-				ID:         versionID,
-				Parent:     parentID,
-				Message:    message,
-				Author:     author,
-				SnapshotID: first.snapshotID,
-				Timestamp:  time.Unix(ts, 0),
+				ID:        versionID,
+				Parent:    parentID,
+				Message:   message,
+				Author:    author,
+				Timestamp: time.Unix(ts, 0),
 			},
 			ParentVersionID: parentID,
 			DiffID:          diffID,

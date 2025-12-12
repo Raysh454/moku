@@ -119,16 +119,17 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 		t.Errorf("expected author 'test@example.com', got %q", version.Author)
 	}
 
-	// Get the snapshot back
-	retrievedSnapshot, err := tr.Get(ctx, version.ID)
+	// Get the snapshots back
+	retrievedSnapshots, err := tr.Get(ctx, version.ID)
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
 
-	if retrievedSnapshot == nil {
-		t.Fatal("Get returned nil snapshot")
+	if len(retrievedSnapshots) == 0 {
+		t.Fatal("Get returned no snapshots")
 	}
 
+	retrievedSnapshot := retrievedSnapshots[0]
 	if retrievedSnapshot.URL != snapshot.URL {
 		t.Errorf("expected URL %q, got %q", snapshot.URL, retrievedSnapshot.URL)
 	}
