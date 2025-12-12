@@ -85,7 +85,7 @@ func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*tracke
 	return nil, nil
 }
 
-func (t *DummyTracker) Get(ctx context.Context, versionID string) (*tracker.Snapshot, error) {
+func (t *DummyTracker) Get(ctx context.Context, versionID string) ([]*tracker.Snapshot, error) {
 	return nil, nil
 }
 
