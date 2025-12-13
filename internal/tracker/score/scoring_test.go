@@ -1,4 +1,4 @@
-package tracker
+package score_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/tracker/score"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -146,15 +147,9 @@ func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger log
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create a test tracker with the provided db
-	t := &SQLiteTracker{
-		db:       db,
-		logger:   logger,
-		assessor: assessor,
-		config:   &Config{StoragePath: tmpDir},
-	}
-
-	return t.scoreAndAttribute(ctx, opts, versionID, parentVersionID, diffID, diffJSON, headBody)
+	// Use ScoreAttributer directly to avoid importing tracker implementation.
+	sa := score.New(assessor, db, logger)
+	return sa.ScoreAndAttribute(ctx, opts, versionID, parentVersionID, diffID, diffJSON, headBody)
 }
 
 // Test initial page (no parent) persists version_scores and version_evidence_locations

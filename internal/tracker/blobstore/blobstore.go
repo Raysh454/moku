@@ -1,4 +1,4 @@
-package tracker
+package blobstore
 
 import (
 	"crypto/sha256"
@@ -9,37 +9,37 @@ import (
 	"path/filepath"
 )
 
-// FSStore implements content-addressed blob storage on the filesystem.
+// Blobstore implements content-addressed blob storage on the filesystem.
 // Blobs are stored under siteDir/.moku/blobs using SHA-256 hash as the filename.
 // The first two characters of the hash form a subdirectory to avoid too many files in one directory.
-type FSStore struct {
+type Blobstore struct {
 	blobsDir string
 }
 
-// NewFSStore creates a new FSStore rooted at the given blobs directory.
-func NewFSStore(blobsDir string) (*FSStore, error) {
+// NewBlobstore creates a new Blobstore rooted at the given blobs directory.
+func New(blobsDir string) (*Blobstore, error) {
 	if err := os.MkdirAll(blobsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create blobs directory: %w", err)
 	}
-	return &FSStore{blobsDir: blobsDir}, nil
+	return &Blobstore{blobsDir: blobsDir}, nil
 }
 
 // Put stores content and returns its content-addressed ID (SHA-256 hex).
 // If the content already exists, it returns the existing ID without rewriting.
-func (fs *FSStore) Put(data []byte) (string, error) {
+func (b *Blobstore) Put(data []byte) (string, error) {
 	// Compute SHA-256 hash
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
 	// Check if blob already exists
-	blobPath := fs.blobPath(hashStr)
+	blobPath := b.blobPath(hashStr)
 	if _, err := os.Stat(blobPath); err == nil {
 		// Blob already exists, return the hash
 		return hashStr, nil
 	}
 
 	// Create subdirectory (first 2 chars of hash)
-	subdir := filepath.Join(fs.blobsDir, hashStr[:2])
+	subdir := filepath.Join(b.blobsDir, hashStr[:2])
 	if err := os.MkdirAll(subdir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create blob subdirectory: %w", err)
 	}
@@ -53,8 +53,8 @@ func (fs *FSStore) Put(data []byte) (string, error) {
 }
 
 // Get retrieves content by its content-addressed ID.
-func (fs *FSStore) Get(blobID string) ([]byte, error) {
-	blobPath := fs.blobPath(blobID)
+func (b *Blobstore) Get(blobID string) ([]byte, error) {
+	blobPath := b.blobPath(blobID)
 	data, err := os.ReadFile(blobPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -74,16 +74,16 @@ func (fs *FSStore) Get(blobID string) ([]byte, error) {
 }
 
 // Exists checks if a blob with the given ID exists.
-func (fs *FSStore) Exists(blobID string) bool {
-	blobPath := fs.blobPath(blobID)
+func (b *Blobstore) Exists(blobID string) bool {
+	blobPath := b.blobPath(blobID)
 	_, err := os.Stat(blobPath)
 	return err == nil
 }
 
 // Delete removes a blob by its ID.
 // This should only be called during garbage collection.
-func (fs *FSStore) Delete(blobID string) error {
-	blobPath := fs.blobPath(blobID)
+func (b *Blobstore) Delete(blobID string) error {
+	blobPath := b.blobPath(blobID)
 	if err := os.Remove(blobPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil // Already deleted
@@ -95,21 +95,21 @@ func (fs *FSStore) Delete(blobID string) error {
 
 // blobPath returns the filesystem path for a given blob ID.
 // Format: blobsDir/{first2chars}/{fullhash}
-func (fs *FSStore) blobPath(blobID string) string {
+func (b *Blobstore) blobPath(blobID string) string {
 	// Validate blob ID length to prevent path traversal attacks
 	// SHA-256 hex is always 64 characters
 	if len(blobID) < 2 {
 		// Return an invalid path that will cause operations to fail safely
 		// Using a subdirectory name that can't match any real blob
-		return filepath.Join(fs.blobsDir, "__invalid__", blobID)
+		return filepath.Join(b.blobsDir, "__invalid__", blobID)
 	}
-	return filepath.Join(fs.blobsDir, blobID[:2], blobID)
+	return filepath.Join(b.blobsDir, blobID[:2], blobID)
 }
 
 // GetReader returns a reader for a blob without loading it all into memory.
 // Useful for large blobs.
-func (fs *FSStore) GetReader(blobID string) (io.ReadCloser, error) {
-	blobPath := fs.blobPath(blobID)
+func (b *Blobstore) GetReader(blobID string) (io.ReadCloser, error) {
+	blobPath := b.blobPath(blobID)
 	file, err := os.Open(blobPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -122,9 +122,9 @@ func (fs *FSStore) GetReader(blobID string) (io.ReadCloser, error) {
 
 // PutReader stores content from a reader and returns its content-addressed ID.
 // This is more efficient for large content that doesn't need to fit in memory.
-func (fs *FSStore) PutReader(reader io.Reader) (string, error) {
+func (b *Blobstore) PutReader(reader io.Reader) (string, error) {
 	// Create temp file to compute hash and store content
-	tmpFile, err := os.CreateTemp(fs.blobsDir, ".tmp-blob-*")
+	tmpFile, err := os.CreateTemp(b.blobsDir, ".tmp-blob-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -151,7 +151,7 @@ func (fs *FSStore) PutReader(reader io.Reader) (string, error) {
 
 	// Get hash
 	hashStr := hex.EncodeToString(hasher.Sum(nil))
-	blobPath := fs.blobPath(hashStr)
+	blobPath := b.blobPath(hashStr)
 
 	// Check if blob already exists
 	if _, err := os.Stat(blobPath); err == nil {
@@ -160,7 +160,7 @@ func (fs *FSStore) PutReader(reader io.Reader) (string, error) {
 	}
 
 	// Create subdirectory
-	subdir := filepath.Join(fs.blobsDir, hashStr[:2])
+	subdir := filepath.Join(b.blobsDir, hashStr[:2])
 	if err := os.MkdirAll(subdir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create blob subdirectory: %w", err)
 	}
