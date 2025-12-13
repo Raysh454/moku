@@ -16,8 +16,8 @@ siteDir/
       ab/
         cd1234...    # sha256 hex filename (first 2 chars as subdirectory)
     HEAD             # Current version ID (text file)
-  index.html/        # Working-tree directory for a page
-    .page_body       # Raw HTML content (convenience file)
+  example/           # Working-tree directory for a page path (e.g., "/example")
+    .page_body         # Raw HTML content (convenience file)
     .page_headers.json # Normalized headers as JSON (convenience file)
 ```
 
@@ -37,25 +37,24 @@ These working-tree files can be regenerated from the blob store at any time.
 
 **snapshots**: Captured web content at a point in time
 - `id` TEXT PRIMARY KEY (UUID)
+- `status_code` INTEGER
 - `url` TEXT (source URL)
-- `file_path` TEXT (relative path in working tree, e.g., "index.html")
+- `file_path` TEXT (relative path in working tree, e.g., "/example")
+- `blob_id` TEXT (sha256 hex pointing into blobstore)
 - `created_at` INTEGER (Unix timestamp)
 - `headers` TEXT (JSON-encoded normalized HTTP headers)
 
 **versions**: Commits/history entries
 - `id` TEXT PRIMARY KEY (UUID)
 - `parent_id` TEXT (parent version, NULL for initial)
-- `snapshot_id` TEXT REFERENCES snapshots(id)
 - `message` TEXT (commit message)
 - `author` TEXT (optional)
 - `timestamp` INTEGER (Unix timestamp)
 
-**version_files**: Many-to-many relationship between versions and file blobs
+**version_snapshots**: Join table linking versions to snapshots
 - `version_id` TEXT REFERENCES versions(id)
-- `file_path` TEXT (relative path)
-- `blob_id` TEXT (sha256 hex of content)
-- `size` INTEGER (file size in bytes)
-- PRIMARY KEY (version_id, file_path)
+- `snapshot_id` TEXT REFERENCES snapshots(id)
+- PRIMARY KEY (version_id, snapshot_id)
 
 **diffs**: Precomputed diffs between versions
 - `id` TEXT PRIMARY KEY (UUID)
@@ -64,15 +63,21 @@ These working-tree files can be regenerated from the blob store at any time.
 - `diff_json` TEXT (JSON serialized combined diff with body_diff and headers_diff)
 - `created_at` INTEGER
 
-**scans**: Tracking for analyzer scan results
+**version_scores**: Stored scoring results for versions
 - `id` TEXT PRIMARY KEY (UUID)
-- `version_id` TEXT REFERENCES versions(id)
-- `scan_data` TEXT (JSON)
+- `version_id` TEXT
+- `scoring_version` TEXT
+- `score` REAL
+- `normalized` INTEGER
+- `confidence` REAL
+- `score_json` TEXT
 - `created_at` INTEGER
 
-**seq**: Sequence numbers for ordering operations
-- `name` TEXT PRIMARY KEY
-- `value` INTEGER
+**version_evidence_locations**: Evidence location storage used for attribution
+- columns for evidence/location indices, selector/xpath, file_path, ranges, etc.
+
+**diff_attributions**: Contribution rows linking evidence to diff chunks
+- contribution weights and percentages per-evidence/location
 
 ### Content-Addressed Storage
 
@@ -212,31 +217,25 @@ This is more efficient than individual commits when fetching multiple pages, as 
 
 ## Implementation Status
 
-### Current Implementation (Skeleton)
+### Current Implementation
 
 **Completed**:
-- Interface definition (`interfaces.Tracker`)
-- Model types (`model.Snapshot`, `model.Version`, `model.DiffResult`)
-- In-memory tracker scaffold (returns ErrNotImplemented)
+- SQLite-backed tracker (SQLiteTracker) with commit, batch commit, list, diff, checkout, close
+- Blob storage using content-addressed files (`internal/tracker/blobstore`)
+- Normalized header storage and redaction logic
+- Combined diff JSON persisted in `diffs`
+- Scoring and attribution via `internal/tracker/score` and SQLiteTracker.ScoreAndAttributeVersion
+- Tests covering commit/get/list/diff/checkout and header normalization
 
-**This PR adds**:
-- SQLite schema (`schema.sql`)
-- FSStore for blob storage (`store_fs.go`)
-- SQLiteTracker skeleton (`sqlite_tracker.go`)
-- Helper functions (`fs_helpers.go`, `helpers.go`)
-- Commit flow skeleton with placeholders
+**Deprecated/Removed**:
+- In-memory tracker (NewInMemoryTracker) and related tests
+- FSStore helpers replaced by blobstore package
 
 **Planned / Next steps**:
-1. Implement actual diff algorithm (text-based unified diff)
-2. Add header canonicalization logic and ensure snapshots.headers is used
-3. Implement Checkout method fully
-4. Implement List with pagination
-5. Add GC implementation
-6. Add tests for commit flow
-7. Add tests for diff computation
-8. Add benchmarks for large snapshots
-9. Consider compression for blob storage
-10. Add support for tags/labels on versions
+1. Enhance diff algorithm and DOM-aware mapping
+2. GC of unreachable blobs and old diffs
+3. Pagination and filtering for List
+4. Performance tuning for large pages
 
 ## Testing Strategy
 
@@ -272,12 +271,10 @@ This is more efficient than individual commits when fetching multiple pages, as 
 
 ```go
 type Config struct {
-    SiteDir       string        // Root directory containing .moku
-    MaxSnapshotMB int           // Max snapshot size (default: 100MB)
-    MaxVersions   int           // Version retention (default: 100)
-    GCInterval    time.Duration // Auto-GC frequency (default: off)
-    DBPath        string        // Override DB path (default: .moku/moku.db)
-    BlobsPath     string        // Override blobs path (default: .moku/blobs)
+    StoragePath             string         // Root directory; .moku lives under this path
+    ProjectID               string         // Optional project identifier to enforce in DB meta
+    ForceProjectID          bool           // Overwrite existing project_id when true
+    RedactSensitiveHeaders  *bool          // If nil, defaults to true; controls header redaction
 }
 ```
 
@@ -352,11 +349,11 @@ Fetcher integration is not enabled by default in this repository. The tracker is
 ```go
 // Initialize tracker
 logger := logging.NewStdoutLogger("tracker")
-tracker, err := tracker.NewSQLiteTracker("/path/to/site", logger)
+t, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: "/path/to/site"})
 if err != nil {
     log.Fatal(err)
 }
-defer tracker.Close()
+defer t.Close()
 
 // Commit a snapshot with headers (direct tracker API)
 headers := map[string][]string{
@@ -365,38 +362,36 @@ headers := map[string][]string{
 }
 headersJSON, _ := json.Marshal(headers)
 
-snapshot := &model.Snapshot{
+snapshot := &tracker.Snapshot{
     URL:  "https://example.com",
     Body: []byte("<html>...</html>"),
-    Meta: map[string]string{
-        "_headers": string(headersJSON),
-    },
+    Headers: headers,
 }
-version, err := tracker.Commit(ctx, snapshot, "Initial commit", "user@example.com")
+cr, err := t.Commit(ctx, snapshot, "Initial commit", "user@example.com")
 
 // Batch commit multiple snapshots (more efficient)
-snapshots := []*model.Snapshot{snapshot1, snapshot2, snapshot3}
-versions, err := tracker.CommitBatch(ctx, snapshots, "Batch commit", "user@example.com")
+snapshots := []*tracker.Snapshot{snapshot1, snapshot2, snapshot3}
+crs, err := t.CommitBatch(ctx, snapshots, "Batch commit", "user@example.com")
 
 // Get diff between versions (returns body diff for backward compatibility)
-diff, err := tracker.Diff(ctx, parentID, currentID)
+diff, err := t.Diff(ctx, crs[0].Version.ID, cr.Version.ID)
 
 // For full combined diff including headers, query diffs table directly
 // SELECT diff_json FROM diffs WHERE base_version_id = ? AND head_version_id = ?
 
 // Checkout a specific version (writes working-tree files)
-err = tracker.Checkout(ctx, versionID)
+err = t.Checkout(ctx, cr.Version.ID)
 
 // List recent versions
-versions, err := tracker.List(ctx, 10)
+versions, err := t.List(ctx, 10)
 ```
 
 ### Working-Tree Files
 
 After a commit or checkout, the tracker writes convenience files to the working tree:
 
-- `siteDir/index.html/.page_body` - Raw HTML content
-- `siteDir/index.html/.page_headers.json` - Normalized headers in pretty-printed JSON
+- `siteDir/example/.page_body` - Raw HTML content
+- `siteDir/example/.page_headers.json` - Normalized headers in pretty-printed JSON
 
 These files are for human readability and convenience. The authoritative data is always in `.moku/` (blobs and database).
 
