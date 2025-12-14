@@ -22,7 +22,7 @@ func TestNewSQLiteTracker_Constructable(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -99,13 +99,13 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 	}
 
 	// Get the snapshots back
-	retrievedSnapshots, err := tr.Get(ctx, version.ID)
+	retrievedSnapshots, err := tr.GetSnapshots(ctx, version.ID)
 	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
+		t.Fatalf("GetSnapshots returned error: %v", err)
 	}
 
 	if len(retrievedSnapshots) == 0 {
-		t.Fatal("Get returned no snapshots")
+		t.Fatal("GetSnapshots returned no snapshots")
 	}
 
 	retrievedSnapshot := retrievedSnapshots[0]
@@ -129,7 +129,7 @@ func TestSQLiteTracker_List(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -138,9 +138,9 @@ func TestSQLiteTracker_List(t *testing.T) {
 	ctx := context.Background()
 
 	// List should be empty initially
-	versions, err := tr.List(ctx, 10)
+	versions, err := tr.ListVersions(ctx, 10)
 	if err != nil {
-		t.Fatalf("List returned error: %v", err)
+		t.Fatalf("ListVersions returned error: %v", err)
 	}
 	if len(versions) != 0 {
 		t.Errorf("expected 0 versions, got %d", len(versions))
@@ -159,9 +159,9 @@ func TestSQLiteTracker_List(t *testing.T) {
 	}
 
 	// List should return all versions
-	versions, err = tr.List(ctx, 10)
+	versions, err = tr.ListVersions(ctx, 10)
 	if err != nil {
-		t.Fatalf("List returned error: %v", err)
+		t.Fatalf("ListVersions returned error: %v", err)
 	}
 	if len(versions) != 3 {
 		t.Errorf("expected 3 versions, got %d", len(versions))
@@ -186,7 +186,7 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -224,32 +224,38 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 		t.Fatal("Diff returned nil")
 	}
 
-	if diff.BaseID != result1.Version.ID {
-		t.Errorf("expected BaseID %q, got %q", result1.Version.ID, diff.BaseID)
+	if diff.BaseVersionID != result1.Version.ID {
+		t.Errorf("expected BaseVersionID %q, got %q", result1.Version.ID, diff.BaseVersionID)
 	}
 
-	if diff.HeadID != result2.Version.ID {
-		t.Errorf("expected HeadID %q, got %q", result2.Version.ID, diff.HeadID)
+	if diff.HeadVersionID != result2.Version.ID {
+		t.Errorf("expected HeadVersionID %q, got %q", result2.Version.ID, diff.HeadVersionID)
 	}
 
 	// Should have at least one chunk (actual diff implementation)
-	if len(diff.Chunks) == 0 {
+	chunkCount := 0
+	for _, f := range diff.Files {
+		chunkCount += len(f.BodyDiff.Chunks)
+	}
+	if chunkCount == 0 {
 		t.Error("expected at least one diff chunk")
 	}
 
 	// Verify diff chunks make sense (version 1 removed, version 2 added)
 	hasRemoved := false
 	hasAdded := false
-	for _, chunk := range diff.Chunks {
-		if chunk.Type == "removed" && chunk.Content == "1" {
-			hasRemoved = true
-		}
-		if chunk.Type == "added" && chunk.Content == "2" {
-			hasAdded = true
+	for _, f := range diff.Files {
+		for _, chunk := range f.BodyDiff.Chunks {
+			if chunk.Type == "removed" && chunk.Content == "1" {
+				hasRemoved = true
+			}
+			if chunk.Type == "added" && chunk.Content == "2" {
+				hasAdded = true
+			}
 		}
 	}
 	if !hasRemoved || !hasAdded {
-		t.Errorf("expected diff to show version 1 removed and version 2 added, got chunks: %+v", diff.Chunks)
+		t.Errorf("expected diff to show version 1 removed and version 2 added, got multi: %+v", diff)
 	}
 }
 
@@ -264,7 +270,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}

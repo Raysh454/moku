@@ -67,27 +67,42 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 	// Clean up the diffs for better readability
 	diffs = dmp.DiffCleanupSemantic(diffs)
 
-	// Convert diffs to our chunk format
-	chunks := make([]Chunk, 0)
+	// Convert diffs to our chunk format with positional metadata
+	chunks := make([]DiffChunk, 0)
+	basePos := 0
+	headPos := 0
 	for _, d := range diffs {
-		var chunkType string
 		switch d.Type {
-		case diffmatchpatch.DiffInsert:
-			chunkType = "added"
-		case diffmatchpatch.DiffDelete:
-			chunkType = "removed"
 		case diffmatchpatch.DiffEqual:
-			// Skip equal chunks unless we want to show context
+			basePos += len(d.Text)
+			headPos += len(d.Text)
 			continue
-		}
-
-		// Only include non-empty chunks
-		if strings.TrimSpace(d.Text) != "" {
-			chunks = append(chunks, Chunk{
-				Type:    chunkType,
-				Path:    "",
-				Content: d.Text,
-			})
+		case diffmatchpatch.DiffInsert:
+			// insertion at headPos
+			if strings.TrimSpace(d.Text) != "" {
+				chunks = append(chunks, DiffChunk{
+					Type:      "added",
+					Content:   d.Text,
+					BaseStart: basePos,
+					BaseLen:   0,
+					HeadStart: headPos,
+					HeadLen:   len(d.Text),
+				})
+			}
+			headPos += len(d.Text)
+		case diffmatchpatch.DiffDelete:
+			// deletion at basePos
+			if strings.TrimSpace(d.Text) != "" {
+				chunks = append(chunks, DiffChunk{
+					Type:      "removed",
+					Content:   d.Text,
+					BaseStart: basePos,
+					BaseLen:   len(d.Text),
+					HeadStart: headPos,
+					HeadLen:   0,
+				})
+			}
+			basePos += len(d.Text)
 		}
 	}
 
@@ -101,37 +116,6 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 	data, err := json.Marshal(bodyDiff)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal diff: %w", err)
-	}
-
-	return string(data), nil
-}
-
-// computeCombinedDiff computes both body and header diffs and combines them.
-// If redactSensitive is true, sensitive headers are marked as redacted in the diff.
-func computeCombinedDiff(baseID, headID string, baseBody, headBody []byte, baseHeaders, headHeaders map[string][]string, redactSensitive bool) (string, error) {
-	// Compute body diff
-	bodyDiffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to compute body diff: %w", err)
-	}
-
-	var bodyDiff BodyDiff
-	if err := json.Unmarshal([]byte(bodyDiffJSON), &bodyDiff); err != nil {
-		return "", fmt.Errorf("failed to unmarshal body diff: %w", err)
-	}
-
-	// Compute header diff
-	headersDiff := diffHeaders(baseHeaders, headHeaders, redactSensitive)
-
-	// Combine both diffs
-	combined := CombinedDiff{
-		BodyDiff:    bodyDiff,
-		HeadersDiff: headersDiff,
-	}
-
-	data, err := json.Marshal(combined)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal combined diff: %w", err)
 	}
 
 	return string(data), nil

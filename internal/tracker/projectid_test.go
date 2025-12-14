@@ -15,7 +15,7 @@ func TestSetAndGetProjectID(t *testing.T) {
 	logger := logging.NewStdoutLogger("tracker-test")
 
 	// create tracker without a preconfigured project id
-	tr, err := NewSQLiteTracker(logger, &Config{StoragePath: siteDir})
+	tr, err := NewSQLiteTracker(logger, nil, &Config{StoragePath: siteDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig failed: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestSetProjectID_MismatchAndForce(t *testing.T) {
 	siteDir := t.TempDir()
 	logger := logging.NewStdoutLogger("tracker-test")
 
-	tr, err := NewSQLiteTracker(logger, &Config{StoragePath: siteDir})
+	tr, err := NewSQLiteTracker(logger, nil, &Config{StoragePath: siteDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig failed: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestNewSQLiteTrackerWithConfig_ProjectID(t *testing.T) {
 
 	// create tracker A with project id "p-a"
 	cfgA := &Config{ProjectID: "p-a", StoragePath: siteDir}
-	trA, err := NewSQLiteTracker(logger, cfgA)
+	trA, err := NewSQLiteTracker(logger, nil, cfgA)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig (A) failed: %v", err)
 	}
@@ -113,14 +113,14 @@ func TestNewSQLiteTrackerWithConfig_ProjectID(t *testing.T) {
 
 	// attempt to create tracker B with different project id -> should fail
 	cfgB := &Config{ProjectID: "p-b", ForceProjectID: false, StoragePath: siteDir}
-	_, err = NewSQLiteTracker(logger, cfgB)
+	_, err = NewSQLiteTracker(logger, nil, cfgB)
 	if err == nil {
 		t.Fatalf("expected NewSQLiteTrackerWithConfig to fail on project id mismatch, but it succeeded")
 	}
 
 	// create tracker C with force overwrite -> should succeed and set project id to p-b
 	cfgC := &Config{ProjectID: "p-b", ForceProjectID: true, StoragePath: siteDir}
-	trC, err := NewSQLiteTracker(logger, cfgC)
+	trC, err := NewSQLiteTracker(logger, nil, cfgC)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig (C) failed with force: %v", err)
 	}

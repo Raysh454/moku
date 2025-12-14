@@ -349,7 +349,7 @@ Fetcher integration is not enabled by default in this repository. The tracker is
 ```go
 // Initialize tracker
 logger := logging.NewStdoutLogger("tracker")
-t, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: "/path/to/site"})
+t, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: "/path/to/site"})
 if err != nil {
     log.Fatal(err)
 }
@@ -371,7 +371,7 @@ cr, err := t.Commit(ctx, snapshot, "Initial commit", "user@example.com")
 
 // Batch commit multiple snapshots (more efficient)
 snapshots := []*tracker.Snapshot{snapshot1, snapshot2, snapshot3}
-crs, err := t.CommitBatch(ctx, snapshots, "Batch commit", "user@example.com")
+cr, err := t.CommitBatch(ctx, snapshots, "Batch commit", "user@example.com")
 
 // Get diff between versions (returns body diff for backward compatibility)
 diff, err := t.Diff(ctx, crs[0].Version.ID, cr.Version.ID)

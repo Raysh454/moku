@@ -59,21 +59,17 @@ func (t *DummyTracker) Commit(ctx context.Context, snap *tracker.Snapshot, messa
 	return &tracker.CommitResult{}, nil
 }
 
-func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*tracker.Snapshot, message, author string) ([]*tracker.CommitResult, error) {
+func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*tracker.Snapshot, message, author string) (*tracker.CommitResult, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	copySnaps := append([]*tracker.Snapshot(nil), snaps...)
 	t.Batches = append(t.Batches, copySnaps)
 
-	results := make([]*tracker.CommitResult, len(snaps))
-	for i := range snaps {
-		results[i] = &tracker.CommitResult{}
-	}
-	return results, nil
+	return &tracker.CommitResult{Snapshots: copySnaps}, nil
 }
 
-func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *tracker.CommitResult) error {
+func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *tracker.CommitResult, _ *assessor.ScoreOptions) error {
 	return nil
 }
 
@@ -81,15 +77,15 @@ func (t *DummyTracker) SetAssessor(a assessor.Assessor) {
 	// no-op for dummy
 }
 
-func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*tracker.DiffResult, error) {
+func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*tracker.CombinedMultiDiff, error) {
 	return nil, nil
 }
 
-func (t *DummyTracker) Get(ctx context.Context, versionID string) ([]*tracker.Snapshot, error) {
+func (t *DummyTracker) GetSnapshots(ctx context.Context, versionID string) ([]*tracker.Snapshot, error) {
 	return nil, nil
 }
 
-func (t *DummyTracker) List(ctx context.Context, limit int) ([]*tracker.Version, error) {
+func (t *DummyTracker) ListVersions(ctx context.Context, limit int) ([]*tracker.Version, error) {
 	return nil, nil
 }
 

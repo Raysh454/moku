@@ -20,7 +20,7 @@ func TestHeaderStorage_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -51,12 +51,12 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		t.Fatal("Commit returned nil result")
 	}
 
-	retrievedSnapshot, err := tr.Get(ctx, result1.Version.ID)
+	retrievedSnapshot, err := tr.GetSnapshots(ctx, result1.Version.ID)
 	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
+		t.Fatalf("GetSnapshots returned error: %v", err)
 	}
 	if retrievedSnapshot == nil {
-		t.Fatal("Get returned nil snapshot")
+		t.Fatal("GetSnapshots returned nil snapshot")
 	}
 
 	// Second snapshot with modified headers
@@ -88,11 +88,16 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		t.Fatal("Diff returned nil")
 	}
 
-	if len(diff.Chunks) == 0 {
+	// Expect at least one file diff with body chunks
+	chunkCount := 0
+	for _, f := range diff.Files {
+		chunkCount += len(f.BodyDiff.Chunks)
+	}
+	if chunkCount == 0 {
 		t.Error("expected at least one body diff chunk")
 	}
 
-	t.Logf("Diff computed successfully with %d chunks", len(diff.Chunks))
+	t.Logf("Diff computed successfully with %d chunks", chunkCount)
 }
 
 func TestHeaderNormalization_Integration(t *testing.T) {
@@ -105,7 +110,7 @@ func TestHeaderNormalization_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-norm-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -148,7 +153,7 @@ func TestSensitiveHeaderRedaction_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-redact-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -192,7 +197,7 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-headers-multi-test")
-	tr, err := tracker.NewSQLiteTracker(logger, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}

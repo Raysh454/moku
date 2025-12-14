@@ -36,7 +36,7 @@ type SQLiteTracker struct {
 
 // NewSQLiteTracker creates a new SQLiteTracker instance with custom configuration.
 // If config is nil, default configuration is used.
-func NewSQLiteTracker(logger logging.Logger, config *Config) (*SQLiteTracker, error) {
+func NewSQLiteTracker(logger logging.Logger, assessor assessor.Assessor, config *Config) (*SQLiteTracker, error) {
 	if logger == nil {
 		return nil, errors.New("tracker: nil logger provided")
 	}
@@ -82,10 +82,11 @@ func NewSQLiteTracker(logger logging.Logger, config *Config) (*SQLiteTracker, er
 	logger.Info("SQLiteTracker initialized", logging.Field{Key: "config.StoragePath", Value: config.StoragePath})
 
 	t := &SQLiteTracker{
-		db:     db,
-		store:  store,
-		logger: logger,
-		config: config,
+		db:       db,
+		store:    store,
+		logger:   logger,
+		config:   config,
+		assessor: assessor,
 	}
 
 	if config.ProjectID != "" {
@@ -284,60 +285,58 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *Snapshot, message 
 		ParentVersionID: parentID,
 		DiffID:          diffID,
 		DiffJSON:        diffJSON,
-		HeadBody:        snapshot.Body,
-		HeadBlobID:      blobID,
-		HeadFilePath:    filePath,
-		Opts:            assessor.ScoreOptions{RequestLocations: true},
+		Snapshots:       []*Snapshot{{ID: snapshotID, StatusCode: snapshot.StatusCode, URL: snapshot.URL, Body: snapshot.Body, Headers: normalizedHeaders, CreatedAt: time.Unix(timestamp, 0)}},
 	}, nil
 }
 
-func (t *SQLiteTracker) diffFromCache(diffJSON string) (*DiffResult, error) {
-	var combined CombinedDiff
-	if err := json.Unmarshal([]byte(diffJSON), &combined); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal combined diff: %w", err)
+func (t *SQLiteTracker) diffFromCache(diffJSON string) (*CombinedMultiDiff, error) {
+	var multi CombinedMultiDiff
+	if err := json.Unmarshal([]byte(diffJSON), &multi); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal combined multi diff: %w", err)
 	}
-	result := DiffResult{
-		BaseID: combined.BodyDiff.BaseID,
-		HeadID: combined.BodyDiff.HeadID,
-		Chunks: make([]DiffChunk, len(combined.BodyDiff.Chunks)),
-	}
-	for i, c := range combined.BodyDiff.Chunks {
-		result.Chunks[i] = DiffChunk(c)
-	}
-	return &result, nil
+	return &multi, nil
 }
 
-func (t *SQLiteTracker) computeDiff(ctx context.Context, baseID, headID string) (*DiffResult, string, error) {
-	var baseBody, headBody []byte
-	var err error
+func (t *SQLiteTracker) computeDiff(ctx context.Context, tx *sql.Tx, baseID, headID string) (*CombinedMultiDiff, error) {
+	// Load all snapshots for base and head versions keyed by file_path
+	baseSnaps, err := t.getVersionSnapshots(ctx, tx, baseID)
+	if err != nil && baseID != "" {
+		return nil, fmt.Errorf("failed to get base version snapshots: %w", err)
+	}
+	headSnaps, err := t.getVersionSnapshots(ctx, tx, headID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get head version snapshots: %w", err)
+	}
 
-	if baseID != "" {
-		baseBody, err = t.getVersionBodyByID(ctx, baseID)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to get base version body: %w", err)
+	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+
+	files := make([]CombinedFileDiff, 0)
+	// Only consider file_paths present in head; treat paths missing in head as unchanged (no removal reported)
+	for path, hs := range headSnaps {
+		var baseBody []byte
+		var baseHeaders map[string][]string
+		if bs, ok := baseSnaps[path]; ok {
+			baseBody = bs.body
+			baseHeaders = bs.headers
 		}
+		bodyDiffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, hs.body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute body diff for %s: %w", path, err)
+		}
+		var bd BodyDiff
+		if err := json.Unmarshal([]byte(bodyDiffJSON), &bd); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal body diff for %s: %w", path, err)
+		}
+		hd := diffHeaders(baseHeaders, hs.headers, redactSensitive)
+		files = append(files, CombinedFileDiff{FilePath: path, BodyDiff: bd, HeadersDiff: hd})
 	}
 
-	headBody, err = t.getVersionBodyByID(ctx, headID)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to get head version body: %w", err)
-	}
-
-	diffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headBody)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to compute diff: %w", err)
-	}
-
-	var result DiffResult
-	if err := json.Unmarshal([]byte(diffJSON), &result); err != nil {
-		return nil, "", fmt.Errorf("failed to unmarshal computed diff: %w", err)
-	}
-
-	return &result, diffJSON, nil
+	multi := CombinedMultiDiff{BaseVersionID: baseID, HeadVersionID: headID, Files: files}
+	return &multi, nil
 }
 
 // Diff computes a delta between two versions identified by their IDs.
-func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*DiffResult, error) {
+func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*CombinedMultiDiff, error) {
 	t.logger.Debug("Computing diff",
 		logging.Field{Key: "baseID", Value: baseID},
 		logging.Field{Key: "headID", Value: headID})
@@ -354,10 +353,22 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*DiffR
 		return nil, fmt.Errorf("failed to query cached diff: %w", err)
 	}
 
-	result, diffJSON, err := t.computeDiff(ctx, baseID, headID)
+	tx, err := t.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	multi, err := t.computeDiff(ctx, tx, baseID, headID)
 	if err != nil {
 		return nil, err
 	}
+
+	diffJSONBytes, err := json.Marshal(multi)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal combined diff: %w", err)
+	}
+	diffJSON = string(diffJSONBytes)
 
 	diffID := uuid.New().String()
 	_, err = t.db.ExecContext(ctx, `
@@ -368,11 +379,11 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*DiffR
 		t.logger.Warn("Failed to cache diff", logging.Field{Key: "error", Value: err.Error()})
 	}
 
-	return result, nil
+	return multi, nil
 }
 
 // Get returns all snapshots for a specific version ID.
-func (t *SQLiteTracker) Get(ctx context.Context, versionID string) ([]*Snapshot, error) {
+func (t *SQLiteTracker) GetSnapshots(ctx context.Context, versionID string) ([]*Snapshot, error) {
 	t.logger.Debug("Getting snapshots", logging.Field{Key: "versionID", Value: versionID})
 
 	// Query all snapshots linked to this version via version_snapshots
@@ -433,7 +444,7 @@ func (t *SQLiteTracker) Get(ctx context.Context, versionID string) ([]*Snapshot,
 }
 
 // List returns recent versions (head-first).
-func (t *SQLiteTracker) List(ctx context.Context, limit int) ([]*Version, error) {
+func (t *SQLiteTracker) ListVersions(ctx context.Context, limit int) ([]*Version, error) {
 	t.logger.Debug("Listing versions", logging.Field{Key: "limit", Value: limit})
 
 	if limit <= 0 {
@@ -588,69 +599,61 @@ func (t *SQLiteTracker) Close() error {
 }
 
 func (t *SQLiteTracker) computeAndStoreDiff(ctx context.Context, tx *sql.Tx, baseID, headID string) error {
-	baseBody, baseHeaders, err := t.getVersionData(ctx, tx, baseID)
+	multi, err := t.computeDiff(ctx, tx, baseID, headID)
 	if err != nil {
-		return fmt.Errorf("failed to get base version data: %w", err)
+		return err
 	}
-
-	headBody, headHeaders, err := t.getVersionData(ctx, tx, headID)
+	data, err := json.Marshal(multi)
 	if err != nil {
-		return fmt.Errorf("failed to get head version data: %w", err)
-	}
-
-	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
-	diffJSON, err := computeCombinedDiff(baseID, headID, baseBody, headBody, baseHeaders, headHeaders, redactSensitive)
-	if err != nil {
-		return fmt.Errorf("failed to compute combined diff: %w", err)
+		return fmt.Errorf("failed to marshal multi-file combined diff: %w", err)
 	}
 
 	diffID := uuid.New().String()
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO diffs (id, base_version_id, head_version_id, diff_json, created_at)
 		VALUES (?, ?, ?, ?, ?)
-	`, diffID, nullableString(baseID), headID, diffJSON, time.Now().Unix())
-
+	`, diffID, nullableString(baseID), headID, string(data), time.Now().Unix())
 	return err
 }
 
-func (t *SQLiteTracker) getVersionData(ctx context.Context, tx *sql.Tx, versionID string) ([]byte, map[string][]string, error) {
-	var blobID string
-	var headersJSON sql.NullString
-	err := tx.QueryRowContext(ctx, `
-		SELECT s.blob_id, s.headers
-		FROM snapshots s
-		JOIN version_snapshots vs ON s.id = vs.snapshot_id
-		WHERE vs.version_id = ?
-		LIMIT 1
-	`, versionID).Scan(&blobID, &headersJSON)
-
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to query version data: %w", err)
-	}
-
-	body, err := t.store.Get(blobID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get blob: %w", err)
-	}
-
-	return body, t.parseHeaders(headersJSON), nil
+// getVersionSnapshots returns all snapshots for a version keyed by file_path.
+type snapshotRec struct {
+	body    []byte
+	headers map[string][]string
 }
 
-func (t *SQLiteTracker) getVersionBodyByID(ctx context.Context, versionID string) ([]byte, error) {
-	var blobID string
-	err := t.db.QueryRowContext(ctx, `
-		SELECT s.blob_id
+func (t *SQLiteTracker) getVersionSnapshots(ctx context.Context, tx *sql.Tx, versionID string) (map[string]snapshotRec, error) {
+	res := make(map[string]snapshotRec)
+	if versionID == "" {
+		return res, nil
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT s.file_path, s.blob_id, s.headers
 		FROM snapshots s
 		JOIN version_snapshots vs ON s.id = vs.snapshot_id
 		WHERE vs.version_id = ?
-		LIMIT 1
-	`, versionID).Scan(&blobID)
-
+	`, versionID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query version snapshots: %w", err)
 	}
+	defer rows.Close()
 
-	return t.store.Get(blobID)
+	for rows.Next() {
+		var path, blobID string
+		var headersJSON sql.NullString
+		if err := rows.Scan(&path, &blobID, &headersJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan version snapshot: %w", err)
+		}
+		body, err := t.store.Get(blobID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get blob: %w", err)
+		}
+		res[path] = snapshotRec{body: body, headers: t.parseHeaders(headersJSON)}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating version snapshots: %w", err)
+	}
+	return res, nil
 }
 
 func (t *SQLiteTracker) readHEAD() (string, error) {
@@ -727,7 +730,7 @@ func (t *SQLiteTracker) insertVersionSnapshot(ctx context.Context, tx *sql.Tx,
 }
 
 // CommitBatch commits multiple snapshots in a single transaction.
-func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*Snapshot, message, author string) ([]*CommitResult, error) {
+func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*Snapshot, message, author string) (*CommitResult, error) {
 	if len(snapshots) == 0 {
 		return nil, errors.New("no snapshots to commit")
 	}
@@ -829,28 +832,32 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*Snapshot, 
 		t.logger.Warn("failed to fetch diff row after commit batch", logging.Field{Key: "err", Value: err})
 	}
 
-	results := make([]*CommitResult, 0, len(list))
+	// Build single CommitResult with all snapshots
+	snaps := make([]*Snapshot, 0, len(list))
 	for _, sd := range list {
-		cr := &CommitResult{
-			Version: Version{
-				ID:        versionID,
-				Parent:    parentID,
-				Message:   message,
-				Author:    author,
-				Timestamp: time.Unix(ts, 0),
-			},
-			ParentVersionID: parentID,
-			DiffID:          diffID,
-			DiffJSON:        diffJSON,
-			HeadBody:        sd.snapshot.Body,
-			HeadBlobID:      sd.blobID,
-			HeadFilePath:    sd.filePath,
-			Opts:            assessor.ScoreOptions{RequestLocations: true},
-		}
-		results = append(results, cr)
+		snaps = append(snaps, &Snapshot{
+			ID:         sd.snapshotID,
+			StatusCode: sd.snapshot.StatusCode,
+			URL:        sd.snapshot.URL,
+			Body:       sd.snapshot.Body,
+			Headers:    sd.snapshot.Headers,
+			CreatedAt:  sd.snapshot.CreatedAt,
+		})
 	}
-
-	return results, nil
+	cr := &CommitResult{
+		Version: Version{
+			ID:        versionID,
+			Parent:    parentID,
+			Message:   message,
+			Author:    author,
+			Timestamp: time.Unix(ts, 0),
+		},
+		ParentVersionID: parentID,
+		DiffID:          diffID,
+		DiffJSON:        diffJSON,
+		Snapshots:       snaps,
+	}
+	return cr, nil
 }
 
 func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, body []byte, headers map[string][]string) error {
@@ -878,9 +885,13 @@ func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, b
 	return nil
 }
 
-func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *CommitResult) error {
+func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *CommitResult, opts *assessor.ScoreOptions) error {
 	if cr == nil {
 		return errors.New("nil CommitResult")
+	}
+
+	if t.assessor == nil {
+		return errors.New("no assessor set on tracker")
 	}
 
 	if cr.DiffJSON == "" && cr.DiffID != "" {
@@ -889,14 +900,7 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *Commit
 		}
 	}
 
-	if len(cr.HeadBody) == 0 && cr.HeadBlobID != "" {
-		if b, err := t.store.Get(cr.HeadBlobID); err == nil {
-			cr.HeadBody = b
-		} else {
-			t.logger.Warn("failed to load head blob for commit", logging.Field{Key: "err", Value: err})
-		}
-	}
-
+	// For multi-snapshot commits, pass empty body; assessors can fetch as needed using version/diff.
 	sa := score.New(t.assessor, t.db, t.logger)
-	return sa.ScoreAndAttribute(ctx, cr.Opts, cr.Version.ID, cr.ParentVersionID, cr.DiffID, cr.DiffJSON, cr.HeadBody)
+	return sa.ScoreAndAttribute(ctx, *opts, cr.Version.ID, cr.ParentVersionID, cr.DiffID, cr.DiffJSON, nil)
 }
