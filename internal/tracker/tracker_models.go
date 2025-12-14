@@ -2,8 +2,6 @@ package tracker
 
 import (
 	"time"
-
-	"github.com/raysh454/moku/internal/assessor"
 )
 
 // Snapshot represents a captured document (HTML bytes + metadata).
@@ -49,36 +47,34 @@ type Version struct {
 // For a web-focused tracker, chunks could be at the HTML/text level or DOM-level.
 // Keep it simple initially: Type = "added"|"removed"|"modified", Path = optional selector.
 type DiffChunk struct {
-	Type    string `json:"type"`              // e.g., "added", "removed", "modified"
-	Path    string `json:"path,omitempty"`    // optional DOM selector or descriptor
-	Content string `json:"content,omitempty"` // content for added/modified chunks
-}
-
-// DiffResult summarizes differences between two versions.
-type DiffResult struct {
-	BaseID string      `json:"base_id,omitempty"`
-	HeadID string      `json:"head_id,omitempty"`
-	Chunks []DiffChunk `json:"chunks,omitempty"`
-}
-
-// chunk represents a single change in a diff
-type Chunk struct {
-	Type    string `json:"type"`              // "added", "removed", "modified"
-	Path    string `json:"path,omitempty"`    // optional path/selector
-	Content string `json:"content,omitempty"` // content for the chunk
+	Type      string `json:"type"`              // e.g., "added", "removed", "modified"
+	Path      string `json:"path,omitempty"`    // optional DOM selector or descriptor
+	Content   string `json:"content,omitempty"` // content for added/modified chunks
+	BaseStart int    `json:"base_start,omitempty"`
+	BaseLen   int    `json:"base_len,omitempty"`
+	HeadStart int    `json:"head_start,omitempty"`
+	HeadLen   int    `json:"head_len,omitempty"`
 }
 
 // BodyDiff represents the structured body diff.
 type BodyDiff struct {
-	BaseID string  `json:"base_id,omitempty"`
-	HeadID string  `json:"head_id,omitempty"`
-	Chunks []Chunk `json:"chunks"`
+	BaseID string      `json:"base_id,omitempty"`
+	HeadID string      `json:"head_id,omitempty"`
+	Chunks []DiffChunk `json:"chunks"`
 }
 
-// CombinedDiff represents both body and header diffs combined.
-type CombinedDiff struct {
+// CombinedFileDiff represents diffs for a single file_path within a version diff.
+type CombinedFileDiff struct {
+	FilePath    string     `json:"file_path"`
 	BodyDiff    BodyDiff   `json:"body_diff"`
 	HeadersDiff HeaderDiff `json:"headers_diff"`
+}
+
+// CombinedMultiDiff aggregates per-file diffs when versions have multiple snapshots.
+type CombinedMultiDiff struct {
+	BaseVersionID string             `json:"base_version_id,omitempty"`
+	HeadVersionID string             `json:"head_version_id"`
+	Files         []CombinedFileDiff `json:"files"`
 }
 
 // HeaderDiff represents differences in headers between two versions.
@@ -107,18 +103,6 @@ type CommitResult struct {
 	DiffID   string
 	DiffJSON string
 
-	// Head body data:
-	// - HeadBody: optional in-memory body bytes (preferred if available)
-	// - HeadBlobID: optional blob id in the tracker blob store (used to lazily load body)
-	// - HeadFilePath: optional working-tree file path (if tracker keeps one)
-	//
-	// At least one of HeadBody or HeadBlobID / HeadFilePath should be provided
-	// so scoring code can obtain the head HTML to run selectors / byte/line mapping.
-	HeadBody     []byte
-	HeadBlobID   string
-	HeadFilePath string
-
-	// Caller-provided default ScoreOptions to use when scoring this commit.
-	// Callers may override at enqueue/run time.
-	Opts assessor.ScoreOptions
+	// Snapshots committed in this version.
+	Snapshots []*Snapshot
 }
