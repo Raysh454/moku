@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
 	"github.com/raysh454/moku/internal/webclient"
@@ -15,16 +16,18 @@ import (
 type Fetcher struct {
 	MaxConcurrency int
 	CommitSize     int
+	ScoreOpts      *assessor.ScoreOptions
 	tracker        tracker.Tracker
 	wc             webclient.WebClient
 	logger         logging.Logger
 }
 
 // New creates a new Fetcher with the given webclient, logger and tracker
-func New(MaxConcurrency, CommitSize int, tracker tracker.Tracker, wc webclient.WebClient, logger logging.Logger) (*Fetcher, error) {
+func New(MaxConcurrency, CommitSize int, tracker tracker.Tracker, wc webclient.WebClient, logger logging.Logger, scoreOpts *assessor.ScoreOptions) (*Fetcher, error) {
 	return &Fetcher{
 		MaxConcurrency: MaxConcurrency,
 		CommitSize:     CommitSize,
+		ScoreOpts:      scoreOpts,
 		tracker:        tracker,
 		wc:             wc,
 		logger:         logger,
@@ -44,9 +47,17 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 		batch := make([]*tracker.Snapshot, 0, f.CommitSize)
 		flush := func() {
 			if len(batch) > 0 {
-				if _, err := f.tracker.CommitBatch(ctx, batch, "some kind of message", "^_^"); err != nil {
+				cr, err := f.tracker.CommitBatch(ctx, batch, "some kind of message", "^_^")
+				if err != nil {
 					if f.logger != nil {
 						f.logger.Error("error while committing snapshot batch",
+							logging.Field{Key: "error", Value: err})
+					}
+				}
+				err = f.tracker.ScoreAndAttributeVersion(ctx, cr, f.ScoreOpts)
+				if err != nil {
+					if f.logger != nil {
+						f.logger.Error("error while scoring and attributing version to committed snapshots",
 							logging.Field{Key: "error", Value: err})
 					}
 				}
@@ -75,11 +86,12 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 	// Fetch pages concurrently
 	for _, pageUrl := range pageUrls {
 		if ctx.Err() != nil {
-			return
+			break
 		}
 
 		wg.Add(1)
 
+		// TODO: Change to worker pool pattern instead of spawning goroutine per URL
 		go func(pageUrl string) {
 			defer wg.Done()
 

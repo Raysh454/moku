@@ -894,6 +894,8 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *Commit
 		return errors.New("no assessor set on tracker")
 	}
 
+	t.logger.Info("Starting scoring and attribution")
+
 	if cr.DiffJSON == "" && cr.DiffID != "" {
 		if err := t.db.QueryRowContext(ctx, `SELECT diff_json FROM diffs WHERE id = ?`, cr.DiffID).Scan(&cr.DiffJSON); err != nil && err != sql.ErrNoRows {
 			t.logger.Warn("failed to load diff_json for commit", logging.Field{Key: "err", Value: err})
@@ -902,5 +904,5 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *Commit
 
 	// For multi-snapshot commits, pass empty body; assessors can fetch as needed using version/diff.
 	sa := score.New(t.assessor, t.db, t.logger)
-	return sa.ScoreAndAttribute(ctx, *opts, cr.Version.ID, cr.ParentVersionID, cr.DiffID, cr.DiffJSON, nil)
+	return sa.ScoreAndAttribute(ctx, cr, opts)
 }

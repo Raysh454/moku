@@ -20,15 +20,22 @@ type dummyAssessor struct {
 	res *assessor.ScoreResult
 }
 
-func (d *dummyAssessor) ScoreHTML(ctx context.Context, html []byte, source string, opts assessor.ScoreOptions) (*assessor.ScoreResult, error) {
+func (d *dummyAssessor) ScoreHTML(ctx context.Context, html []byte, source string) (*assessor.ScoreResult, error) {
 	// return a deep copy so tests can mutate without colliding
 	b, _ := json.Marshal(d.res)
 	var out assessor.ScoreResult
 	_ = json.Unmarshal(b, &out)
 	return &out, nil
 }
-func (d *dummyAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response, opts assessor.ScoreOptions) (*assessor.ScoreResult, error) {
-	return d.ScoreHTML(ctx, nil, "", assessor.ScoreOptions{})
+func (d *dummyAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response) (*assessor.ScoreResult, error) {
+	if resp != nil {
+		url := ""
+		if resp.Request != nil {
+			url = resp.Request.URL
+		}
+		return d.ScoreHTML(ctx, resp.Body, url)
+	}
+	return d.ScoreHTML(ctx, nil, "")
 }
 func (d *dummyAssessor) ExtractEvidence(ctx context.Context, html []byte, opts assessor.ScoreOptions) ([]assessor.EvidenceItem, error) {
 	if d.res == nil {

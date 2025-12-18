@@ -8,6 +8,5 @@ type Config struct {
 	// DefaultConfidence used for no-evidence results.
 	DefaultConfidence float64 `json:"default_confidence"`
 
-	// RuleWeights allows configuring weights per rule id (optional).
-	RuleWeights map[string]float64 `json:"rule_weights"`
+	ScoreOpts ScoreOptions
 }

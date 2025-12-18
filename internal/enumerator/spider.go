@@ -194,14 +194,13 @@ func (sh *spiderHelper) run(ctx context.Context) error {
 	return nil
 }
 
-func (s *Spider) Enumerate(target string) ([]string, error) {
+func (s *Spider) Enumerate(ctx context.Context, target string) ([]string, error) {
 	helper, err := newSpiderHelper(s, target)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use background context for now; TODO: pass ctx from caller
-	if err := helper.run(context.Background()); err != nil {
+	if err := helper.run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "helper.run failed: %v\n", err)
 	}
 	return helper.results, nil

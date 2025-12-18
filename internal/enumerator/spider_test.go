@@ -121,7 +121,7 @@ func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum
 	}
 
 	spider := enumerator.NewSpider(maxDepth, wc, nil)
-	got, err := spider.Enumerate(addr)
+	got, err := spider.Enumerate(context.Background(), addr)
 	if err != nil {
 		t.Errorf("error: %v", err)
 	}

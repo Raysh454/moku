@@ -49,7 +49,7 @@ func (sa *ScoreAttributer) ScoreAndAttribute(ctx context.Context, opts assessor.
 	scoreCtx, cancel := context.WithTimeout(ctx, opts.Timeout*time.Second)
 	defer cancel()
 
-	scoreRes, err := sa.assessor.ScoreHTML(scoreCtx, headBody, fmt.Sprintf("version:%s", versionID), opts)
+	scoreRes, err := sa.assessor.ScoreHTML(scoreCtx, headBody, fmt.Sprintf("version:%s", versionID))
 	if err != nil {
 		if sa.logger != nil {
 			sa.logger.Warn("scoring failed", logging.Field{Key: "version_id", Value: versionID}, logging.Field{Key: "error", Value: err})
