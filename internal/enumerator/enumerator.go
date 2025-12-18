@@ -1,5 +1,7 @@
 package enumerator
 
+import "context"
+
 type Enumerator interface {
-	Enumerate(target string) ([]string, error)
+	Enumerate(ctx context.Context, target string) ([]string, error)
 }

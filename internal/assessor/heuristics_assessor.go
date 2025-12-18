@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"time"
 
@@ -29,7 +30,7 @@ type HeuristicsAssessor struct {
 // fallback, I can add a small noop logger implementation under internal/logging.
 func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (Assessor, error) {
 	if cfg == nil {
-		return nil, ErrNilConfig()
+		return nil, errors.New("assessor: nil config; please pass a valid Config")
 	}
 	if logger == nil {
 		return nil, errors.New("assessor: nil logger; please pass a valid logging.Logger")
@@ -61,33 +62,17 @@ func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (As
 }
 
 // ScoreHTML evaluates raw HTML bytes using regex and CSS selector rules.
-// Efficiently populates EvidenceLocation without XPath by using byte and line offsets.
-func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source string, opts ScoreOptions) (*ScoreResult, error) {
-	// defensive: if logger is nil (shouldn't happen when constructed properly), avoid panic
+// Efficiently populates EvidenceLocation by using byte and line offsets.
+func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source string) (*ScoreResult, error) {
+	fmt.Println("HeuristicsAssessor: Scoring HTML from source:", source)
+	fmt.Println("HTML bytes:", string(html))
 	if h == nil || h.logger == nil {
-		// return a neutral result based on minimal defaults if we can (avoid panic in tests)
-		defaultCfg := &Config{}
-		now := time.Now().UTC()
-		return &ScoreResult{
-			Score:      0.0,
-			Normalized: 0,
-			Confidence: defaultCfg.DefaultConfidence,
-			Version:    defaultCfg.ScoringVersion,
-			Evidence: []EvidenceItem{
-				{
-					Key:         "no-evidence",
-					Severity:    "low",
-					Description: "no scoring rules ran (scaffold default)",
-					RuleID:      "scaffold:no_rules",
-				},
-			},
-			MatchedRules: []Rule{},
-			RawFeatures:  map[string]float64{},
-			Meta: map[string]any{
-				"source": source,
-			},
-			Timestamp: now,
-		}, nil
+		return nil, errors.New("heuristics-assessor: nil instance or logger")
+	}
+
+	doc, err := goqueryDocumentFromBytes(html)
+	if err != nil {
+		h.logger.Warn("couldn't convert html to goqueryDoc, skipping CSS only rules.", logging.Field{Key: "err", Value: err}, logging.Field{Key: "html", Value: html})
 	}
 
 	// Prepare result scaffolding
@@ -110,10 +95,10 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source 
 	// Run rules
 	for _, r := range h.rules {
 		if r.Regex != "" && r.compiled != nil {
-			appendRegexEvidence(html, byteToLine, r, res, h.cfg, opts)
+			appendRegexEvidence(html, byteToLine, r, res, h.logger, h.cfg.ScoreOpts)
 		}
-		if r.Selector != "" {
-			appendCSSEvidence(html, byteToLine, r, res, h.logger, h.cfg, opts)
+		if r.Selector != "" && doc != nil {
+			appendCSSEvidence(doc, html, byteToLine, r, res, h.logger, h.cfg.ScoreOpts)
 		}
 	}
 
@@ -122,8 +107,8 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source 
 		res.Evidence = append(res.Evidence, EvidenceItem{
 			Key:         "no-evidence",
 			Severity:    "low",
-			Description: "no scoring rules ran (scaffold default)",
-			RuleID:      "scaffold:no_rules",
+			Description: "no matching rules found",
+			RuleID:      "scaffold:no_rules_matched",
 		})
 	}
 
@@ -141,19 +126,16 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source 
 
 // ScoreResponse delegates to ScoreHTML by extracting resp.Body.
 // If resp is nil or has no body, returns a neutral result.
-func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response, opts ScoreOptions) (*ScoreResult, error) {
+func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response) (*ScoreResult, error) {
 
 	source := ""
 	if resp != nil && resp.Request != nil {
 		source = resp.Request.URL
 	}
 	if resp == nil || len(resp.Body) == 0 {
-		if h != nil && h.logger != nil {
-			h.logger.Warn("heuristics-assessor: ScoreResponse called with empty body", logging.Field{Key: "source", Value: source})
-		}
-		return h.defaultResult(), nil
+		return nil, errors.New("heuristics-assessor: nil response or empty body")
 	}
-	return h.ScoreHTML(ctx, resp.Body, source, opts)
+	return h.ScoreHTML(ctx, resp.Body, source)
 }
 
 // Close releases resources (currently a no-op) and logs lifecycle.
@@ -166,63 +148,10 @@ func (h *HeuristicsAssessor) Close() error {
 	return nil
 }
 
-// defaultResult returns a neutral scaffold result so the assessor can be used
-// safely before rules/heuristics are implemented.
-func (h *HeuristicsAssessor) defaultResult() *ScoreResult {
-	now := time.Now().UTC()
-	// defensive: if cfg is missing, use small defaults
-	conf := 0.0
-	ver := ""
-	if h != nil && h.cfg != nil {
-		conf = h.cfg.DefaultConfidence
-		ver = h.cfg.ScoringVersion
-	}
-	return &ScoreResult{
-		Score:      0.0,
-		Normalized: 0,
-		Confidence: conf,
-		Version:    ver,
-		Evidence: []EvidenceItem{
-			{
-				Key:         "no-evidence",
-				Severity:    "low",
-				Description: "no scoring rules ran (scaffold default)",
-				RuleID:      "scaffold:no_rules",
-			},
-		},
-		MatchedRules: []Rule{},
-		RawFeatures:  map[string]float64{},
-		Timestamp:    now,
-	}
-}
-
-// ErrNilConfig returns a small typed error for missing config.
-func ErrNilConfig() error {
-	return errors.New("assessor: nil config")
-}
-
-// condLocations returns locations only if requested; otherwise empty to save memory.
-func condLocations(enabled bool, locs []EvidenceLocation) []EvidenceLocation {
-	if !enabled {
-		return nil
-	}
-	return locs
-}
-
-// effectiveWeight returns rule weight possibly overridden by cfg.RuleWeights.
-func effectiveWeight(cfg *Config, ruleID string, def float64) float64 {
-	if cfg != nil && cfg.RuleWeights != nil {
-		if w, ok := cfg.RuleWeights[ruleID]; ok {
-			return w
-		}
-	}
-	return def
-}
-
 // Helpers extracted for clarity and testability
 
 func buildLineStarts(html []byte) []int {
-	starts := make([]int, 0, 256)
+	starts := make([]int, 0, 1024)
 	starts = append(starts, 0)
 	for i, b := range html {
 		if b == '\n' {
@@ -249,21 +178,24 @@ func byteToLineFromStarts(lineStarts []int, pos int) int {
 	return lo
 }
 
-func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, cfg *Config, opts ScoreOptions) {
+func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, logger logging.Logger, opts ScoreOptions) {
 	if rule.compiled == nil {
+		logger.Warn("regex rule skipped due to nil compiled regex", logging.Field{Key: "rule_id", Value: rule.ID})
 		return
 	}
+
 	locs := []EvidenceLocation{}
-	for _, m := range rule.compiled.FindAllIndex(html, -1) {
-		start, end := m[0], m[1]
-		ls, le := byteToLine(start), byteToLine(end)
-		s, e, ls1, le1 := start, end, ls, le
-		locs = append(locs, EvidenceLocation{
-			ByteStart: &s,
-			ByteEnd:   &e,
-			LineStart: &ls1,
-			LineEnd:   &le1,
-		})
+	if opts.RequestLocations {
+		for _, m := range rule.compiled.FindAllIndex(html, -1) {
+			start, end := m[0], m[1]
+			ls, le := byteToLine(start), byteToLine(end)
+			locs = append(locs, EvidenceLocation{
+				ByteStart: &start,
+				ByteEnd:   &end,
+				LineStart: &ls,
+				LineEnd:   &le,
+			})
+		}
 	}
 	if len(locs) > 0 {
 		res.Evidence = append(res.Evidence, EvidenceItem{
@@ -271,22 +203,16 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 			RuleID:      rule.ID,
 			Severity:    rule.Severity,
 			Description: "regex match",
-			Locations:   condLocations(opts.RequestLocations, locs),
+			Locations:   locs,
 		})
 		res.MatchedRules = append(res.MatchedRules, rule)
-		res.Score += effectiveWeight(cfg, rule.ID, rule.Weight)
+		res.Score += rule.Weight
 	}
 }
 
-func appendCSSEvidence(html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, logger logging.Logger, cfg *Config, opts ScoreOptions) {
-	if rule.Selector == "" {
-		return
-	}
-	doc, err := goqueryDocumentFromBytes(html)
-	if err != nil {
-		if logger != nil {
-			logger.Warn("css parse failed", logging.Field{Key: "err", Value: err}, logging.Field{Key: "rule", Value: rule.ID})
-		}
+func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, logger logging.Logger, opts ScoreOptions) {
+	if rule.Selector == "" || doc == nil {
+		logger.Warn("css selector rule skipped due to empty selector or nil document", logging.Field{Key: "rule_id", Value: rule.ID})
 		return
 	}
 	selection := doc.Find(rule.Selector)
@@ -294,33 +220,34 @@ func appendCSSEvidence(html []byte, byteToLine func(int) int, rule Rule, res *Sc
 		return
 	}
 	locs := []EvidenceLocation{}
-	selection.Each(func(i int, s *goquery.Selection) {
-		outer := goqueryOuterHTML(s)
-		idx := indexOf(html, []byte(outer))
-		if idx >= 0 {
-			start := idx
-			end := idx + len(outer)
-			ls, le := byteToLine(start), byteToLine(end)
-			s1, e1, ls1, le1 := start, end, ls, le
-			locs = append(locs, EvidenceLocation{
-				Selector:  rule.Selector,
-				ByteStart: &s1,
-				ByteEnd:   &e1,
-				LineStart: &ls1,
-				LineEnd:   &le1,
-			})
-		}
-	})
+	if opts.RequestLocations {
+		selection.Each(func(i int, s *goquery.Selection) {
+			outer := goqueryOuterHTML(s)
+			idx := indexOf(html, []byte(outer))
+			if idx >= 0 {
+				start := idx
+				end := idx + len(outer)
+				ls, le := byteToLine(start), byteToLine(end)
+				locs = append(locs, EvidenceLocation{
+					Selector:  rule.Selector,
+					ByteStart: &start,
+					ByteEnd:   &end,
+					LineStart: &ls,
+					LineEnd:   &le,
+				})
+			}
+		})
+	}
 	if len(locs) > 0 {
 		res.Evidence = append(res.Evidence, EvidenceItem{
 			Key:         rule.Key,
 			RuleID:      rule.ID,
 			Severity:    rule.Severity,
 			Description: "css selector match",
-			Locations:   condLocations(opts.RequestLocations, locs),
+			Locations:   locs,
 		})
 		res.MatchedRules = append(res.MatchedRules, rule)
-		res.Score += effectiveWeight(cfg, rule.ID, rule.Weight)
+		res.Score += rule.Weight
 	}
 }
 

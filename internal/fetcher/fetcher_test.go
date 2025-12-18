@@ -146,7 +146,7 @@ func TestFetcher_Batching(t *testing.T) {
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
 
-	f, err := fetcher.New(5, 2, tracker, wc, logger)
+	f, err := fetcher.New(5, 2, tracker, wc, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestFetcher_ContextCancellation(t *testing.T) {
 	wc := &DummyWebClient{ResponseDelay: 50 * time.Millisecond}
 	logger := &DummyLogger{}
 
-	f, err := fetcher.New(10, 3, tracker, wc, logger)
+	f, err := fetcher.New(10, 3, tracker, wc, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestFetcher_LogsFetchErrors(t *testing.T) {
 	wc := &DummyWebClient{FailURLs: map[string]bool{"bad": true}}
 	logger := &DummyLogger{}
 
-	f, err := fetcher.New(5, 2, tracker, wc, logger)
+	f, err := fetcher.New(5, 2, tracker, wc, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestFetcher_FetchResponseBodies(t *testing.T) {
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
 
-	f, err := fetcher.New(5, 2, tracker, wc, logger)
+	f, err := fetcher.New(5, 2, tracker, wc, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestFetcher_FinalBatchFlush(t *testing.T) {
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
 
-	f, err := fetcher.New(5, 3, tracker, wc, logger)
+	f, err := fetcher.New(5, 3, tracker, wc, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
 
-	f, err := fetcher.New(20, 5, tracker, wc, logger)
+	f, err := fetcher.New(20, 5, tracker, wc, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

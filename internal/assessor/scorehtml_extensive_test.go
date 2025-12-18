@@ -10,13 +10,14 @@ import (
 
 func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.T) {
 	t.Parallel()
-	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, RuleWeights: map[string]float64{"r1": 0.4, "s1": 0.6}}
+	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5}
 	logger := logging.NewStdoutLogger("assessor-extensive-test")
 
 	rules := []assessor.Rule{
 		{ID: "r1", Key: "regex-key", Severity: "medium", Regex: "<h1>Test</h1>", Weight: 0.4},
 		{ID: "s1", Key: "selector-key", Severity: "high", Selector: "p", Weight: 0.6},
 	}
+	cfg.ScoreOpts = assessor.ScoreOptions{RequestLocations: true}
 	a, err := assessor.NewHeuristicsAssessor(cfg, rules, logger)
 	if err != nil {
 		t.Fatalf("NewHeuristicsAssessor error: %v", err)
@@ -26,7 +27,7 @@ func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.
 	html := []byte("<html>\n<body>\n<h1>Test</h1>\n<p>para</p>\n</body>\n</html>\n")
 	ctx := context.Background()
 
-	res, err := a.ScoreHTML(ctx, html, "source", assessor.ScoreOptions{RequestLocations: true})
+	res, err := a.ScoreHTML(ctx, html, "source")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestScoreHTML_NoLocationsRequested_SuppressesLocationData(t *testing.T) {
 	defer a.Close()
 
 	html := []byte("<html>\n<body>\n<p>para</p>\n</body>\n</html>")
-	res, err := a.ScoreHTML(context.Background(), html, "src", assessor.ScoreOptions{RequestLocations: false})
+	res, err := a.ScoreHTML(context.Background(), html, "src")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestScoreHTML_NoRules_AddsDefaultEvidence(t *testing.T) {
 	}
 	defer a.Close()
 
-	res, err := a.ScoreHTML(context.Background(), []byte("<html></html>"), "src", assessor.ScoreOptions{})
+	res, err := a.ScoreHTML(context.Background(), []byte("<html></html>"), "src")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}

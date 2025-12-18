@@ -17,10 +17,10 @@ import (
 type Assessor interface {
 	// ScoreHTML evaluates raw HTML bytes.
 	// The opts parameter can request locations or a lightweight pass.
-	ScoreHTML(ctx context.Context, html []byte, source string, opts ScoreOptions) (*ScoreResult, error)
+	ScoreHTML(ctx context.Context, html []byte, source string) (*ScoreResult, error)
 
 	// ScoreResponse evaluates an already-fetched response (no network).
-	ScoreResponse(ctx context.Context, resp *webclient.Response, opts ScoreOptions) (*ScoreResult, error)
+	ScoreResponse(ctx context.Context, resp *webclient.Response) (*ScoreResult, error)
 
 	// Close releases any resources held by the assessor.
 	Close() error
