@@ -6,8 +6,8 @@ import "time"
 // It is linked to a snapshot and contains security-relevant attributes extracted from HTTP
 // responses and HTML content.
 type AttackSurface struct {
-	URL        string    `json:"url"`
-	SnapshotID string    `json:"snapshot_id"`
+	URL         string    `json:"url"`
+	SnapshotID  string    `json:"snapshot_id"`
 	CollectedAt time.Time `json:"collected_at"`
 
 	StatusCode int               `json:"status_code"`
@@ -22,8 +22,8 @@ type AttackSurface struct {
 	Scripts       []ScriptInfo       `json:"scripts,omitempty"`
 	EventHandlers []EventHandlerInfo `json:"event_handlers,omitempty"`
 
-	ContentType    string   `json:"content_type,omitempty"`
-	FrameworkHints []string `json:"framework_hints,omitempty"`
+	ContentType     string   `json:"content_type,omitempty"`
+	FrameworkHints  []string `json:"framework_hints,omitempty"`
 	ErrorIndicators []string `json:"error_indicators,omitempty"`
 }
 

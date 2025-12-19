@@ -222,10 +222,10 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 	if len(locs) > 0 {
 		contribution := rule.Weight
 		res.Evidence = append(res.Evidence, EvidenceItem{
-			Key:          rule.Key,
-			RuleID:       rule.ID,
-			Severity:     rule.Severity,
-			Description:  "regex match",
+			Key:         rule.Key,
+			RuleID:      rule.ID,
+			Severity:    rule.Severity,
+			Description: "regex match",
 			Value: map[string]any{
 				"pattern":     rule.Regex,
 				"match_count": len(locs),
@@ -304,10 +304,10 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 	if len(locs) > 0 {
 		contribution := rule.Weight
 		res.Evidence = append(res.Evidence, EvidenceItem{
-			Key:          rule.Key,
-			RuleID:       rule.ID,
-			Severity:     rule.Severity,
-			Description:  "css selector match",
+			Key:         rule.Key,
+			RuleID:      rule.ID,
+			Severity:    rule.Severity,
+			Description: "css selector match",
 			Value: map[string]any{
 				"selector":    rule.Selector,
 				"match_count": matchCount,
