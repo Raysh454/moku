@@ -17,14 +17,39 @@ func BuildAttackSurfaceFromHTML(
 	headers map[string]string,
 	body []byte,
 ) (*AttackSurface, error) {
-	as := &AttackSurface{
+	as := newAttackSurface(rawURL, snapshotID, statusCode, headers)
+
+	setContentType(as, headers)
+	parseQueryParams(as, rawURL)
+	extractCookies(as, headers)
+
+	doc, err := parseHTMLDocument(body)
+	if err != nil {
+		// Return what we have so far even if HTML parsing fails
+		return as, nil
+	}
+
+	extractForms(as, doc)
+	extractScripts(as, doc)
+
+	// Event handlers are harder to detect reliably without JS execution
+	// For now, we'll leave this as a stub for future enhancement
+	// Common event attributes: onclick, onload, onsubmit, etc.
+
+	return as, nil
+}
+
+func newAttackSurface(rawURL, snapshotID string, statusCode int, headers map[string]string) *AttackSurface {
+	return &AttackSurface{
 		URL:         rawURL,
 		SnapshotID:  snapshotID,
 		CollectedAt: time.Now().UTC(),
 		StatusCode:  statusCode,
 		Headers:     headers,
 	}
+}
 
+func setContentType(as *AttackSurface, headers map[string]string) {
 	// Extract content type from headers
 	// Normalize header lookup to lowercase for consistency
 	for k, v := range headers {
@@ -33,21 +58,29 @@ func BuildAttackSurfaceFromHTML(
 			break
 		}
 	}
+}
 
+func parseQueryParams(as *AttackSurface, rawURL string) {
 	// Parse query parameters from URL
-	if rawURL != "" {
-		parsedURL, err := url.Parse(rawURL)
-		if err == nil && parsedURL.RawQuery != "" {
-			queryParams := parsedURL.Query()
-			for name := range queryParams {
-				as.GetParams = append(as.GetParams, Param{
-					Name:   name,
-					Origin: "query",
-				})
-			}
-		}
+	if rawURL == "" {
+		return
 	}
 
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil || parsedURL.RawQuery == "" {
+		return
+	}
+
+	queryParams := parsedURL.Query()
+	for name := range queryParams {
+		as.GetParams = append(as.GetParams, Param{
+			Name:   name,
+			Origin: "query",
+		})
+	}
+}
+
+func extractCookies(as *AttackSurface, headers map[string]string) {
 	// Extract cookies from Set-Cookie headers
 	for key, value := range headers {
 		if strings.ToLower(key) == "set-cookie" {
@@ -57,14 +90,14 @@ func BuildAttackSurfaceFromHTML(
 			}
 		}
 	}
+}
 
+func parseHTMLDocument(body []byte) (*goquery.Document, error) {
 	// Parse HTML to extract forms, inputs, and scripts
-	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
-	if err != nil {
-		// Return what we have so far even if HTML parsing fails
-		return as, nil
-	}
+	return goquery.NewDocumentFromReader(bytes.NewReader(body))
+}
 
+func extractForms(as *AttackSurface, doc *goquery.Document) {
 	// Extract forms and their inputs
 	doc.Find("form").Each(func(i int, form *goquery.Selection) {
 		formData := Form{
@@ -104,7 +137,9 @@ func BuildAttackSurfaceFromHTML(
 
 		as.Forms = append(as.Forms, formData)
 	})
+}
 
+func extractScripts(as *AttackSurface, doc *goquery.Document) {
 	// Extract scripts
 	doc.Find("script").Each(func(i int, script *goquery.Selection) {
 		src := getAttr(script, "src")
@@ -120,12 +155,6 @@ func BuildAttackSurfaceFromHTML(
 			})
 		}
 	})
-
-	// Event handlers are harder to detect reliably without JS execution
-	// For now, we'll leave this as a stub for future enhancement
-	// Common event attributes: onclick, onload, onsubmit, etc.
-
-	return as, nil
 }
 
 // parseCookie parses a Set-Cookie header value into CookieInfo.
