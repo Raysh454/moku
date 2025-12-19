@@ -1,4 +1,4 @@
-package assessor
+package attacksurface
 
 import (
 	"testing"
@@ -27,9 +27,9 @@ func TestBuildAttackSurfaceFromHTML_BasicParsing(t *testing.T) {
 		</html>
 	`)
 
-	headers := map[string]string{
-		"Content-Type": "text/html; charset=utf-8",
-		"Set-Cookie":   "session=abc123; Path=/; Secure; HttpOnly; SameSite=Strict",
+	headers := map[string][]string{
+		"Content-Type": {"text/html; charset=utf-8"},
+		"Set-Cookie":   {"session=abc123; Path=/; Secure; HttpOnly; SameSite=Strict"},
 	}
 
 	as, err := BuildAttackSurfaceFromHTML(

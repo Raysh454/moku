@@ -9,6 +9,7 @@ import (
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
 	"github.com/raysh454/moku/internal/tracker/models"
+	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -109,7 +110,7 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 				return
 			}
 
-			snap := tracker.NewSnapshotFromResponse(response)
+			snap := utils.NewSnapshotFromResponse(response)
 			select {
 			case <-ctx.Done():
 				return

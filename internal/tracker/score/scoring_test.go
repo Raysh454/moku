@@ -21,6 +21,13 @@ type dummyAssessor struct {
 	res *assessor.ScoreResult
 }
 
+func (d *dummyAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot) (*assessor.ScoreResult, error) {
+	if snapshot == nil {
+		return d.ScoreHTML(context.Background(), nil, "", "", "")
+	}
+	return d.ScoreHTML(context.Background(), snapshot.Body, snapshot.URL, snapshot.ID, "")
+}
+
 func (d *dummyAssessor) ScoreHTML(ctx context.Context, html []byte, source, snapshotID, filePath string) (*assessor.ScoreResult, error) {
 	// return a deep copy so tests can mutate without colliding
 	b, _ := json.Marshal(d.res)

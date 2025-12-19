@@ -1,4 +1,4 @@
-package assessor
+package attacksurface
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 func BuildAttackSurfaceFromHTML(
 	rawURL, snapshotID string,
 	statusCode int,
-	headers map[string]string,
+	headers map[string][]string,
 	body []byte,
 ) (*AttackSurface, error) {
 	as := newAttackSurface(rawURL, snapshotID, statusCode, headers)
@@ -33,13 +33,13 @@ func BuildAttackSurfaceFromHTML(
 	extractScripts(as, doc)
 
 	// Event handlers are harder to detect reliably without JS execution
-	// For now, we'll leave this as a stub for future enhancement
+	// For now, we'll leave this as a stub for future enhancement, same for framework hints and error indicators.
 	// Common event attributes: onclick, onload, onsubmit, etc.
 
 	return as, nil
 }
 
-func newAttackSurface(rawURL, snapshotID string, statusCode int, headers map[string]string) *AttackSurface {
+func newAttackSurface(rawURL, snapshotID string, statusCode int, headers map[string][]string) *AttackSurface {
 	return &AttackSurface{
 		URL:         rawURL,
 		SnapshotID:  snapshotID,
@@ -49,19 +49,16 @@ func newAttackSurface(rawURL, snapshotID string, statusCode int, headers map[str
 	}
 }
 
-func setContentType(as *AttackSurface, headers map[string]string) {
-	// Extract content type from headers
-	// Normalize header lookup to lowercase for consistency
-	for k, v := range headers {
-		if strings.ToLower(k) == "content-type" {
-			as.ContentType = v
+func setContentType(as *AttackSurface, headers map[string][]string) {
+	for k, values := range headers {
+		if strings.ToLower(k) == "content-type" && len(values) > 0 {
+			as.ContentType = values[0]
 			break
 		}
 	}
 }
 
 func parseQueryParams(as *AttackSurface, rawURL string) {
-	// Parse query parameters from URL
 	if rawURL == "" {
 		return
 	}
@@ -80,13 +77,14 @@ func parseQueryParams(as *AttackSurface, rawURL string) {
 	}
 }
 
-func extractCookies(as *AttackSurface, headers map[string]string) {
-	// Extract cookies from Set-Cookie headers
-	for key, value := range headers {
+func extractCookies(as *AttackSurface, headers map[string][]string) {
+	for key, values := range headers {
 		if strings.ToLower(key) == "set-cookie" {
-			cookie := parseCookie(value)
-			if cookie != nil {
-				as.Cookies = append(as.Cookies, *cookie)
+			for _, value := range values {
+				cookie := parseCookie(value)
+				if cookie != nil {
+					as.Cookies = append(as.Cookies, *cookie)
+				}
 			}
 		}
 	}
@@ -97,36 +95,63 @@ func parseHTMLDocument(body []byte) (*goquery.Document, error) {
 	return goquery.NewDocumentFromReader(bytes.NewReader(body))
 }
 
-func extractForms(as *AttackSurface, doc *goquery.Document) {
-	// Extract forms and their inputs
-	doc.Find("form").Each(func(i int, form *goquery.Selection) {
-		formData := Form{
-			Action: getAttr(form, "action"),
-			Method: strings.ToUpper(getAttr(form, "method")),
+// helper to split class attribute into tokens
+func splitClasses(classAttr string) []string {
+	if classAttr == "" {
+		return nil
+	}
+	parts := strings.Fields(classAttr)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
 		}
-		if formData.Method == "" {
-			formData.Method = "GET"
+	}
+	return out
+}
+
+func extractForms(as *AttackSurface, doc *goquery.Document) {
+	// Each formIndex here is 0-based index into document.getElementsByTagName("form")
+	doc.Find("form").Each(func(formIndex int, formSel *goquery.Selection) {
+		method := strings.ToUpper(getAttr(formSel, "method"))
+		if method == "" {
+			method = "GET"
+		}
+
+		formData := Form{
+			Action:     getAttr(formSel, "action"),
+			Method:     method,
+			DOMIndex:   formIndex, // 0-based
+			DOMID:      getAttr(formSel, "id"),
+			DOMClasses: splitClasses(getAttr(formSel, "class")),
 		}
 
 		// Extract form inputs
-		form.Find("input, textarea, select").Each(func(j int, input *goquery.Selection) {
-			inputName := getAttr(input, "name")
+		// inputIndex here is 0-based index into formElement.getElementsByTagName("input")
+		formSel.Find("input, textarea, select").Each(func(inputIndex int, inputSel *goquery.Selection) {
+			inputName := getAttr(inputSel, "name")
 			if inputName == "" {
 				return
 			}
 
-			inputType := getAttr(input, "type")
+			inputType := strings.ToLower(getAttr(inputSel, "type"))
 			if inputType == "" {
-				inputType = "text" // default for <input> without type
+				// default for <input> without type; textarea/select will have no type
+				inputType = "text"
 			}
 
-			_, required := input.Attr("required")
+			_, required := inputSel.Attr("required")
 
-			formData.Inputs = append(formData.Inputs, FormInput{
-				Name:     inputName,
-				Type:     inputType,
-				Required: required,
-			})
+			formInput := FormInput{
+				Name:       inputName,
+				Type:       inputType,
+				Required:   required,
+				DOMIndex:   inputIndex, // 0-based
+				DOMID:      getAttr(inputSel, "id"),
+				DOMClasses: splitClasses(getAttr(inputSel, "class")),
+			}
+
+			formData.Inputs = append(formData.Inputs, formInput)
 
 			// Track as param
 			as.PostParams = append(as.PostParams, Param{
@@ -140,18 +165,19 @@ func extractForms(as *AttackSurface, doc *goquery.Document) {
 }
 
 func extractScripts(as *AttackSurface, doc *goquery.Document) {
-	// Extract scripts
-	doc.Find("script").Each(func(i int, script *goquery.Selection) {
-		src := getAttr(script, "src")
+	// scriptIndex here is 0-based index into document.getElementsByTagName("script")
+	doc.Find("script").Each(func(scriptIndex int, scriptSel *goquery.Selection) {
+		src := getAttr(scriptSel, "src")
 		if src != "" {
 			as.Scripts = append(as.Scripts, ScriptInfo{
-				Src:    src,
-				Inline: false,
+				Src:      src,
+				Inline:   false,
+				DOMIndex: scriptIndex, // 0-based
 			})
 		} else {
-			// Inline script
 			as.Scripts = append(as.Scripts, ScriptInfo{
-				Inline: true,
+				Inline:   true,
+				DOMIndex: scriptIndex, // 0-based
 			})
 		}
 	})

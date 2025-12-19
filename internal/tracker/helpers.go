@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/raysh454/moku/internal/tracker/models"
-	"github.com/raysh454/moku/internal/webclient"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -274,22 +273,4 @@ func equalStringSlices(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// NewSnapshotFromResponse converts a webclient.Response to a model.Snapshot.
-func NewSnapshotFromResponse(resp *webclient.Response) *models.Snapshot {
-	if resp == nil {
-		return nil
-	}
-
-	snap := &models.Snapshot{
-		// ID left empty; tracker will assign one when persisting
-		StatusCode: resp.StatusCode,
-		URL:        resp.Request.URL,
-		Body:       resp.Body, // caller may reuse resp.Body; if you want a copy, copy bytes here
-		Headers:    resp.Headers,
-		CreatedAt:  resp.FetchedAt,
-	}
-
-	return snap
 }

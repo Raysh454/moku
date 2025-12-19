@@ -5,10 +5,14 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/raysh454/moku/internal/assessor/attacksurface"
 	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/tracker/models"
+	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -60,34 +64,17 @@ func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (As
 	return inst, nil
 }
 
-// ScoreHTML evaluates raw HTML bytes using regex and CSS selector rules.
-// Efficiently populates EvidenceLocation by using byte and line offsets.
-func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source, snapshotID, filePath string) (*ScoreResult, error) {
-	if h == nil || h.logger == nil {
-		return nil, errors.New("heuristics-assessor: nil instance or logger")
-	}
+// Not sure whether to keep both domRuleBasedScoring and scoreUsingAttackSurface
+// or just one. For now, keeping both for flexibility.
+func (h *HeuristicsAssessor) domRuleBasedScoring(snapshot *models.Snapshot, res *ScoreResult) error {
 
-	doc, err := goqueryDocumentFromBytes(html)
+	doc, err := goqueryDocumentFromBytes(snapshot.Body)
 	if err != nil {
-		h.logger.Warn("couldn't convert html to goqueryDoc, skipping CSS only rules.", logging.Field{Key: "err", Value: err}, logging.Field{Key: "html", Value: html})
-	}
-
-	// Prepare result scaffolding
-	res := &ScoreResult{
-		Score:         0.0,
-		Normalized:    0,
-		Confidence:    h.cfg.DefaultConfidence,
-		Version:       h.cfg.ScoringVersion,
-		Evidence:      []EvidenceItem{},
-		MatchedRules:  []Rule{},
-		RawFeatures:   map[string]float64{},
-		ContribByRule: map[string]float64{},
-		Meta:          map[string]any{"source": source, "snapshot_id": snapshotID},
-		Timestamp:     time.Now().UTC(),
+		h.logger.Warn("couldn't convert html to goqueryDoc, skipping CSS only rules.", logging.Field{Key: "err", Value: err})
 	}
 
 	// Build compact line-start offsets and mapping helper
-	lineStarts := buildLineStarts(html)
+	lineStarts := buildLineStarts(snapshot.Body)
 	byteToLine := func(pos int) int { return byteToLineFromStarts(lineStarts, pos) }
 
 	// Run rules
@@ -100,12 +87,21 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source,
 	if h.cfg.ScoreOpts.MaxRegexMatchValueLen <= 0 {
 		h.cfg.ScoreOpts.MaxRegexMatchValueLen = 200 // Default max length
 	}
+
+	urlTools, err := utils.NewURLTools(snapshot.URL)
+	if err != nil {
+		h.logger.Warn("failed to parse snapshot URL for path extraction", logging.Field{Key: "err", Value: err}, logging.Field{Key: "url", Value: snapshot.URL})
+	}
+	filePath := urlTools.GetPath()
+
 	for _, r := range h.rules {
+
+		// Moving to attack surface primarily, but keeping regex and css for now with contrib == 0.0
 		if r.Regex != "" && r.compiled != nil {
-			appendRegexEvidence(html, byteToLine, r, res, filePath, snapshotID, h.logger, h.cfg.ScoreOpts)
+			appendRegexEvidence(snapshot.Body, byteToLine, r, res, filePath, snapshot.ID, h.logger, h.cfg.ScoreOpts)
 		}
 		if r.Selector != "" && doc != nil {
-			appendCSSEvidence(doc, html, byteToLine, r, res, filePath, snapshotID, h.logger, h.cfg.ScoreOpts)
+			appendCSSEvidence(doc, snapshot.Body, byteToLine, r, res, filePath, snapshot.ID, h.logger, h.cfg.ScoreOpts)
 		}
 	}
 
@@ -119,6 +115,82 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source,
 			Value:        "",
 			Contribution: 0.0,
 		})
+	}
+
+	return nil
+}
+
+func (h *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *models.Snapshot, res *ScoreResult) (*attacksurface.AttackSurface, error) {
+	at, err := attacksurface.BuildAttackSurfaceFromHTML(snapshot.URL, snapshot.ID, snapshot.StatusCode, snapshot.Headers, snapshot.Body)
+	if err != nil {
+		h.logger.Warn("failed to build attack surface from html",
+			logging.Field{Key: "err", Value: err},
+			logging.Field{Key: "snapshot_id", Value: snapshot.ID},
+			logging.Field{Key: "url", Value: snapshot.URL},
+		)
+		return nil, err
+	}
+
+	if at != nil {
+		feats := attacksurface.ComputeFeatures(at)
+		res.RawFeatures = feats
+
+		for name, val := range feats {
+			w, ok := attacksurface.FeatureWeights[name]
+			if !ok || val == 0 {
+				continue
+			}
+			contrib := w * val
+
+			locs := []EvidenceLocation{}
+			if h.cfg.ScoreOpts.RequestLocations {
+				locs = buildFeatureLocations(name, at)
+			}
+
+			res.Evidence = append(res.Evidence, EvidenceItem{
+				Key:          name,
+				RuleID:       name,
+				Severity:     attacksurface.SeverityForFeature(name),
+				Description:  attacksurface.DescribeFeature(name),
+				Value:        val,
+				Contribution: contrib,
+				Locations:    locs,
+			})
+			res.ContribByRule[name] += contrib
+		}
+	}
+
+	return at, nil
+}
+
+func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot) (*ScoreResult, error) {
+	if h == nil || h.logger == nil {
+		return nil, errors.New("heuristics-assessor: nil instance or logger")
+	}
+
+	// Prepare result scaffolding
+	res := &ScoreResult{
+		Score:         0.0,
+		Normalized:    0,
+		Confidence:    h.cfg.DefaultConfidence,
+		Version:       h.cfg.ScoringVersion,
+		Evidence:      []EvidenceItem{},
+		MatchedRules:  []Rule{},
+		RawFeatures:   map[string]float64{},
+		ContribByRule: map[string]float64{},
+		Meta:          map[string]any{"snapshot_id": snapshot.ID, "url": snapshot.URL},
+		Timestamp:     time.Now().UTC(),
+	}
+
+	as, err := h.scoreUsingAttackSurface(snapshot, res)
+	if err != nil {
+		h.logger.Warn("error during attack surface scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
+	}
+	res.AttackSurface = as
+
+	err = h.domRuleBasedScoring(snapshot, res)
+	if err != nil {
+		h.logger.Warn("error during DOM rule-based scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
 	}
 
 	// Compute score from contributions
@@ -135,15 +207,11 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source,
 // ScoreResponse delegates to ScoreHTML by extracting resp.Body.
 // If resp is nil or has no body, returns a neutral result.
 func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response) (*ScoreResult, error) {
-
-	source := ""
-	if resp != nil && resp.Request != nil {
-		source = resp.Request.URL
-	}
 	if resp == nil || len(resp.Body) == 0 {
 		return nil, errors.New("heuristics-assessor: nil response or empty body")
 	}
-	return h.ScoreHTML(ctx, resp.Body, source, "", "")
+
+	return h.ScoreSnapshot(ctx, utils.NewSnapshotFromResponse(resp))
 }
 
 // Close releases resources (currently a no-op) and logs lifecycle.
@@ -194,6 +262,8 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 
 	matches := []string{}
 	locs := []EvidenceLocation{}
+	matchCount := 0
+
 	if opts.RequestLocations {
 		for _, m := range rule.compiled.FindAllIndex(html, -1) {
 			start, end := m[0], m[1]
@@ -217,26 +287,42 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 			if len(matches) < opts.MaxRegexEvidenceSamples {
 				matches = append(matches, sample)
 			}
+			matchCount++
+		}
+	} else {
+		for _, m := range rule.compiled.FindAllIndex(html, -1) {
+			start, end := m[0], m[1]
+			sample := string(html[start:end])
+			if len(sample) > opts.MaxRegexMatchValueLen {
+				sample = sample[:opts.MaxRegexMatchValueLen] + "..."
+			}
+			if len(matches) < opts.MaxRegexEvidenceSamples {
+				matches = append(matches, sample)
+			}
+			matchCount++
 		}
 	}
-	if len(locs) > 0 {
-		contribution := rule.Weight
-		res.Evidence = append(res.Evidence, EvidenceItem{
-			Key:         rule.Key,
-			RuleID:      rule.ID,
-			Severity:    rule.Severity,
-			Description: "regex match",
-			Value: map[string]any{
-				"pattern":     rule.Regex,
-				"match_count": len(locs),
-				"samples":     matches,
-			},
-			Locations:    locs,
-			Contribution: contribution,
-		})
-		res.MatchedRules = append(res.MatchedRules, rule)
-		res.ContribByRule[rule.ID] += contribution
+
+	if matchCount == 0 {
+		return
 	}
+
+	contribution := 0.0
+	res.Evidence = append(res.Evidence, EvidenceItem{
+		Key:         rule.Key,
+		RuleID:      rule.ID,
+		Severity:    rule.Severity,
+		Description: "regex match",
+		Value: map[string]any{
+			"pattern":     rule.Regex,
+			"match_count": matchCount,
+			"samples":     matches,
+		},
+		Locations:    locs,
+		Contribution: contribution,
+	})
+	res.MatchedRules = append(res.MatchedRules, rule)
+	res.ContribByRule[rule.ID] += contribution
 }
 
 func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, filePath, snapshotID string, logger logging.Logger, opts ScoreOptions) {
@@ -301,23 +387,175 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 			}
 		})
 	}
-	if len(locs) > 0 {
-		contribution := rule.Weight
-		res.Evidence = append(res.Evidence, EvidenceItem{
-			Key:         rule.Key,
-			RuleID:      rule.ID,
-			Severity:    rule.Severity,
-			Description: "css selector match",
-			Value: map[string]any{
-				"selector":    rule.Selector,
-				"match_count": matchCount,
-				"samples":     samples,
-			},
-			Locations:    locs,
-			Contribution: contribution,
-		})
-		res.MatchedRules = append(res.MatchedRules, rule)
-		res.ContribByRule[rule.ID] += contribution
+
+	if matchCount == 0 {
+		return
+	}
+
+	contribution := 0.0
+	res.Evidence = append(res.Evidence, EvidenceItem{
+		Key:         rule.Key,
+		RuleID:      rule.ID,
+		Severity:    rule.Severity,
+		Description: "css selector match",
+		Value: map[string]any{
+			"selector":    rule.Selector,
+			"match_count": matchCount,
+			"samples":     samples,
+		},
+		Locations:    locs,
+		Contribution: contribution,
+	})
+	res.MatchedRules = append(res.MatchedRules, rule)
+	res.ContribByRule[rule.ID] += contribution
+}
+
+func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) []EvidenceLocation {
+	if as == nil {
+		return nil
+	}
+
+	switch featureName {
+
+	// ---------- Headers ----------
+
+	case "csp_missing", "csp_unsafe_inline", "csp_unsafe_eval":
+		return []EvidenceLocation{{
+			Type:       "header",
+			HeaderName: "content-security-policy",
+			SnapshotID: as.SnapshotID,
+		}}
+
+	case "xfo_missing":
+		return []EvidenceLocation{{
+			Type:       "header",
+			HeaderName: "x-frame-options",
+			SnapshotID: as.SnapshotID,
+		}}
+
+	case "xcto_missing":
+		return []EvidenceLocation{{
+			Type:       "header",
+			HeaderName: "x-content-type-options",
+			SnapshotID: as.SnapshotID,
+		}}
+
+	case "hsts_missing":
+		return []EvidenceLocation{{
+			Type:       "header",
+			HeaderName: "strict-transport-security",
+			SnapshotID: as.SnapshotID,
+		}}
+
+	case "referrer_policy_missing":
+		return []EvidenceLocation{{
+			Type:       "header",
+			HeaderName: "referrer-policy",
+			SnapshotID: as.SnapshotID,
+		}}
+
+	// ---------- Cookies ----------
+
+	case "has_session_cookie_no_httponly":
+		for _, c := range as.Cookies {
+			if strings.Contains(strings.ToLower(c.Name), "session") && !c.HttpOnly {
+				return []EvidenceLocation{{
+					Type:       "cookie",
+					CookieName: c.Name,
+					SnapshotID: as.SnapshotID,
+				}}
+			}
+		}
+		return nil
+
+	case "num_cookies_missing_httponly":
+		var locs []EvidenceLocation
+		for _, c := range as.Cookies {
+			if !c.HttpOnly {
+				locs = append(locs, EvidenceLocation{
+					Type:       "cookie",
+					CookieName: c.Name,
+					SnapshotID: as.SnapshotID,
+				})
+			}
+		}
+		return locs
+
+	case "num_cookies_missing_secure":
+		var locs []EvidenceLocation
+		for _, c := range as.Cookies {
+			if !c.Secure {
+				locs = append(locs, EvidenceLocation{
+					Type:       "cookie",
+					CookieName: c.Name,
+					SnapshotID: as.SnapshotID,
+				})
+			}
+		}
+		return locs
+
+	// ---------- Forms & inputs ----------
+
+	case "has_file_upload", "num_file_inputs":
+		var locs []EvidenceLocation
+		for _, f := range as.Forms {
+			for _, in := range f.Inputs {
+				if strings.EqualFold(in.Type, "file") {
+					fIdx := f.DOMIndex
+					iIdx := in.DOMIndex
+					locs = append(locs, EvidenceLocation{
+						Type:           "input",
+						SnapshotID:     as.SnapshotID,
+						ParentDOMIndex: &fIdx, // form index
+						DOMIndex:       &iIdx, // input index within that form
+					})
+				}
+			}
+		}
+		return locs
+
+	case "has_password_input", "num_password_inputs":
+		var locs []EvidenceLocation
+		for _, f := range as.Forms {
+			for _, in := range f.Inputs {
+				if strings.EqualFold(in.Type, "password") {
+					fIdx := f.DOMIndex
+					iIdx := in.DOMIndex
+					locs = append(locs, EvidenceLocation{
+						Type:           "input",
+						SnapshotID:     as.SnapshotID,
+						ParentDOMIndex: &fIdx,
+						DOMIndex:       &iIdx,
+					})
+				}
+			}
+		}
+		return locs
+
+	case "has_admin_form", "has_auth_form", "has_upload_form":
+		var locs []EvidenceLocation
+		for _, f := range as.Forms {
+			fIdx := f.DOMIndex
+			locs = append(locs, EvidenceLocation{
+				Type:       "form",
+				SnapshotID: as.SnapshotID,
+				DOMIndex:   &fIdx,
+			})
+		}
+		return locs
+
+	// ---------- Params ----------
+
+	case "has_admin_param", "has_upload_param", "has_debug_param", "has_id_param", "num_suspicious_params":
+		// For now: just mark that suspicious params exist on this snapshot.
+		// If you want per-name, you can store that in Evidence.Value, not Location.
+		return []EvidenceLocation{{
+			Type:       "param",
+			SnapshotID: as.SnapshotID,
+		}}
+
+	default:
+		return nil
 	}
 }
 
