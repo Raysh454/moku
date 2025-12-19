@@ -26,11 +26,11 @@ func BuildAttackSurfaceFromHTML(
 	}
 
 	// Extract content type from headers
-	if headers != nil {
-		if ct, ok := headers["content-type"]; ok {
-			as.ContentType = ct
-		} else if ct, ok := headers["Content-Type"]; ok {
-			as.ContentType = ct
+	// Normalize header lookup to lowercase for consistency
+	for k, v := range headers {
+		if strings.ToLower(k) == "content-type" {
+			as.ContentType = v
+			break
 		}
 	}
 
@@ -152,15 +152,24 @@ func parseCookie(setCookieHeader string) *CookieInfo {
 		attrLower := strings.ToLower(attr)
 
 		if strings.HasPrefix(attrLower, "domain=") {
-			cookie.Domain = strings.TrimPrefix(attr, strings.SplitN(attr, "=", 2)[0]+"=")
+			attrParts := strings.SplitN(attr, "=", 2)
+			if len(attrParts) == 2 {
+				cookie.Domain = attrParts[1]
+			}
 		} else if strings.HasPrefix(attrLower, "path=") {
-			cookie.Path = strings.TrimPrefix(attr, strings.SplitN(attr, "=", 2)[0]+"=")
+			attrParts := strings.SplitN(attr, "=", 2)
+			if len(attrParts) == 2 {
+				cookie.Path = attrParts[1]
+			}
 		} else if attrLower == "secure" {
 			cookie.Secure = true
 		} else if attrLower == "httponly" {
 			cookie.HttpOnly = true
 		} else if strings.HasPrefix(attrLower, "samesite=") {
-			cookie.SameSite = strings.TrimPrefix(attr, strings.SplitN(attr, "=", 2)[0]+"=")
+			attrParts := strings.SplitN(attr, "=", 2)
+			if len(attrParts) == 2 {
+				cookie.SameSite = attrParts[1]
+			}
 		}
 	}
 

@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS evidence_items (
     severity         TEXT NOT NULL,
     description      TEXT NOT NULL,
     value            TEXT,  -- JSON
+    contribution     REAL,  -- score contribution from this evidence
 
     FOREIGN KEY (score_result_id)
         REFERENCES score_results(id)
@@ -162,7 +163,9 @@ CREATE TABLE IF NOT EXISTS evidence_locations (
     evidence_item_id  TEXT NOT NULL,
 
     snapshot_id       TEXT NOT NULL,  -- exact file version
-    css_selector          TEXT,
+    location_type     TEXT,            -- "css", "regex", "header", "cookie", "xpath"
+    css_selector      TEXT,
+    xpath             TEXT,
     regex_pattern     TEXT,
     file_path         TEXT,
 
@@ -170,6 +173,11 @@ CREATE TABLE IF NOT EXISTS evidence_locations (
     byte_end          INTEGER,
     line_start        INTEGER,
     line_end          INTEGER,
+    line              INTEGER,
+    column            INTEGER,
+
+    header_name       TEXT,            -- for header-based evidence
+    cookie_name       TEXT,            -- for cookie-based evidence
 
     note              TEXT,
 
