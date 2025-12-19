@@ -27,6 +27,10 @@ type ScoreDelta struct {
 	HeadScore   float64     `json:"head_score"`
 	Delta       float64     `json:"delta"`
 	RuleDeltas  []RuleDelta `json:"rule_deltas"`
+
+	// AttackSurfaceChanges provides a high-level summary of attack surface changes.
+	// This complements rule deltas by showing what concretely changed on the page.
+	AttackSurfaceChanges []assessor.AttackSurfaceChange `json:"attack_surface_changes,omitempty"`
 }
 
 // DiffScoreResults computes the delta between two ScoreResults.

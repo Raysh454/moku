@@ -139,15 +139,15 @@ func (sa *ScoreAttributer) insertEvidenceItems(ctx context.Context, tx *sql.Tx, 
 		evidenceID := uuid.New().String()
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO evidence_items
-			  (id, score_result_id, evidence_uid, item_key, rule_id, severity, description, value)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			  (id, score_result_id, evidence_uid, item_key, rule_id, severity, description, value, contribution)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, evidenceID, scoreID, item.ID, item.Key, item.RuleID, item.Severity, item.Description, func() string {
 			valBytes, err := json.Marshal(item.Value)
 			if err != nil {
 				return "{}"
 			}
 			return string(valBytes)
-		}()); err != nil {
+		}(), item.Contribution); err != nil {
 			return fmt.Errorf("insert evidence item: %w", err)
 		}
 
@@ -172,9 +172,12 @@ func (sa *ScoreAttributer) insertEvidenceLocations(ctx context.Context, tx *sql.
 	for _, loc := range locations {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO evidence_locations
-			  (evidence_item_id, snapshot_id, css_selector, regex_pattern, file_path, byte_start, byte_end, line_start, line_end, note)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, evidenceID, loc.SnapshotID, loc.Selector, loc.RegexPattern, loc.FilePath, toI64(loc.ByteStart), toI64(loc.ByteEnd), toI64(loc.LineStart), toI64(loc.LineEnd), loc.Note); err != nil {
+			  (evidence_item_id, snapshot_id, location_type, css_selector, xpath, regex_pattern, file_path, 
+			   byte_start, byte_end, line_start, line_end, line, column, header_name, cookie_name, note)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, evidenceID, loc.SnapshotID, loc.Type, loc.Selector, loc.XPath, loc.RegexPattern, loc.FilePath,
+			toI64(loc.ByteStart), toI64(loc.ByteEnd), toI64(loc.LineStart), toI64(loc.LineEnd),
+			loc.Line, loc.Column, loc.HeaderName, loc.CookieName, loc.Note); err != nil {
 			return fmt.Errorf("insert evidence location: %w", err)
 		}
 	}
