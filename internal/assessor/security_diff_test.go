@@ -25,7 +25,7 @@ func TestNewSecurityDiff_PropagatesScoresAndChanges(t *testing.T) {
 		Forms: []attacksurface.Form{{Action: "/login", Method: "POST"}, {Action: "/admin", Method: "POST"}},
 	}
 
-	d, err := NewSecurityDiff("https://example.com/path", "base-1", "head-1", baseScore, headScore, baseAS, headAS)
+	d, err := NewSecurityDiff("https://example.com/path", "base-1", "head-1", "snap-base", "snap-head", baseScore, headScore, baseAS, headAS)
 	if err != nil {
 		t.Fatalf("NewSecurityDiff returned error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestNewSecurityDiff_PropagatesScoresAndChanges(t *testing.T) {
 }
 
 func TestNewSecurityDiff_InvalidURL(t *testing.T) {
-	_, err := NewSecurityDiff("://bad url", "base", "head", nil, nil, nil, nil)
+	_, err := NewSecurityDiff("://bad url", "base", "head", "snap-base", "snap-head", nil, nil, nil, nil)
 	if err == nil {
 		t.Fatalf("expected error for invalid URL, got nil")
 	}

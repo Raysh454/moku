@@ -42,38 +42,37 @@ func NewSecurityDiff(
 }
 
 func NewSecurityDiffOverview(diffs []*SecurityDiff) *SecurityDiffOverview {
-    ov := &SecurityDiffOverview{
-        Entries: make([]SecurityDiffOverviewEntry, 0, len(diffs)),
-    }
+	ov := &SecurityDiffOverview{
+		Entries: make([]SecurityDiffOverviewEntry, 0, len(diffs)),
+	}
 
-    if len(diffs) == 0 {
-        return ov
-    }
+	if len(diffs) == 0 {
+		return ov
+	}
 
-    // You can copy version IDs from the first diff if needed
-    ov.BaseVersionID = diffs[0].BaseVersionID
-    ov.HeadVersionID = diffs[0].HeadVersionID
+	// You can copy version IDs from the first diff if needed
+	ov.BaseVersionID = diffs[0].BaseVersionID
+	ov.HeadVersionID = diffs[0].HeadVersionID
 
+	for _, d := range diffs {
+		if d == nil {
+			continue
+		}
 
-    for _, d := range diffs {
-        if d == nil {
-            continue
-        }
+		entry := SecurityDiffOverviewEntry{
+			FilePath:                d.FilePath,
+			BaseSnapshotID:          d.BaseSnapshotID,
+			HeadSnapshotID:          d.HeadSnapshotID,
+			ScoreBase:               d.ScoreBase,
+			ScoreHead:               d.ScoreHead,
+			ScoreDelta:              d.ScoreDelta,
+			AttackSurfaceChanged:    d.AttackSurfaceChanged,
+			NumAttackSurfaceChanges: len(d.AttackSurfaceChanges),
+			Regressed:               d.ScoreDelta > 0,
+		}
 
-        entry := SecurityDiffOverviewEntry{
-            FilePath:             d.FilePath,
-            BaseSnapshotID:       d.BaseSnapshotID,
-            HeadSnapshotID:       d.HeadSnapshotID,
-            ScoreBase:            d.ScoreBase,
-            ScoreHead:            d.ScoreHead,
-            ScoreDelta:           d.ScoreDelta,
-            AttackSurfaceChanged: d.AttackSurfaceChanged,
-            NumAttackSurfaceChanges: len(d.AttackSurfaceChanges),
-            Regressed:            d.ScoreDelta > 0,
-        }
+		ov.Entries = append(ov.Entries, entry)
+	}
 
-        ov.Entries = append(ov.Entries, entry)
-    }
-
-    return ov
+	return ov
 }
