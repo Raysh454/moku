@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/webclient"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
@@ -68,7 +69,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 	diffs = dmp.DiffCleanupSemantic(diffs)
 
 	// Convert diffs to our chunk format with positional metadata
-	chunks := make([]DiffChunk, 0)
+	chunks := make([]models.DiffChunk, 0)
 	basePos := 0
 	headPos := 0
 	for _, d := range diffs {
@@ -80,7 +81,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 		case diffmatchpatch.DiffInsert:
 			// insertion at headPos
 			if strings.TrimSpace(d.Text) != "" {
-				chunks = append(chunks, DiffChunk{
+				chunks = append(chunks, models.DiffChunk{
 					Type:      "added",
 					Content:   d.Text,
 					BaseStart: basePos,
@@ -93,7 +94,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 		case diffmatchpatch.DiffDelete:
 			// deletion at basePos
 			if strings.TrimSpace(d.Text) != "" {
-				chunks = append(chunks, DiffChunk{
+				chunks = append(chunks, models.DiffChunk{
 					Type:      "removed",
 					Content:   d.Text,
 					BaseStart: basePos,
@@ -107,7 +108,7 @@ func computeTextDiffJSON(baseID, headID string, base, head []byte) (string, erro
 	}
 
 	// Return structured body diff
-	bodyDiff := BodyDiff{
+	bodyDiff := models.BodyDiff{
 		BaseID: baseID,
 		HeadID: headID,
 		Chunks: chunks,
@@ -199,11 +200,11 @@ func isOrderSensitiveHeader(name string) bool {
 
 // diffHeaders computes a structured diff between two sets of normalized headers.
 // If redactSensitive is true, sensitive headers are marked as redacted in the diff.
-func diffHeaders(base, head map[string][]string, redactSensitive bool) HeaderDiff {
-	diff := HeaderDiff{
+func diffHeaders(base, head map[string][]string, redactSensitive bool) models.HeaderDiff {
+	diff := models.HeaderDiff{
 		Added:    make(map[string][]string),
 		Removed:  make(map[string][]string),
-		Changed:  make(map[string]Change),
+		Changed:  make(map[string]models.Change),
 		Redacted: make([]string, 0),
 	}
 
@@ -227,7 +228,7 @@ func diffHeaders(base, head map[string][]string, redactSensitive bool) HeaderDif
 			diff.Added[name] = headValues
 		} else if !equalStringSlices(baseValues, headValues) {
 			// Header changed
-			diff.Changed[name] = Change{
+			diff.Changed[name] = models.Change{
 				From: baseValues,
 				To:   headValues,
 			}
@@ -276,12 +277,12 @@ func equalStringSlices(a, b []string) bool {
 }
 
 // NewSnapshotFromResponse converts a webclient.Response to a model.Snapshot.
-func NewSnapshotFromResponse(resp *webclient.Response) *Snapshot {
+func NewSnapshotFromResponse(resp *webclient.Response) *models.Snapshot {
 	if resp == nil {
 		return nil
 	}
 
-	snap := &Snapshot{
+	snap := &models.Snapshot{
 		// ID left empty; tracker will assign one when persisting
 		StatusCode: resp.StatusCode,
 		URL:        resp.Request.URL,

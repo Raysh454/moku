@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"regexp"
 	"time"
 
@@ -63,9 +62,7 @@ func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (As
 
 // ScoreHTML evaluates raw HTML bytes using regex and CSS selector rules.
 // Efficiently populates EvidenceLocation by using byte and line offsets.
-func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source string) (*ScoreResult, error) {
-	fmt.Println("HeuristicsAssessor: Scoring HTML from source:", source)
-	fmt.Println("HTML bytes:", string(html))
+func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source, snapshotID, filePath string) (*ScoreResult, error) {
 	if h == nil || h.logger == nil {
 		return nil, errors.New("heuristics-assessor: nil instance or logger")
 	}
@@ -93,12 +90,21 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source 
 	byteToLine := func(pos int) int { return byteToLineFromStarts(lineStarts, pos) }
 
 	// Run rules
+	if h.cfg.ScoreOpts.MaxCSSEvidenceSamples <= 0 {
+		h.cfg.ScoreOpts.MaxCSSEvidenceSamples = 10 // Default max samples
+	}
+	if h.cfg.ScoreOpts.MaxRegexEvidenceSamples <= 0 {
+		h.cfg.ScoreOpts.MaxRegexEvidenceSamples = 10 // Default max samples
+	}
+	if h.cfg.ScoreOpts.MaxRegexMatchValueLen <= 0 {
+		h.cfg.ScoreOpts.MaxRegexMatchValueLen = 200 // Default max length
+	}
 	for _, r := range h.rules {
 		if r.Regex != "" && r.compiled != nil {
-			appendRegexEvidence(html, byteToLine, r, res, h.logger, h.cfg.ScoreOpts)
+			appendRegexEvidence(html, byteToLine, r, res, filePath, snapshotID, h.logger, h.cfg.ScoreOpts)
 		}
 		if r.Selector != "" && doc != nil {
-			appendCSSEvidence(doc, html, byteToLine, r, res, h.logger, h.cfg.ScoreOpts)
+			appendCSSEvidence(doc, html, byteToLine, r, res, filePath, snapshotID, h.logger, h.cfg.ScoreOpts)
 		}
 	}
 
@@ -109,6 +115,7 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source 
 			Severity:    "low",
 			Description: "no matching rules found",
 			RuleID:      "scaffold:no_rules_matched",
+			Value:       "",
 		})
 	}
 
@@ -135,7 +142,7 @@ func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *webclient.
 	if resp == nil || len(resp.Body) == 0 {
 		return nil, errors.New("heuristics-assessor: nil response or empty body")
 	}
-	return h.ScoreHTML(ctx, resp.Body, source)
+	return h.ScoreHTML(ctx, resp.Body, source, "", "")
 }
 
 // Close releases resources (currently a no-op) and logs lifecycle.
@@ -178,23 +185,36 @@ func byteToLineFromStarts(lineStarts []int, pos int) int {
 	return lo
 }
 
-func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, logger logging.Logger, opts ScoreOptions) {
+func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, filePath, snapshotID string, logger logging.Logger, opts ScoreOptions) {
 	if rule.compiled == nil {
 		logger.Warn("regex rule skipped due to nil compiled regex", logging.Field{Key: "rule_id", Value: rule.ID})
 		return
 	}
 
+	matches := []string{}
 	locs := []EvidenceLocation{}
 	if opts.RequestLocations {
 		for _, m := range rule.compiled.FindAllIndex(html, -1) {
 			start, end := m[0], m[1]
 			ls, le := byteToLine(start), byteToLine(end)
 			locs = append(locs, EvidenceLocation{
-				ByteStart: &start,
-				ByteEnd:   &end,
-				LineStart: &ls,
-				LineEnd:   &le,
+				FilePath:     filePath,
+				Selector:     rule.Selector,
+				RegexPattern: rule.Regex,
+				SnapshotID:   snapshotID,
+				ByteStart:    &start,
+				ByteEnd:      &end,
+				LineStart:    &ls,
+				LineEnd:      &le,
 			})
+			sample := string(html[start:end])
+			if len(sample) > opts.MaxRegexMatchValueLen {
+				sample = sample[:opts.MaxRegexMatchValueLen] + "..."
+			}
+
+			if len(matches) < opts.MaxRegexEvidenceSamples {
+				matches = append(matches, sample)
+			}
 		}
 	}
 	if len(locs) > 0 {
@@ -203,14 +223,19 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 			RuleID:      rule.ID,
 			Severity:    rule.Severity,
 			Description: "regex match",
-			Locations:   locs,
+			Value: map[string]any{
+				"pattern":     rule.Regex,
+				"match_count": len(locs),
+				"samples":     matches,
+			},
+			Locations: locs,
 		})
 		res.MatchedRules = append(res.MatchedRules, rule)
 		res.Score += rule.Weight
 	}
 }
 
-func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, logger logging.Logger, opts ScoreOptions) {
+func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, filePath, snapshotID string, logger logging.Logger, opts ScoreOptions) {
 	if rule.Selector == "" || doc == nil {
 		logger.Warn("css selector rule skipped due to empty selector or nil document", logging.Field{Key: "rule_id", Value: rule.ID})
 		return
@@ -219,6 +244,36 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 	if selection.Length() == 0 {
 		return
 	}
+
+	samples := []map[string]any{}
+	matchCount := 0
+
+	selection.Each(func(i int, s *goquery.Selection) {
+		matchCount++
+
+		if len(samples) >= opts.MaxCSSEvidenceSamples {
+			return
+		}
+
+		node := s.Get(0)
+		if node == nil {
+			return
+		}
+
+		attrs := map[string]any{}
+		for _, a := range node.Attr {
+			// whitelist later
+			if a.Key == "src" || a.Key == "href" || a.Key == "type" {
+				attrs[a.Key] = a.Val
+			}
+		}
+
+		samples = append(samples, map[string]any{
+			"tag":   node.Data,
+			"attrs": attrs,
+		})
+	})
+
 	locs := []EvidenceLocation{}
 	if opts.RequestLocations {
 		selection.Each(func(i int, s *goquery.Selection) {
@@ -229,11 +284,14 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 				end := idx + len(outer)
 				ls, le := byteToLine(start), byteToLine(end)
 				locs = append(locs, EvidenceLocation{
-					Selector:  rule.Selector,
-					ByteStart: &start,
-					ByteEnd:   &end,
-					LineStart: &ls,
-					LineEnd:   &le,
+					FilePath:     filePath,
+					SnapshotID:   snapshotID,
+					Selector:     rule.Selector,
+					RegexPattern: rule.Regex,
+					ByteStart:    &start,
+					ByteEnd:      &end,
+					LineStart:    &ls,
+					LineEnd:      &le,
 				})
 			}
 		})
@@ -244,7 +302,12 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 			RuleID:      rule.ID,
 			Severity:    rule.Severity,
 			Description: "css selector match",
-			Locations:   locs,
+			Value: map[string]any{
+				"selector":    rule.Selector,
+				"match_count": matchCount,
+				"samples":     samples,
+			},
+			Locations: locs,
 		})
 		res.MatchedRules = append(res.MatchedRules, rule)
 		res.Score += rule.Weight

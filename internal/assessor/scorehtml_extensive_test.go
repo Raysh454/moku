@@ -27,7 +27,7 @@ func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.
 	html := []byte("<html>\n<body>\n<h1>Test</h1>\n<p>para</p>\n</body>\n</html>\n")
 	ctx := context.Background()
 
-	res, err := a.ScoreHTML(ctx, html, "source")
+	res, err := a.ScoreHTML(ctx, html, "source", "", "")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestScoreHTML_NoLocationsRequested_SuppressesLocationData(t *testing.T) {
 	defer a.Close()
 
 	html := []byte("<html>\n<body>\n<p>para</p>\n</body>\n</html>")
-	res, err := a.ScoreHTML(context.Background(), html, "src")
+	res, err := a.ScoreHTML(context.Background(), html, "src", "", "")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestScoreHTML_NoRules_AddsDefaultEvidence(t *testing.T) {
 	}
 	defer a.Close()
 
-	res, err := a.ScoreHTML(context.Background(), []byte("<html></html>"), "src")
+	res, err := a.ScoreHTML(context.Background(), []byte("<html></html>"), "src", "", "")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}

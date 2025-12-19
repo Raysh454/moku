@@ -8,6 +8,7 @@ import (
 
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/tracker/models"
 )
 
 func TestHeaderStorage_Integration(t *testing.T) {
@@ -35,7 +36,7 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		"Server":        {"nginx/1.20.0"},
 	}
 
-	snapshot1 := &tracker.Snapshot{
+	snapshot1 := &models.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Version 1</body></html>"),
@@ -51,12 +52,12 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		t.Fatal("Commit returned nil result")
 	}
 
-	retrievedSnapshot, err := tr.GetSnapshots(ctx, result1.Version.ID)
+	retrievedSnapshots, err := tr.GetSnapshots(ctx, result1.Version.ID)
 	if err != nil {
 		t.Fatalf("GetSnapshots returned error: %v", err)
 	}
-	if retrievedSnapshot == nil {
-		t.Fatal("GetSnapshots returned nil snapshot")
+	if len(retrievedSnapshots) == 0 {
+		t.Fatal("GetSnapshots returned no snapshots")
 	}
 
 	// Second snapshot with modified headers
@@ -67,7 +68,7 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		"X-Custom":      {"value"},
 	}
 
-	snapshot2 := &tracker.Snapshot{
+	snapshot2 := &models.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Version 2</body></html>"),
@@ -124,7 +125,7 @@ func TestHeaderNormalization_Integration(t *testing.T) {
 		"CACHE-CONTROL": {"no-cache"},
 	}
 
-	snapshot := &tracker.Snapshot{
+	snapshot := &models.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Test</body></html>"),
@@ -168,7 +169,7 @@ func TestSensitiveHeaderRedaction_Integration(t *testing.T) {
 		"X-Api-Key":     {"super-secret-key"},
 	}
 
-	snapshot := &tracker.Snapshot{
+	snapshot := &models.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte("<html><body>Protected Content</body></html>"),
@@ -262,8 +263,8 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 }
 
 // Helper to commit snapshot with headers using new tracker.Snapshot
-func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers map[string][]string, message string, versionNum int) (*tracker.CommitResult, error) {
-	snapshot := &tracker.Snapshot{
+func commitWithHeaders(ctx context.Context, tr *tracker.SQLiteTracker, headers map[string][]string, message string, versionNum int) (*models.CommitResult, error) {
+	snapshot := &models.Snapshot{
 		StatusCode: 200,
 		URL:        "https://example.com",
 		Body:       []byte(fmt.Sprintf("<html><body>Version %d</body></html>", versionNum)),

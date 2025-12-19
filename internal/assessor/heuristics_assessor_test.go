@@ -47,7 +47,7 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 	html := []byte(`<html><body><h1>Test</h1></body></html>`)
 
 	ctx := context.Background()
-	result, err := a.ScoreHTML(ctx, html, "source")
+	result, err := a.ScoreHTML(ctx, html, "source", "", "")
 	if err != nil {
 		t.Fatalf("ScoreHTML returned error: %v", err)
 	}

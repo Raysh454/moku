@@ -8,6 +8,7 @@ import (
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -38,13 +39,13 @@ func New(MaxConcurrency, CommitSize int, tracker tracker.Tracker, wc webclient.W
 func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.MaxConcurrency)
-	snapCh := make(chan *tracker.Snapshot)
+	snapCh := make(chan *models.Snapshot)
 	batcherDone := make(chan struct{})
 
 	// Commit snapshots goroutine
 	go func() {
 		defer close(batcherDone)
-		batch := make([]*tracker.Snapshot, 0, f.CommitSize)
+		batch := make([]*models.Snapshot, 0, f.CommitSize)
 		flush := func() {
 			if len(batch) > 0 {
 				cr, err := f.tracker.CommitBatch(ctx, batch, "some kind of message", "^_^")

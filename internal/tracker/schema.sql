@@ -111,75 +111,79 @@ CREATE INDEX IF NOT EXISTS idx_endpoints_host ON endpoints(host);
 CREATE INDEX IF NOT EXISTS idx_endpoints_status ON endpoints(status);
 CREATE INDEX IF NOT EXISTS idx_endpoints_last_discovered_at ON endpoints(last_discovered_at);
 
--- Adds per-version score storage.
-CREATE TABLE IF NOT EXISTS version_scores (
-  id TEXT PRIMARY KEY,           -- uuid
-  version_id TEXT NOT NULL,      -- REFERENCES versions(id)
-  scoring_version TEXT NOT NULL, -- heuristics scoring version used
-  score REAL NOT NULL,           -- numeric score
-  normalized INTEGER,            -- optional normalized integer score
-  confidence REAL,               -- assessor confidence
-  score_json TEXT NOT NULL,      -- JSON-serialized ScoreResult (full evidence, matched rules)
-  created_at INTEGER NOT NULL,
-  UNIQUE(version_id, scoring_version),
-  FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS score_results (
+    id            TEXT PRIMARY KEY,
+    version_id    TEXT NOT NULL,
+
+    score         REAL    NOT NULL,  -- 0.0 .. 1.0
+    normalized    INTEGER NOT NULL,  -- 0 .. 100
+    confidence    REAL    NOT NULL,  -- 0.0 .. 1.0
+    scoring_version   TEXT    NOT NULL,  -- scoring rules version
+    created_at     INTEGER NOT NULL,
+
+    score_json    TEXT,              -- JSON
+    matched_rules TEXT,              -- JSON
+    meta          TEXT,              -- JSON
+    raw_features  TEXT,              -- JSON
+
+    FOREIGN KEY (version_id)
+        REFERENCES versions(id)
+        ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_version_scores_version_id ON version_scores(version_id);
+-- Enforce exactly one score per version
+CREATE UNIQUE INDEX IF NOT EXISTS idx_score_results_version
+ON score_results(version_id);
 
--- Flattened evidence-location rows per version (one row per evidence location).
--- If an EvidenceItem has no locations, a single row is stored with location_index = -1.
-CREATE TABLE IF NOT EXISTS version_evidence_locations (
-  id TEXT PRIMARY KEY,               -- uuid
-  version_id TEXT NOT NULL,          -- references versions(id)
-  evidence_id TEXT NOT NULL,         -- evidence item id (from ScoreResult)
-  evidence_index INTEGER NOT NULL,   -- index of evidence in ScoreResult.Evidence
-  location_index INTEGER NOT NULL,   -- index within evidence.Locations (0..N-1), -1 for "global"/none
-  evidence_key TEXT,                 -- evidence key (ev.Key)
-  selector TEXT,
-  xpath TEXT,
-  node_id TEXT,
-  file_path TEXT,
-  byte_start INTEGER,
-  byte_end INTEGER,
-  line_start INTEGER,
-  line_end INTEGER,
-  loc_confidence REAL,               -- per-location confidence if provided
-  evidence_json TEXT NOT NULL,       -- full EvidenceItem JSON (for audit)
-  location_json TEXT,                -- raw Location JSON (for audit)
-  scoring_version TEXT,              -- scoring version that produced this evidence (optional convenience)
-  created_at INTEGER NOT NULL,
-  FOREIGN KEY(version_id) REFERENCES versions(id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS evidence_items (
+    id               TEXT PRIMARY KEY,
+    score_result_id  TEXT NOT NULL,
+
+    evidence_uid     TEXT,           -- stable ID inside ScoreResult
+    item_key              TEXT NOT NULL,
+    rule_id          TEXT,
+    severity         TEXT NOT NULL,
+    description      TEXT NOT NULL,
+    value            TEXT,  -- JSON
+
+    FOREIGN KEY (score_result_id)
+        REFERENCES score_results(id)
+        ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_vel_version_id ON version_evidence_locations(version_id);
-CREATE INDEX IF NOT EXISTS idx_vel_evidence_id ON version_evidence_locations(evidence_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_vel_unique_triplet ON version_evidence_locations(version_id, evidence_id, location_index);
+CREATE INDEX IF NOT EXISTS idx_evidence_items_score
+ON evidence_items(score_result_id);
 
--- Attribution rows that link diff chunks to specific per-version evidence locations.
--- Each attribution may optionally reference version_evidence_locations(id) for an authoritative link.
-CREATE TABLE IF NOT EXISTS diff_attributions (
-  id TEXT PRIMARY KEY,                       -- uuid
-  diff_id TEXT NOT NULL,                     -- references diffs(id)
-  head_version_id TEXT NOT NULL,             -- denormalized: the head version for which this attribution was computed
-  version_evidence_location_id TEXT,         -- fk -> version_evidence_locations(id) (nullable)
-  evidence_id TEXT NOT NULL,                 -- evidence item id (redundant for ease of queries)
-  evidence_location_index INTEGER,           -- index within evidence.Locations or -1 for global
-  chunk_index INTEGER NOT NULL,              -- index of chunk within combined body diff (or -1 for "global")
-  evidence_key TEXT,                         -- ruleID|evidenceKey (optional human-friendly key)
-  evidence_json TEXT,                        -- JSON of the evidence item (optional duplicate for audit)
-  location_json TEXT,                        -- JSON of the matched location (optional duplicate for audit)
-  scoring_version TEXT NOT NULL,             -- scoring version that produced this attribution
-  contribution REAL NOT NULL,                -- numeric contribution weight (un-normalized)
-  contribution_pct REAL NOT NULL,            -- normalized percent (0..100)
-  note TEXT,                                 -- optional human note
-  created_at INTEGER NOT NULL,
-  FOREIGN KEY (diff_id) REFERENCES diffs(id) ON DELETE CASCADE,
-  FOREIGN KEY (head_version_id) REFERENCES versions(id) ON DELETE CASCADE,
-  FOREIGN KEY (version_evidence_location_id) REFERENCES version_evidence_locations(id) ON DELETE SET NULL
+CREATE INDEX IF NOT EXISTS idx_evidence_items_severity
+ON evidence_items(severity);
+
+CREATE TABLE IF NOT EXISTS evidence_locations (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_item_id  TEXT NOT NULL,
+
+    snapshot_id       TEXT NOT NULL,  -- exact file version
+    css_selector          TEXT,
+    regex_pattern     TEXT,
+    file_path         TEXT,
+
+    byte_start        INTEGER,
+    byte_end          INTEGER,
+    line_start        INTEGER,
+    line_end          INTEGER,
+
+    note              TEXT,
+
+    FOREIGN KEY (evidence_item_id)
+        REFERENCES evidence_items(id)
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (snapshot_id)
+        REFERENCES snapshots(id)
+        ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_diff_attributions_diff_id ON diff_attributions(diff_id);
-CREATE INDEX IF NOT EXISTS idx_diff_attributions_head_version ON diff_attributions(head_version_id);
-CREATE INDEX IF NOT EXISTS idx_diff_attributions_vel_id ON diff_attributions(version_evidence_location_id);
-CREATE INDEX IF NOT EXISTS idx_diff_attributions_scoring_version ON diff_attributions(scoring_version);
+CREATE INDEX IF NOT EXISTS idx_evidence_locations_item
+ON evidence_locations(evidence_item_id);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_locations_snapshot
+ON evidence_locations(snapshot_id);
