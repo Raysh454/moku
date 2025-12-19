@@ -163,7 +163,7 @@ func (h *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *models.Snapshot, 
 	return at, nil
 }
 
-func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot) (*ScoreResult, error) {
+func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*ScoreResult, error) {
 	if h == nil || h.logger == nil {
 		return nil, errors.New("heuristics-assessor: nil instance or logger")
 	}
@@ -171,6 +171,8 @@ func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models
 	// Prepare result scaffolding
 	res := &ScoreResult{
 		Score:         0.0,
+		SnapshotID:    snapshot.ID,
+		VersionID:     versionID,
 		Normalized:    0,
 		Confidence:    h.cfg.DefaultConfidence,
 		Version:       h.cfg.ScoringVersion,
@@ -202,16 +204,6 @@ func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models
 	res.Normalized = int(res.Score * 100.0)
 
 	return res, nil
-}
-
-// ScoreResponse delegates to ScoreHTML by extracting resp.Body.
-// If resp is nil or has no body, returns a neutral result.
-func (h *HeuristicsAssessor) ScoreResponse(ctx context.Context, resp *webclient.Response) (*ScoreResult, error) {
-	if resp == nil || len(resp.Body) == 0 {
-		return nil, errors.New("heuristics-assessor: nil response or empty body")
-	}
-
-	return h.ScoreSnapshot(ctx, utils.NewSnapshotFromResponse(resp))
 }
 
 // Close releases resources (currently a no-op) and logs lifecycle.

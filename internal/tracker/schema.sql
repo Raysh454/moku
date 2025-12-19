@@ -113,27 +113,37 @@ CREATE INDEX IF NOT EXISTS idx_endpoints_last_discovered_at ON endpoints(last_di
 
 CREATE TABLE IF NOT EXISTS score_results (
     id            TEXT PRIMARY KEY,
+    snapshot_id   TEXT NOT NULL,
     version_id    TEXT NOT NULL,
+    url           TEXT NOT NULL,
 
     score         REAL    NOT NULL,  -- 0.0 .. 1.0
     normalized    INTEGER NOT NULL,  -- 0 .. 100
     confidence    REAL    NOT NULL,  -- 0.0 .. 1.0
-    scoring_version   TEXT    NOT NULL,  -- scoring rules version
+    scoring_version   TEXT    NOT NULL,
     created_at     INTEGER NOT NULL,
 
-    score_json    TEXT,              -- JSON
+    score_json    TEXT,              -- JSON-encoded ScoreResult (incl. AttackSurface)
     matched_rules TEXT,              -- JSON
     meta          TEXT,              -- JSON
     raw_features  TEXT,              -- JSON
 
     FOREIGN KEY (version_id)
         REFERENCES versions(id)
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (snapshot_id)
+        REFERENCES snapshots(id)
         ON DELETE CASCADE
 );
 
--- Enforce exactly one score per version
-CREATE UNIQUE INDEX IF NOT EXISTS idx_score_results_version
-ON score_results(version_id);
+-- Enforce exactly one score per snapshot
+CREATE UNIQUE INDEX IF NOT EXISTS idx_score_results_snapshot
+ON score_results(snapshot_id);
+
+CREATE INDEX IF NOT EXISTS idx_score_results_version_url
+ON score_results(version_id, url);
+
 
 CREATE TABLE IF NOT EXISTS evidence_items (
     id               TEXT PRIMARY KEY,

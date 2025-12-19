@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/raysh454/moku/internal/tracker/models"
-	"github.com/raysh454/moku/internal/webclient"
 )
 
 // Assessor is the minimal cross-package contract for scoring HTML content.
@@ -18,12 +17,7 @@ import (
 type Assessor interface {
 	// ScoreSnapshot scores the provided snapshot.
 	// The opts parameter can request locations or a lightweight pass.
-	ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot) (*ScoreResult, error)
-
-	// TODO: Create ScoreHeaders, should receive separate rules for headers.
-
-	// ScoreResponse evaluates an already-fetched response (no network).
-	ScoreResponse(ctx context.Context, resp *webclient.Response) (*ScoreResult, error)
+	ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*ScoreResult, error)
 
 	// Close releases any resources held by the assessor.
 	Close() error

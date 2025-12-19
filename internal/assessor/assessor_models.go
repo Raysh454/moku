@@ -93,6 +93,12 @@ type ScoreResult struct {
 	// Score is the normalized internal score range [0.0 .. 1.0].
 	Score float64 `json:"score"`
 
+	// SnapshotID is the snapshot this score applies to.
+	SnapshotID string `json:"snapshot_id"`
+
+	// VersionID is the version this score applies to.
+	VersionID string `json:"version_id"`
+
 	// Normalized is an integer normalized form [0 .. 100] for ease of reporting.
 	Normalized int `json:"normalized"`
 
@@ -184,6 +190,8 @@ type ScoreDiff struct {
 // Includes score deltas and attack surface changes.
 type SecurityDiff struct {
 	FilePath       string `json:"url"`
+	BaseVersionID  string `json:"base_version_id"`
+	HeadVersionID  string `json:"head_version_id"`
 	BaseSnapshotID string `json:"base_snapshot_id"`
 	HeadSnapshotID string `json:"head_snapshot_id"`
 
@@ -198,4 +206,23 @@ type SecurityDiff struct {
 	// Attack surface deltas
 	AttackSurfaceChanged bool                                `json:"attack_surface_changed"`
 	AttackSurfaceChanges []attacksurface.AttackSurfaceChange `json:"attack_surface_changes,omitempty"`
+}
+
+type SecurityDiffOverview struct {
+	BaseVersionID string                   `json:"base_version_id"`
+	HeadVersionID string                   `json:"head_version_id"`
+	Entries       []SecurityDiffOverviewEntry `json:"entries"`
+}
+
+type SecurityDiffOverviewEntry struct {
+	FilePath			 string  `json:"url"`
+	BaseSnapshotID       string  `json:"base_snapshot_id,omitempty"`
+	HeadSnapshotID       string  `json:"head_snapshot_id,omitempty"`
+	ScoreBase            float64 `json:"score_base"`
+	ScoreHead            float64 `json:"score_head"`
+	ScoreDelta           float64 `json:"score_delta"`
+	AttackSurfaceChanged bool    `json:"attack_surface_changed"`
+	NumAttackSurfaceChanges int `json:"num_attack_surface_changes"`
+	// (scoreDelta > 0) for quick UI signals
+	Regressed bool `json:"regressed"`
 }

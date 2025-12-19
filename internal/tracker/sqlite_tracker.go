@@ -33,6 +33,7 @@ type SQLiteTracker struct {
 	logger   logging.Logger
 	config   *Config
 	assessor assessor.Assessor
+	score  *score.SQLiteScoreTracker
 }
 
 // NewSQLiteTracker creates a new SQLiteTracker instance with custom configuration.
@@ -88,6 +89,7 @@ func NewSQLiteTracker(logger logging.Logger, assessor assessor.Assessor, config 
 		logger:   logger,
 		config:   config,
 		assessor: assessor,
+		score: score.New(assessor, db, logger),
 	}
 
 	if config.ProjectID != "" {
@@ -897,13 +899,22 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models
 
 	t.logger.Info("Starting scoring and attribution")
 
-	if cr.DiffJSON == "" && cr.DiffID != "" {
-		if err := t.db.QueryRowContext(ctx, `SELECT diff_json FROM diffs WHERE id = ?`, cr.DiffID).Scan(&cr.DiffJSON); err != nil && err != sql.ErrNoRows {
-			t.logger.Warn("failed to load diff_json for commit", logging.Field{Key: "err", Value: err})
-		}
-	}
-
-	// For multi-snapshot commits, pass empty body; assessors can fetch as needed using version/diff.
-	sa := score.New(t.assessor, t.db, t.logger)
-	return sa.ScoreAndAttribute(ctx, cr, opts)
+	return t.score.ScoreAndAttribute(ctx, cr, opts)
 }
+
+func (t *SQLiteTracker)	GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
+	return t.score.GetScoreResultFromSnapshotID(ctx, snapshotID)
+}
+
+func (t *SQLiteTracker) GetScoreResultsFromVersionID(ctx context.Context, versionID string) ([]*assessor.ScoreResult, error) {
+	return t.score.GetScoreResultsFromVersionID(ctx, versionID)
+}
+
+func (t *SQLiteTracker) GetSecurityDiffOverview(ctx context.Context, baseID, headID string) (*assessor.SecurityDiffOverview, error) {
+	return t.score.GetSecurityDiffOverview(ctx, baseID, headID)
+}
+
+func (t *SQLiteTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error) {
+	return t.score.GetSecurityDiff(ctx, baseSnapshotID, headSnapshotID)
+}
+

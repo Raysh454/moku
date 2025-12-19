@@ -7,8 +7,8 @@ import (
 
 func NewSecurityDiff(
 	url string,
-	baseSnapshotID string,
-	headSnapshotID string,
+	baseVersionID, headVersionID string,
+	baseSnapshotID, headSnapshotID string,
 	baseScore *ScoreResult,
 	headScore *ScoreResult,
 	baseAS *attacksurface.AttackSurface,
@@ -25,6 +25,8 @@ func NewSecurityDiff(
 
 	return &SecurityDiff{
 		FilePath:       filepath,
+		BaseVersionID:  baseVersionID,
+		HeadVersionID:  headVersionID,
 		BaseSnapshotID: baseSnapshotID,
 		HeadSnapshotID: headSnapshotID,
 
@@ -37,4 +39,41 @@ func NewSecurityDiff(
 		AttackSurfaceChanged: len(asChanges) > 0,
 		AttackSurfaceChanges: asChanges,
 	}, nil
+}
+
+func NewSecurityDiffOverview(diffs []*SecurityDiff) *SecurityDiffOverview {
+    ov := &SecurityDiffOverview{
+        Entries: make([]SecurityDiffOverviewEntry, 0, len(diffs)),
+    }
+
+    if len(diffs) == 0 {
+        return ov
+    }
+
+    // You can copy version IDs from the first diff if needed
+    ov.BaseVersionID = diffs[0].BaseVersionID
+    ov.HeadVersionID = diffs[0].HeadVersionID
+
+
+    for _, d := range diffs {
+        if d == nil {
+            continue
+        }
+
+        entry := SecurityDiffOverviewEntry{
+            FilePath:             d.FilePath,
+            BaseSnapshotID:       d.BaseSnapshotID,
+            HeadSnapshotID:       d.HeadSnapshotID,
+            ScoreBase:            d.ScoreBase,
+            ScoreHead:            d.ScoreHead,
+            ScoreDelta:           d.ScoreDelta,
+            AttackSurfaceChanged: d.AttackSurfaceChanged,
+            NumAttackSurfaceChanges: len(d.AttackSurfaceChanges),
+            Regressed:            d.ScoreDelta > 0,
+        }
+
+        ov.Entries = append(ov.Entries, entry)
+    }
+
+    return ov
 }
