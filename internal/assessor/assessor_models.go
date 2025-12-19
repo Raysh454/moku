@@ -9,8 +9,16 @@ import (
 // Assessor implementations should populate one or more locations per EvidenceItem when
 // RequestLocations is enabled in ScoreOptions.
 type EvidenceLocation struct {
+	// Type describes what kind of location this is (e.g., "css", "xpath", "header", "cookie").
+	// Used by the UI to determine how to interpret and highlight the location.
+	Type string `json:"type,omitempty"`
+
 	// Preferred: CSS selector that identifies the element.
 	Selector string `json:"selector,omitempty"`
+
+	// XPath expression (optional alternative to CSS selector).
+	XPath string `json:"xpath,omitempty"`
+
 	// Regex pattern that matched (if applicable).
 	RegexPattern string `json:"regex,omitempty"`
 
@@ -27,6 +35,16 @@ type EvidenceLocation struct {
 	// Optional line numbers (1-based). Useful for working-tree highlighting in the UI.
 	LineStart *int `json:"line_start,omitempty"`
 	LineEnd   *int `json:"line_end,omitempty"`
+
+	// Line and Column for precise text-based locations.
+	Line   int `json:"line,omitempty"`
+	Column int `json:"column,omitempty"`
+
+	// For header-based evidence: the name of the header.
+	HeaderName string `json:"header_name,omitempty"`
+
+	// For cookie-based evidence: the name of the cookie.
+	CookieName string `json:"cookie_name,omitempty"`
 
 	// Optional human note about this specific location (e.g., "in modal dialog").
 	Note string `json:"note,omitempty"`
@@ -57,6 +75,10 @@ type EvidenceItem struct {
 	// Locations holds zero or more structured locators where this evidence was observed.
 	// When non-empty it enables exact attribution and deterministic UI highlighting.
 	Locations []EvidenceLocation `json:"locations,omitempty"`
+
+	// Contribution is the numeric score contribution of this specific evidence item.
+	// Used to explain how each piece of evidence contributed to the overall score.
+	Contribution float64 `json:"contribution,omitempty"`
 }
 
 type ScoreResult struct {
@@ -84,6 +106,10 @@ type ScoreResult struct {
 
 	// RawFeatures contains extracted numeric features (featureName -> value), e.g: "has_password_field": 1.0, num_forms: 3.0
 	RawFeatures map[string]float64 `json:"raw_features,omitempty"`
+
+	// ContribByRule maps rule IDs to their total contribution to the score.
+	// This allows computing rule deltas between versions without re-running the assessor.
+	ContribByRule map[string]float64 `json:"contrib_by_rule,omitempty"`
 
 	// Timestamp is the time when this ScoreResult was produced.
 	Timestamp time.Time `json:"timestamp"`

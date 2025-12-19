@@ -74,15 +74,16 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source,
 
 	// Prepare result scaffolding
 	res := &ScoreResult{
-		Score:        0.0,
-		Normalized:   0,
-		Confidence:   h.cfg.DefaultConfidence,
-		Version:      h.cfg.ScoringVersion,
-		Evidence:     []EvidenceItem{},
-		MatchedRules: []Rule{},
-		RawFeatures:  map[string]float64{},
-		Meta:         map[string]any{"source": source},
-		Timestamp:    time.Now().UTC(),
+		Score:         0.0,
+		Normalized:    0,
+		Confidence:    h.cfg.DefaultConfidence,
+		Version:       h.cfg.ScoringVersion,
+		Evidence:      []EvidenceItem{},
+		MatchedRules:  []Rule{},
+		RawFeatures:   map[string]float64{},
+		ContribByRule: map[string]float64{},
+		Meta:          map[string]any{"source": source, "snapshot_id": snapshotID},
+		Timestamp:     time.Now().UTC(),
 	}
 
 	// Build compact line-start offsets and mapping helper
@@ -111,21 +112,21 @@ func (h *HeuristicsAssessor) ScoreHTML(ctx context.Context, html []byte, source,
 	// If no evidence matched, provide a scaffold default item for downstream expectations
 	if len(res.Evidence) == 0 {
 		res.Evidence = append(res.Evidence, EvidenceItem{
-			Key:         "no-evidence",
-			Severity:    "low",
-			Description: "no matching rules found",
-			RuleID:      "scaffold:no_rules_matched",
-			Value:       "",
+			Key:          "no-evidence",
+			Severity:     "low",
+			Description:  "no matching rules found",
+			RuleID:       "scaffold:no_rules_matched",
+			Value:        "",
+			Contribution: 0.0,
 		})
 	}
 
-	// Normalize score to [0..100]
-	if res.Score < 0 {
-		res.Score = 0
+	// Compute score from contributions
+	var totalContrib float64
+	for _, contrib := range res.ContribByRule {
+		totalContrib += contrib
 	}
-	if res.Score > 1 {
-		res.Score = 1
-	}
+	res.Score = normalizeScore(totalContrib)
 	res.Normalized = int(res.Score * 100.0)
 
 	return res, nil
@@ -198,6 +199,7 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 			start, end := m[0], m[1]
 			ls, le := byteToLine(start), byteToLine(end)
 			locs = append(locs, EvidenceLocation{
+				Type:         "regex",
 				FilePath:     filePath,
 				Selector:     rule.Selector,
 				RegexPattern: rule.Regex,
@@ -218,20 +220,22 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 		}
 	}
 	if len(locs) > 0 {
+		contribution := rule.Weight
 		res.Evidence = append(res.Evidence, EvidenceItem{
-			Key:         rule.Key,
-			RuleID:      rule.ID,
-			Severity:    rule.Severity,
-			Description: "regex match",
+			Key:          rule.Key,
+			RuleID:       rule.ID,
+			Severity:     rule.Severity,
+			Description:  "regex match",
 			Value: map[string]any{
 				"pattern":     rule.Regex,
 				"match_count": len(locs),
 				"samples":     matches,
 			},
-			Locations: locs,
+			Locations:    locs,
+			Contribution: contribution,
 		})
 		res.MatchedRules = append(res.MatchedRules, rule)
-		res.Score += rule.Weight
+		res.ContribByRule[rule.ID] += contribution
 	}
 }
 
@@ -284,6 +288,7 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 				end := idx + len(outer)
 				ls, le := byteToLine(start), byteToLine(end)
 				locs = append(locs, EvidenceLocation{
+					Type:         "css",
 					FilePath:     filePath,
 					SnapshotID:   snapshotID,
 					Selector:     rule.Selector,
@@ -297,20 +302,22 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 		})
 	}
 	if len(locs) > 0 {
+		contribution := rule.Weight
 		res.Evidence = append(res.Evidence, EvidenceItem{
-			Key:         rule.Key,
-			RuleID:      rule.ID,
-			Severity:    rule.Severity,
-			Description: "css selector match",
+			Key:          rule.Key,
+			RuleID:       rule.ID,
+			Severity:     rule.Severity,
+			Description:  "css selector match",
 			Value: map[string]any{
 				"selector":    rule.Selector,
 				"match_count": matchCount,
 				"samples":     samples,
 			},
-			Locations: locs,
+			Locations:    locs,
+			Contribution: contribution,
 		})
 		res.MatchedRules = append(res.MatchedRules, rule)
-		res.Score += rule.Weight
+		res.ContribByRule[rule.ID] += contribution
 	}
 }
 
@@ -334,4 +341,17 @@ func indexOf(buf, sub []byte) int {
 		return -1
 	}
 	return bytes.Index(buf, sub)
+}
+
+// normalizeScore converts a raw contribution sum to a normalized score [0.0..1.0].
+// This is a simple linear normalization with a cap at 1.0.
+// Future implementations could use sigmoid, logarithmic, or other scaling functions.
+func normalizeScore(rawScore float64) float64 {
+	if rawScore < 0 {
+		return 0.0
+	}
+	if rawScore > 1.0 {
+		return 1.0
+	}
+	return rawScore
 }
