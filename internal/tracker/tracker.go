@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/tracker/models"
 )
 
 // Tracker is the minimal cross-package contract for versioning website snapshots.
@@ -11,28 +12,28 @@ import (
 type Tracker interface {
 	// Commit stores a snapshot and returns a Version record representing the commit.
 	// 'message' is a human message describing the change; author is optional.
-	Commit(ctx context.Context, snapshot *Snapshot, message string, author string) (*CommitResult, error)
+	Commit(ctx context.Context, snapshot *models.Snapshot, message string, author string) (*models.CommitResult, error)
 
 	// CommitBatch stores multiple snapshots and returns a single CommitResult containing all snapshots.
-	CommitBatch(ctx context.Context, snapshots []*Snapshot, message, author string) (*CommitResult, error)
+	CommitBatch(ctx context.Context, snapshots []*models.Snapshot, message, author string) (*models.CommitResult, error)
 
 	// ScoreAndAttributeVersion assigns a score (security relavance) for a given commit result
-	ScoreAndAttributeVersion(ctx context.Context, cr *CommitResult, opts *assessor.ScoreOptions) error
+	ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, opts *assessor.ScoreOptions) error
 
 	// SetAssessor sets the Assessor used by ScoreAndAttributeVersion to produce a score.
 	SetAssessor(a assessor.Assessor)
 
 	// Diff computes a delta between two versions identified by their IDs.
 	// If baseID == "" treat it as an empty/base snapshot.
-	Diff(ctx context.Context, baseID, headID string) (*CombinedMultiDiff, error)
+	Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error)
 
 	// GetSnapshots returns all snapshots for a specific version ID.
 	// A version may reference multiple snapshots through the version_snapshots join table.
-	GetSnapshots(ctx context.Context, versionID string) ([]*Snapshot, error)
+	GetSnapshots(ctx context.Context, versionID string) ([]*models.Snapshot, error)
 
 	// ListVersions returns recent versions (e.g., head-first). The semantics of pagination
 	// can be added later.
-	ListVersions(ctx context.Context, limit int) ([]*Version, error)
+	ListVersions(ctx context.Context, limit int) ([]*models.Version, error)
 
 	// Checkout updates the working tree to match a specific version.
 	// This restores all files from the specified version to the working directory.

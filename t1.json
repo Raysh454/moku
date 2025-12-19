@@ -1,0 +1,472 @@
+{
+  "score": 0.75,
+  "normalized": 75,
+  "confidence": 0.5,
+  "version": "v0.1.0",
+  "evidence": [
+    {
+      "key": "inline-script",
+      "rule_id": "js:inline-script",
+      "severity": "medium",
+      "description": "css selector match",
+      "value": {
+        "match_count": 18,
+        "samples": [
+          {
+            "attrs": {
+              "type": "application/ld+json"
+            },
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          },
+          {
+            "attrs": {
+              "type": "speculationrules"
+            },
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          },
+          {
+            "attrs": {},
+            "tag": "script"
+          }
+        ],
+        "selector": "script:not([src])"
+      },
+      "locations": [
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 1622,
+          "byte_end": 4099,
+          "line_start": 26,
+          "line_end": 26
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 99496,
+          "byte_end": 100247,
+          "line_start": 135,
+          "line_end": 151
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 372063,
+          "byte_end": 372514,
+          "line_start": 3716,
+          "line_end": 3718
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 372623,
+          "byte_end": 373133,
+          "line_start": 3721,
+          "line_end": 3730
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 373150,
+          "byte_end": 373380,
+          "line_start": 3731,
+          "line_end": 3739
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 380306,
+          "byte_end": 381245,
+          "line_start": 3894,
+          "line_end": 3919
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 381609,
+          "byte_end": 381823,
+          "line_start": 3923,
+          "line_end": 3926
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 382575,
+          "byte_end": 382854,
+          "line_start": 3932,
+          "line_end": 3935
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 383296,
+          "byte_end": 384487,
+          "line_start": 3939,
+          "line_end": 3942
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 384803,
+          "byte_end": 385112,
+          "line_start": 3945,
+          "line_end": 3948
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 385274,
+          "byte_end": 386993,
+          "line_start": 3950,
+          "line_end": 3955
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 387867,
+          "byte_end": 388005,
+          "line_start": 3962,
+          "line_end": 3965
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 388006,
+          "byte_end": 389370,
+          "line_start": 3966,
+          "line_end": 3970
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 389519,
+          "byte_end": 392172,
+          "line_start": 3972,
+          "line_end": 3976
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 392469,
+          "byte_end": 392779,
+          "line_start": 3979,
+          "line_end": 3981
+        },
+        {
+          "selector": "script:not([src])",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 392780,
+          "byte_end": 395778,
+          "line_start": 3982,
+          "line_end": 3986
+        }
+      ]
+    },
+    {
+      "key": "inline-style",
+      "rule_id": "security-inline-css",
+      "severity": "low",
+      "description": "css selector match",
+      "value": {
+        "match_count": 29,
+        "samples": [
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "button"
+          },
+          {
+            "attrs": {},
+            "tag": "div"
+          },
+          {
+            "attrs": {},
+            "tag": "div"
+          }
+        ],
+        "selector": "*[style]"
+      },
+      "locations": [
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 182237,
+          "byte_end": 182514,
+          "line_start": 635,
+          "line_end": 638
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 182519,
+          "byte_end": 182801,
+          "line_start": 639,
+          "line_end": 642
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 182806,
+          "byte_end": 183093,
+          "line_start": 643,
+          "line_end": 646
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 183098,
+          "byte_end": 183363,
+          "line_start": 647,
+          "line_end": 650
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 183368,
+          "byte_end": 183648,
+          "line_start": 651,
+          "line_end": 654
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 183653,
+          "byte_end": 183943,
+          "line_start": 655,
+          "line_end": 658
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 183948,
+          "byte_end": 184222,
+          "line_start": 659,
+          "line_end": 662
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 184227,
+          "byte_end": 184506,
+          "line_start": 663,
+          "line_end": 666
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 197865,
+          "byte_end": 198690,
+          "line_start": 837,
+          "line_end": 842
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 200717,
+          "byte_end": 201291,
+          "line_start": 864,
+          "line_end": 864
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 289582,
+          "byte_end": 289862,
+          "line_start": 2302,
+          "line_end": 2305
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 289867,
+          "byte_end": 290158,
+          "line_start": 2306,
+          "line_end": 2309
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 290163,
+          "byte_end": 290452,
+          "line_start": 2310,
+          "line_end": 2313
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 290457,
+          "byte_end": 290746,
+          "line_start": 2314,
+          "line_end": 2317
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 290751,
+          "byte_end": 291033,
+          "line_start": 2318,
+          "line_end": 2321
+        },
+        {
+          "selector": "*[style]",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 327694,
+          "byte_end": 327768,
+          "line_start": 2941,
+          "line_end": 2941
+        }
+      ]
+    },
+    {
+      "key": "post-grid-vuln",
+      "rule_id": "wp-post-grid-vuln",
+      "severity": "high",
+      "description": "regex match",
+      "value": {
+        "match_count": 2,
+        "pattern": "wp-content/plugins/the-post-grid/",
+        "samples": [
+          "wp-content/plugins/the-post-grid/",
+          "wp-content/plugins/the-post-grid/"
+        ]
+      },
+      "locations": [
+        {
+          "regex": "wp-content/plugins/the-post-grid/",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 73070,
+          "byte_end": 73103,
+          "line_start": 93,
+          "line_end": 93
+        },
+        {
+          "regex": "wp-content/plugins/the-post-grid/",
+          "file_path": "/bs-internationalrelations",
+          "snapshot_id": "9f609068-5e2c-4bd4-a63b-40d01113f822",
+          "byte_start": 73250,
+          "byte_end": 73283,
+          "line_start": 94,
+          "line_end": 94
+        }
+      ]
+    }
+  ],
+  "matched_rules": [
+    {
+      "ID": "js:inline-script",
+      "Key": "inline-script",
+      "Severity": "medium",
+      "Weight": 0.15,
+      "Selector": "script:not([src])",
+      "Regex": ""
+    },
+    {
+      "ID": "security-inline-css",
+      "Key": "inline-style",
+      "Severity": "low",
+      "Weight": 0.1,
+      "Selector": "*[style]",
+      "Regex": ""
+    },
+    {
+      "ID": "wp-post-grid-vuln",
+      "Key": "post-grid-vuln",
+      "Severity": "high",
+      "Weight": 0.5,
+      "Selector": "",
+      "Regex": "wp-content/plugins/the-post-grid/"
+    }
+  ],
+  "meta": {
+    "source": "version:5491d9cb-0f46-45b5-bcb3-7c7c5901a526"
+  },
+  "timestamp": "2025-12-18T19:41:37.457954048Z"
+}

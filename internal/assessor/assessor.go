@@ -17,7 +17,9 @@ import (
 type Assessor interface {
 	// ScoreHTML evaluates raw HTML bytes.
 	// The opts parameter can request locations or a lightweight pass.
-	ScoreHTML(ctx context.Context, html []byte, source string) (*ScoreResult, error)
+	ScoreHTML(ctx context.Context, html []byte, source, snapshotID, filePath string) (*ScoreResult, error)
+
+	// TODO: Create ScoreHeaders, should receive separate rules for headers.
 
 	// ScoreResponse evaluates an already-fetched response (no network).
 	ScoreResponse(ctx context.Context, resp *webclient.Response) (*ScoreResult, error)

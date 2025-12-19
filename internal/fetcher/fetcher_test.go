@@ -11,7 +11,7 @@ import (
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/logging"
-	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -52,24 +52,24 @@ func (d *DummyWebClient) Close() error { return nil }
 // Dummy Tracker
 type DummyTracker struct {
 	mu      sync.Mutex
-	Batches [][]*tracker.Snapshot
+	Batches [][]*models.Snapshot
 }
 
-func (t *DummyTracker) Commit(ctx context.Context, snap *tracker.Snapshot, message, author string) (*tracker.CommitResult, error) {
-	return &tracker.CommitResult{}, nil
+func (t *DummyTracker) Commit(ctx context.Context, snap *models.Snapshot, message, author string) (*models.CommitResult, error) {
+	return &models.CommitResult{}, nil
 }
 
-func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*tracker.Snapshot, message, author string) (*tracker.CommitResult, error) {
+func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*models.Snapshot, message, author string) (*models.CommitResult, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	copySnaps := append([]*tracker.Snapshot(nil), snaps...)
+	copySnaps := append([]*models.Snapshot(nil), snaps...)
 	t.Batches = append(t.Batches, copySnaps)
 
-	return &tracker.CommitResult{Snapshots: copySnaps}, nil
+	return &models.CommitResult{Snapshots: copySnaps}, nil
 }
 
-func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *tracker.CommitResult, _ *assessor.ScoreOptions) error {
+func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, _ *assessor.ScoreOptions) error {
 	return nil
 }
 
@@ -77,15 +77,15 @@ func (t *DummyTracker) SetAssessor(a assessor.Assessor) {
 	// no-op for dummy
 }
 
-func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*tracker.CombinedMultiDiff, error) {
+func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error) {
 	return nil, nil
 }
 
-func (t *DummyTracker) GetSnapshots(ctx context.Context, versionID string) ([]*tracker.Snapshot, error) {
+func (t *DummyTracker) GetSnapshots(ctx context.Context, versionID string) ([]*models.Snapshot, error) {
 	return nil, nil
 }
 
-func (t *DummyTracker) ListVersions(ctx context.Context, limit int) ([]*tracker.Version, error) {
+func (t *DummyTracker) ListVersions(ctx context.Context, limit int) ([]*models.Version, error) {
 	return nil, nil
 }
 

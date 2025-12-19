@@ -194,7 +194,7 @@ var SecurityRules = []assessor.Rule{
 	// =========================
 	// Wordpress plugin vulnerabilities
 	// =========================
-	
+
 	{
 		ID:       "wp-revslider-vuln",
 		Key:      "revslider-vuln",
@@ -212,11 +212,11 @@ var SecurityRules = []assessor.Rule{
 	},
 
 	{
-		ID:	   		"wp-file-manager-vuln",
-		Key:    	"wp-file-manager-vuln",
-		Severity:	"critical",
-		Weight:   	0.65,
-		Regex:    	`wp-content/plugins/wp-file-manager/`,
+		ID:       "wp-file-manager-vuln",
+		Key:      "wp-file-manager-vuln",
+		Severity: "critical",
+		Weight:   0.65,
+		Regex:    `wp-content/plugins/wp-file-manager/`,
 	},
 
 	{
@@ -236,8 +236,8 @@ var SecurityRules = []assessor.Rule{
 	},
 
 	{
-		ID:	   "wp-post-grid-vuln",
-		Key:    "post-grid-vuln",
+		ID:       "wp-post-grid-vuln",
+		Key:      "post-grid-vuln",
 		Severity: "high",
 		Weight:   0.5,
 		Regex:    `wp-content/plugins/the-post-grid/`,
@@ -259,7 +259,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 	}
 	defer tr.Close()
 
-	wc, err := webclient.NewWebClient(&app.Config{WebClientBackend: "nethttp"}, logger)
+	wc, _ := webclient.NewWebClient(&app.Config{WebClientBackend: "nethttp"}, logger)
 	spider := enumerator.NewSpider(1, wc, logger)
 
 	targets, err := spider.Enumerate(context.Background(), "https://dsu.edu.pk")

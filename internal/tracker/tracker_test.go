@@ -9,6 +9,7 @@ import (
 
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/tracker/models"
 )
 
 func TestNewSQLiteTracker_Constructable(t *testing.T) {
@@ -65,7 +66,7 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 	defer tr.Close()
 
 	// Create a test snapshot
-	snapshot := &tracker.Snapshot{
+	snapshot := &models.Snapshot{
 		URL:        "https://example.com",
 		StatusCode: 200,
 		Body:       []byte("<html><body>Hello World</body></html>"),
@@ -148,7 +149,7 @@ func TestSQLiteTracker_List(t *testing.T) {
 
 	// Commit a few snapshots
 	for i := 0; i < 3; i++ {
-		snapshot := &tracker.Snapshot{
+		snapshot := &models.Snapshot{
 			URL:  "https://example.com",
 			Body: []byte(fmt.Sprintf("<html><body>Version %d</body></html>", i)),
 		}
@@ -195,7 +196,7 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 	ctx := context.Background()
 
 	// Commit first version
-	snapshot1 := &tracker.Snapshot{
+	snapshot1 := &models.Snapshot{
 		URL:  "https://example.com",
 		Body: []byte("<html><body>Version 1</body></html>"),
 	}
@@ -205,7 +206,7 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 	}
 
 	// Commit second version
-	snapshot2 := &tracker.Snapshot{
+	snapshot2 := &models.Snapshot{
 		URL:  "https://example.com",
 		Body: []byte("<html><body>Version 2</body></html>"),
 	}
@@ -279,7 +280,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	ctx := context.Background()
 
 	// Commit first version
-	snapshot1 := &tracker.Snapshot{
+	snapshot1 := &models.Snapshot{
 		URL:  "https://example.com",
 		Body: []byte("<html><body>First Version</body></html>"),
 	}
@@ -289,7 +290,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	}
 
 	// Commit second version
-	snapshot2 := &tracker.Snapshot{
+	snapshot2 := &models.Snapshot{
 		URL:  "https://example.com",
 		Body: []byte("<html><body>Second Version</body></html>"),
 	}

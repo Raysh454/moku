@@ -11,15 +11,13 @@ import (
 type EvidenceLocation struct {
 	// Preferred: CSS selector that identifies the element.
 	Selector string `json:"selector,omitempty"`
+	// Regex pattern that matched (if applicable).
+	RegexPattern string `json:"regex,omitempty"`
 
-	// Alternative: XPath for precise DOM targeting.
-	XPath string `json:"xpath,omitempty"`
-
-	// Optional node id or DOM-specific identifier.
-	NodeID string `json:"node_id,omitempty"`
-
-	// Optional file path relative to the site working tree (if multi-file snapshot).
+	// Optional file path relative to the site working tree.
 	FilePath string `json:"file_path,omitempty"`
+
+	SnapshotID string `json:"snapshot_id,omitempty"`
 
 	// Optional byte offsets into the file/body (start inclusive, end exclusive).
 	// Useful when the assessor is text-based rather than DOM-aware.
@@ -29,10 +27,6 @@ type EvidenceLocation struct {
 	// Optional line numbers (1-based). Useful for working-tree highlighting in the UI.
 	LineStart *int `json:"line_start,omitempty"`
 	LineEnd   *int `json:"line_end,omitempty"`
-
-	// Optional per-location confidence/weight (0..1). When present, attribution
-	// code should use these to split evidence weight across locations.
-	Confidence *float64 `json:"confidence,omitempty"`
 
 	// Optional human note about this specific location (e.g., "in modal dialog").
 	Note string `json:"note,omitempty"`
@@ -107,6 +101,21 @@ type ScoreOptions struct {
 
 	// Timeout for a scoring operation. (12 Seconds by default)
 	Timeout time.Duration
+
+	// MaxRegexEvidenceSamples sets the maximum number of regex matches to process per rule.
+	// This prevents excessive processing time for large documents.
+	// (Default: 10 Matches)
+	MaxRegexEvidenceSamples int
+
+	// MaxRegexMatchLength sets the maximum length for regex matches.
+	// This prevents excessive memory usage for large documents.
+	// (Default: 200 Characters)
+	MaxRegexMatchValueLen int
+
+	// MaxCSSMatches sets the maximum number of CSS selector matches to process per rule.
+	// This prevents excessive processing time for large documents.
+	// (Default: 10 Matches)
+	MaxCSSEvidenceSamples int
 }
 
 // Rule defines a single heuristic check the assessor will run.
