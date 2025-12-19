@@ -49,13 +49,11 @@ func BuildAttackSurfaceFromHTML(
 	}
 
 	// Extract cookies from Set-Cookie headers
-	if headers != nil {
-		for key, value := range headers {
-			if strings.ToLower(key) == "set-cookie" {
-				cookie := parseCookie(value)
-				if cookie != nil {
-					as.Cookies = append(as.Cookies, *cookie)
-				}
+	for key, value := range headers {
+		if strings.ToLower(key) == "set-cookie" {
+			cookie := parseCookie(value)
+			if cookie != nil {
+				as.Cookies = append(as.Cookies, *cookie)
 			}
 		}
 	}

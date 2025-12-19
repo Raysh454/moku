@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -179,4 +180,57 @@ func (sa *ScoreAttributer) insertEvidenceLocations(ctx context.Context, tx *sql.
 	}
 
 	return nil
+}
+
+// GetScoreResultForVersion retrieves the ScoreResult for a given version ID.
+// Returns nil, nil if no score exists for the version.
+func GetScoreResultForVersion(ctx context.Context, db *sql.DB, versionID string) (*assessor.ScoreResult, error) {
+	var scoreJSON string
+	err := db.QueryRowContext(ctx, `
+		SELECT score_json
+		FROM score_results
+		WHERE version_id = ?
+		LIMIT 1
+	`, versionID).Scan(&scoreJSON)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query score_results: %w", err)
+	}
+
+	var scoreRes assessor.ScoreResult
+	if err := json.Unmarshal([]byte(scoreJSON), &scoreRes); err != nil {
+		return nil, fmt.Errorf("unmarshal score result: %w", err)
+	}
+
+	return &scoreRes, nil
+}
+
+// CompareVersionsForURL compares scores between two versions for a specific URL.
+// Returns a ScoreDelta with rule-level contributions and overall score change.
+func CompareVersionsForURL(
+	ctx context.Context,
+	db *sql.DB,
+	baseVersionID, headVersionID, url string,
+) (*ScoreDelta, error) {
+	if baseVersionID == "" || headVersionID == "" {
+		return nil, errors.New("base and head version IDs are required")
+	}
+
+	// Get score results for both versions
+	baseScore, err := GetScoreResultForVersion(ctx, db, baseVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("get base score: %w", err)
+	}
+
+	headScore, err := GetScoreResultForVersion(ctx, db, headVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("get head score: %w", err)
+	}
+
+	// If either score is missing, we can still return a delta (comparing with nil)
+	delta := DiffScoreResults(baseScore, headScore, url, baseVersionID, headVersionID)
+	return delta, nil
 }

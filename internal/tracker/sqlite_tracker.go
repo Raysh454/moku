@@ -907,3 +907,12 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models
 	sa := score.New(t.assessor, t.db, t.logger)
 	return sa.ScoreAndAttribute(ctx, cr, opts)
 }
+
+// CompareVersionsForURL compares security scores between two versions for a specific URL.
+// This is useful for understanding how security posture changed between commits.
+func (t *SQLiteTracker) CompareVersionsForURL(
+	ctx context.Context,
+	baseVersionID, headVersionID, url string,
+) (*score.ScoreDelta, error) {
+	return score.CompareVersionsForURL(ctx, t.db, baseVersionID, headVersionID, url)
+}
