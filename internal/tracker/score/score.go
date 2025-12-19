@@ -159,12 +159,12 @@ func (sa *ScoreAttributer) insertEvidenceLocations(ctx context.Context, tx *sql.
 	for _, loc := range locations {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO evidence_locations
-			  (evidence_item_id, snapshot_id, location_type, css_selector, xpath, regex_pattern, file_path, 
-			   byte_start, byte_end, line_start, line_end, line, column, header_name, cookie_name, note)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			  (evidence_item_id, snapshot_id, location_type, css_selector, xpath, regex_pattern, file_path,
+			   parent_dom_index, dom_index, byte_start, byte_end, line_start, line_end, line, column, header_name, cookie_name, parameter_name, note)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, evidenceID, loc.SnapshotID, loc.Type, loc.Selector, loc.XPath, loc.RegexPattern, loc.FilePath,
-			toI64(loc.ByteStart), toI64(loc.ByteEnd), toI64(loc.LineStart), toI64(loc.LineEnd),
-			loc.Line, loc.Column, loc.HeaderName, loc.CookieName, loc.Note); err != nil {
+			toI64(loc.ParentDOMIndex), toI64(loc.DOMIndex), toI64(loc.ByteStart), toI64(loc.ByteEnd), toI64(loc.LineStart), toI64(loc.LineEnd),
+			loc.Line, loc.Column, loc.HeaderName, loc.CookieName, loc.ParamName, loc.Note); err != nil {
 			return fmt.Errorf("insert evidence location: %w", err)
 		}
 	}
