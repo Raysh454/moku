@@ -248,12 +248,12 @@ func TestNewSQLiteTracker(t *testing.T) {
 	logger := logging.NewStdoutLogger("Tracker-test")
 	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, ScoreOpts: assessor.ScoreOptions{RequestLocations: true, Timeout: 15 * time.Second}}
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, SecurityRules, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, nil, logger)
 	if err != nil {
 		t.Fatalf("Failed to create HeuristicsAssessor: %v", err)
 	}
 
-	siteDir := t.TempDir()
+	siteDir := "/tmp/moku"
 	tr, err := tracker.NewSQLiteTracker(logger, a, &tracker.Config{StoragePath: siteDir})
 	if err != nil {
 		t.Fatalf("Failed to create SQLiteTracker: %v", err)
