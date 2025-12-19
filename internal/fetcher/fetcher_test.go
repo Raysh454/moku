@@ -77,6 +77,22 @@ func (t *DummyTracker) SetAssessor(a assessor.Assessor) {
 	// no-op for dummy
 }
 
+func (t *DummyTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) GetScoreResultsFromVersionID(ctx context.Context, versionID string) ([]*assessor.ScoreResult, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) GetSecurityDiffOverview(ctx context.Context, baseID, headID string) (*assessor.SecurityDiffOverview, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error) {
+	return nil, nil
+}
+
 func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error) {
 	return nil, nil
 }

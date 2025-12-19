@@ -13,7 +13,6 @@ import (
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/utils"
-	"github.com/raysh454/moku/internal/webclient"
 )
 
 // HeuristicsAssessor is a scaffolded, heuristics-driven implementation

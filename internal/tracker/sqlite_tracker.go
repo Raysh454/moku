@@ -33,7 +33,7 @@ type SQLiteTracker struct {
 	logger   logging.Logger
 	config   *Config
 	assessor assessor.Assessor
-	score  *score.SQLiteScoreTracker
+	score    *score.SQLiteScoreTracker
 }
 
 // NewSQLiteTracker creates a new SQLiteTracker instance with custom configuration.
@@ -89,7 +89,7 @@ func NewSQLiteTracker(logger logging.Logger, assessor assessor.Assessor, config 
 		logger:   logger,
 		config:   config,
 		assessor: assessor,
-		score: score.New(assessor, db, logger),
+		score:    score.New(assessor, db, logger),
 	}
 
 	if config.ProjectID != "" {
@@ -902,7 +902,7 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models
 	return t.score.ScoreAndAttribute(ctx, cr, opts)
 }
 
-func (t *SQLiteTracker)	GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
+func (t *SQLiteTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
 	return t.score.GetScoreResultFromSnapshotID(ctx, snapshotID)
 }
 
@@ -917,4 +917,3 @@ func (t *SQLiteTracker) GetSecurityDiffOverview(ctx context.Context, baseID, hea
 func (t *SQLiteTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error) {
 	return t.score.GetSecurityDiff(ctx, baseSnapshotID, headSnapshotID)
 }
-

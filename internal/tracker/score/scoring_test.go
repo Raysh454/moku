@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/assessor/attacksurface"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/tracker/score"
@@ -21,11 +22,18 @@ type dummyAssessor struct {
 	res *assessor.ScoreResult
 }
 
-func (d *dummyAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot) (*assessor.ScoreResult, error) {
+func (d *dummyAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
 	if snapshot == nil {
-		return d.ScoreHTML(context.Background(), nil, "", "", "")
+		return d.ScoreHTML(ctx, nil, "", "", "")
 	}
-	return d.ScoreHTML(context.Background(), snapshot.Body, snapshot.URL, snapshot.ID, "")
+
+	res, err := d.ScoreHTML(ctx, snapshot.Body, snapshot.URL, snapshot.ID, "")
+	if err != nil {
+		return nil, err
+	}
+	res.SnapshotID = snapshot.ID
+	res.VersionID = versionID
+	return res, nil
 }
 
 func (d *dummyAssessor) ScoreHTML(ctx context.Context, html []byte, source, snapshotID, filePath string) (*assessor.ScoreResult, error) {
@@ -293,3 +301,391 @@ func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) 
 }
 
 func intPtr(i int) *int { return &i }
+
+// --- New tests for score accessors and security diff helpers ---
+
+func TestSQLiteScoreTracker_GetScoreResultFromSnapshotID_NoRow_Legacy(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.Logger(nil)
+	sa := score.New(nil, db, logger)
+
+	ctx := context.Background()
+	res, err := sa.GetScoreResultFromSnapshotID(ctx, "non-existent")
+	if err != nil {
+		t.Fatalf("GetScoreResultFromSnapshotID returned error: %v", err)
+	}
+	if res != nil {
+		t.Fatalf("expected nil result for unknown snapshot, got %#v", res)
+	}
+}
+
+func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.Logger(nil)
+	sa := score.New(nil, db, logger)
+
+	ctx := context.Background()
+
+	url := "https://example.com/path"
+	baseVersionID := "v-base"
+	headVersionID := "v-head"
+	baseSnapshotID := "snap-base"
+	headSnapshotID := "snap-head"
+
+	now := time.Now().Unix()
+
+	// Insert versions
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO versions (id, parent_id, message, author, timestamp) VALUES (?, ?, ?, ?, ?)`,
+		baseVersionID, "", "base", "", now,
+	); err != nil {
+		t.Fatalf("insert base version: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO versions (id, parent_id, message, author, timestamp) VALUES (?, ?, ?, ?, ?)`,
+		headVersionID, baseVersionID, "head", "", now,
+	); err != nil {
+		t.Fatalf("insert head version: %v", err)
+	}
+
+	// Insert snapshots
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		baseSnapshotID, 200, url, "/path", "blob-base", now, "{}",
+	); err != nil {
+		t.Fatalf("insert base snapshot: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		headSnapshotID, 200, url, "/path", "blob-head", now, "{}",
+	); err != nil {
+		t.Fatalf("insert head snapshot: %v", err)
+	}
+
+	// Build score results with minimal AttackSurface
+	baseSR := &assessor.ScoreResult{
+		Score:      0.2,
+		SnapshotID: baseSnapshotID,
+		VersionID:  baseVersionID,
+		Normalized: 20,
+		Confidence: 0.9,
+		Version:    "v-test",
+		RawFeatures: map[string]float64{
+			"feat": 1,
+		},
+		ContribByRule: map[string]float64{
+			"feat": 0.2,
+		},
+		AttackSurface: &attacksurface.AttackSurface{
+			URL:             url,
+			SnapshotID:      baseSnapshotID,
+			StatusCode:      200,
+			Headers:         map[string][]string{},
+			ErrorIndicators: []string{},
+		},
+	}
+	headSR := &assessor.ScoreResult{
+		Score:      0.8,
+		SnapshotID: headSnapshotID,
+		VersionID:  headVersionID,
+		Normalized: 80,
+		Confidence: 0.95,
+		Version:    "v-test",
+		RawFeatures: map[string]float64{
+			"feat": 3,
+		},
+		ContribByRule: map[string]float64{
+			"feat": 0.6,
+		},
+		AttackSurface: &attacksurface.AttackSurface{
+			URL:             url,
+			SnapshotID:      headSnapshotID,
+			StatusCode:      200,
+			Headers:         map[string][]string{},
+			ErrorIndicators: []string{},
+		},
+	}
+
+	baseJSON, err := json.Marshal(baseSR)
+	if err != nil {
+		t.Fatalf("marshal base score: %v", err)
+	}
+	headJSON, err := json.Marshal(headSR)
+	if err != nil {
+		t.Fatalf("marshal head score: %v", err)
+	}
+
+	// Insert score_results rows
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO score_results (
+			id, snapshot_id, version_id, url,
+			score, normalized, confidence, scoring_version, created_at,
+			score_json, matched_rules, meta, raw_features
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"score-base", baseSnapshotID, baseVersionID, url,
+		baseSR.Score, baseSR.Normalized, baseSR.Confidence, baseSR.Version, now,
+		string(baseJSON), "{}", "{}", "{}",
+	); err != nil {
+		t.Fatalf("insert base score_results: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO score_results (
+			id, snapshot_id, version_id, url,
+			score, normalized, confidence, scoring_version, created_at,
+			score_json, matched_rules, meta, raw_features
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"score-head", headSnapshotID, headVersionID, url,
+		headSR.Score, headSR.Normalized, headSR.Confidence, headSR.Version, now,
+		string(headJSON), "{}", "{}", "{}",
+	); err != nil {
+		t.Fatalf("insert head score_results: %v", err)
+	}
+
+	// Snapshot-level lookup
+	gotBase, err := sa.GetScoreResultFromSnapshotID(ctx, baseSnapshotID)
+	if err != nil {
+		t.Fatalf("GetScoreResultFromSnapshotID returned error: %v", err)
+	}
+	if gotBase == nil || gotBase.Score != baseSR.Score || gotBase.SnapshotID != baseSnapshotID {
+		t.Fatalf("unexpected base score result: %#v", gotBase)
+	}
+
+	// Version-level lookup
+	headScores, err := sa.GetScoreResultsFromVersionID(ctx, headVersionID)
+	if err != nil {
+		t.Fatalf("GetScoreResultsFromVersionID returned error: %v", err)
+	}
+	if len(headScores) != 1 || headScores[0].Score != headSR.Score {
+		t.Fatalf("unexpected head scores: %#v", headScores)
+	}
+
+	// Detailed SecurityDiff
+	secDiff, err := sa.GetSecurityDiff(ctx, baseSnapshotID, headSnapshotID)
+	if err != nil {
+		t.Fatalf("GetSecurityDiff returned error: %v", err)
+	}
+	if secDiff.ScoreBase != baseSR.Score || secDiff.ScoreHead != headSR.Score {
+		t.Errorf("unexpected scores in SecurityDiff: base=%v head=%v", secDiff.ScoreBase, secDiff.ScoreHead)
+	}
+	if secDiff.BaseSnapshotID != baseSnapshotID || secDiff.HeadSnapshotID != headSnapshotID {
+		t.Errorf("unexpected snapshot IDs in SecurityDiff: %+v", secDiff)
+	}
+
+	// Version-level overview
+	ov, err := sa.GetSecurityDiffOverview(ctx, baseVersionID, headVersionID)
+	if err != nil {
+		t.Fatalf("GetSecurityDiffOverview returned error: %v", err)
+	}
+	if ov.BaseVersionID != baseVersionID || ov.HeadVersionID != headVersionID {
+		t.Errorf("unexpected version IDs in overview: %+v", ov)
+	}
+	if len(ov.Entries) != 1 {
+		t.Fatalf("expected 1 overview entry, got %d", len(ov.Entries))
+	}
+	entry := ov.Entries[0]
+	if entry.FilePath != "/path" {
+		t.Errorf("expected FilePath /path, got %q", entry.FilePath)
+	}
+	if entry.ScoreBase != baseSR.Score || entry.ScoreHead != headSR.Score {
+		t.Errorf("unexpected scores in overview entry: %+v", entry)
+	}
+}
+
+// --- New tests for score accessors and security diff helpers ---
+
+func TestSQLiteScoreTracker_GetScoreResultFromSnapshotID_NoRow(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.Logger(nil)
+	sa := score.New(nil, db, logger)
+
+	ctx := context.Background()
+	res, err := sa.GetScoreResultFromSnapshotID(ctx, "non-existent")
+	if err != nil {
+		t.Fatalf("GetScoreResultFromSnapshotID returned error: %v", err)
+	}
+	if res != nil {
+		t.Fatalf("expected nil result for unknown snapshot, got %#v", res)
+	}
+}
+
+func TestSQLiteScoreTracker_ScoreAndSecurityAPIs(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.Logger(nil)
+	sa := score.New(nil, db, logger)
+
+	ctx := context.Background()
+
+	url := "https://example.com/path"
+	baseVersionID := "v-base"
+	headVersionID := "v-head"
+	baseSnapshotID := "snap-base"
+	headSnapshotID := "snap-head"
+
+	now := time.Now().Unix()
+
+	// Insert versions
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO versions (id, parent_id, message, author, timestamp) VALUES (?, ?, ?, ?, ?)`,
+		baseVersionID, "", "base", "", now,
+	); err != nil {
+		t.Fatalf("insert base version: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO versions (id, parent_id, message, author, timestamp) VALUES (?, ?, ?, ?, ?)`,
+		headVersionID, baseVersionID, "head", "", now,
+	); err != nil {
+		t.Fatalf("insert head version: %v", err)
+	}
+
+	// Insert snapshots
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		baseSnapshotID, 200, url, "/path", "blob-base", now, "{}",
+	); err != nil {
+		t.Fatalf("insert base snapshot: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		headSnapshotID, 200, url, "/path", "blob-head", now, "{}",
+	); err != nil {
+		t.Fatalf("insert head snapshot: %v", err)
+	}
+
+	// Build score results with minimal AttackSurface
+	baseSR := &assessor.ScoreResult{
+		Score:      0.2,
+		SnapshotID: baseSnapshotID,
+		VersionID:  baseVersionID,
+		Normalized: 20,
+		Confidence: 0.9,
+		Version:    "v-test",
+		RawFeatures: map[string]float64{
+			"feat": 1,
+		},
+		ContribByRule: map[string]float64{
+			"feat": 0.2,
+		},
+		AttackSurface: &attacksurface.AttackSurface{
+			URL:             url,
+			SnapshotID:      baseSnapshotID,
+			StatusCode:      200,
+			Headers:         map[string][]string{},
+			ErrorIndicators: []string{},
+		},
+	}
+	headSR := &assessor.ScoreResult{
+		Score:      0.8,
+		SnapshotID: headSnapshotID,
+		VersionID:  headVersionID,
+		Normalized: 80,
+		Confidence: 0.95,
+		Version:    "v-test",
+		RawFeatures: map[string]float64{
+			"feat": 3,
+		},
+		ContribByRule: map[string]float64{
+			"feat": 0.6,
+		},
+		AttackSurface: &attacksurface.AttackSurface{
+			URL:             url,
+			SnapshotID:      headSnapshotID,
+			StatusCode:      200,
+			Headers:         map[string][]string{},
+			ErrorIndicators: []string{},
+		},
+	}
+
+	baseJSON, err := json.Marshal(baseSR)
+	if err != nil {
+		t.Fatalf("marshal base score: %v", err)
+	}
+	headJSON, err := json.Marshal(headSR)
+	if err != nil {
+		t.Fatalf("marshal head score: %v", err)
+	}
+
+	// Insert score_results rows
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO score_results (
+			id, snapshot_id, version_id, url,
+			score, normalized, confidence, scoring_version, created_at,
+			score_json, matched_rules, meta, raw_features
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"score-base", baseSnapshotID, baseVersionID, url,
+		baseSR.Score, baseSR.Normalized, baseSR.Confidence, baseSR.Version, now,
+		string(baseJSON), "{}", "{}", "{}",
+	); err != nil {
+		t.Fatalf("insert base score_results: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO score_results (
+			id, snapshot_id, version_id, url,
+			score, normalized, confidence, scoring_version, created_at,
+			score_json, matched_rules, meta, raw_features
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"score-head", headSnapshotID, headVersionID, url,
+		headSR.Score, headSR.Normalized, headSR.Confidence, headSR.Version, now,
+		string(headJSON), "{}", "{}", "{}",
+	); err != nil {
+		t.Fatalf("insert head score_results: %v", err)
+	}
+
+	// Snapshot-level lookup
+	gotBase, err := sa.GetScoreResultFromSnapshotID(ctx, baseSnapshotID)
+	if err != nil {
+		t.Fatalf("GetScoreResultFromSnapshotID returned error: %v", err)
+	}
+	if gotBase == nil || gotBase.Score != baseSR.Score || gotBase.SnapshotID != baseSnapshotID {
+		t.Fatalf("unexpected base score result: %#v", gotBase)
+	}
+
+	// Version-level lookup
+	headScores, err := sa.GetScoreResultsFromVersionID(ctx, headVersionID)
+	if err != nil {
+		t.Fatalf("GetScoreResultsFromVersionID returned error: %v", err)
+	}
+	if len(headScores) != 1 || headScores[0].Score != headSR.Score {
+		t.Fatalf("unexpected head scores: %#v", headScores)
+	}
+
+	// Detailed SecurityDiff
+	secDiff, err := sa.GetSecurityDiff(ctx, baseSnapshotID, headSnapshotID)
+	if err != nil {
+		t.Fatalf("GetSecurityDiff returned error: %v", err)
+	}
+	if secDiff.ScoreBase != baseSR.Score || secDiff.ScoreHead != headSR.Score {
+		t.Errorf("unexpected scores in SecurityDiff: base=%v head=%v", secDiff.ScoreBase, secDiff.ScoreHead)
+	}
+	if secDiff.BaseSnapshotID != baseSnapshotID || secDiff.HeadSnapshotID != headSnapshotID {
+		t.Errorf("unexpected snapshot IDs in SecurityDiff: %+v", secDiff)
+	}
+
+	// Version-level overview
+	ov, err := sa.GetSecurityDiffOverview(ctx, baseVersionID, headVersionID)
+	if err != nil {
+		t.Fatalf("GetSecurityDiffOverview returned error: %v", err)
+	}
+	if ov.BaseVersionID != baseVersionID || ov.HeadVersionID != headVersionID {
+		t.Errorf("unexpected version IDs in overview: %+v", ov)
+	}
+	if len(ov.Entries) != 1 {
+		t.Fatalf("expected 1 overview entry, got %d", len(ov.Entries))
+	}
+	entry := ov.Entries[0]
+	if entry.FilePath != "/path" {
+		t.Errorf("expected FilePath /path, got %q", entry.FilePath)
+	}
+	if entry.ScoreBase != baseSR.Score || entry.ScoreHead != headSR.Score {
+		t.Errorf("unexpected scores in overview entry: %+v", entry)
+	}
+}

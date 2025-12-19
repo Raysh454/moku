@@ -29,7 +29,7 @@ func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.
 	ctx := context.Background()
 
 	snapshot := &models.Snapshot{ID: "snap-1", URL: "source", StatusCode: 200, Body: html}
-	res, err := a.ScoreSnapshot(ctx, snapshot)
+	res, err := a.ScoreSnapshot(ctx, snapshot, "v-test")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestScoreHTML_NoLocationsRequested_SuppressesLocationData(t *testing.T) {
 
 	html := []byte("<html>\n<body>\n<p>para</p>\n</body>\n</html>")
 	snapshot := &models.Snapshot{ID: "snap-2", URL: "src", StatusCode: 200, Body: html}
-	res, err := a.ScoreSnapshot(context.Background(), snapshot)
+	res, err := a.ScoreSnapshot(context.Background(), snapshot, "v-test")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestScoreHTML_NoRules_AddsDefaultEvidence(t *testing.T) {
 	defer a.Close()
 
 	snapshot := &models.Snapshot{ID: "snap-3", URL: "src", StatusCode: 200, Body: []byte("<html></html>")}
-	res, err := a.ScoreSnapshot(context.Background(), snapshot)
+	res, err := a.ScoreSnapshot(context.Background(), snapshot, "v-test")
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}

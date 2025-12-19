@@ -253,7 +253,8 @@ func TestNewSQLiteTracker(t *testing.T) {
 		t.Fatalf("Failed to create HeuristicsAssessor: %v", err)
 	}
 
-	tr, err := tracker.NewSQLiteTracker(logger, a, &tracker.Config{StoragePath: "/tmp/moku"})
+	siteDir := t.TempDir()
+	tr, err := tracker.NewSQLiteTracker(logger, a, &tracker.Config{StoragePath: siteDir})
 	if err != nil {
 		t.Fatalf("Failed to create SQLiteTracker: %v", err)
 	}

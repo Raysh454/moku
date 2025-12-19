@@ -209,20 +209,20 @@ type SecurityDiff struct {
 }
 
 type SecurityDiffOverview struct {
-	BaseVersionID string                   `json:"base_version_id"`
-	HeadVersionID string                   `json:"head_version_id"`
+	BaseVersionID string                      `json:"base_version_id"`
+	HeadVersionID string                      `json:"head_version_id"`
 	Entries       []SecurityDiffOverviewEntry `json:"entries"`
 }
 
 type SecurityDiffOverviewEntry struct {
-	FilePath			 string  `json:"url"`
-	BaseSnapshotID       string  `json:"base_snapshot_id,omitempty"`
-	HeadSnapshotID       string  `json:"head_snapshot_id,omitempty"`
-	ScoreBase            float64 `json:"score_base"`
-	ScoreHead            float64 `json:"score_head"`
-	ScoreDelta           float64 `json:"score_delta"`
-	AttackSurfaceChanged bool    `json:"attack_surface_changed"`
-	NumAttackSurfaceChanges int `json:"num_attack_surface_changes"`
+	FilePath                string  `json:"url"`
+	BaseSnapshotID          string  `json:"base_snapshot_id,omitempty"`
+	HeadSnapshotID          string  `json:"head_snapshot_id,omitempty"`
+	ScoreBase               float64 `json:"score_base"`
+	ScoreHead               float64 `json:"score_head"`
+	ScoreDelta              float64 `json:"score_delta"`
+	AttackSurfaceChanged    bool    `json:"attack_surface_changed"`
+	NumAttackSurfaceChanges int     `json:"num_attack_surface_changes"`
 	// (scoreDelta > 0) for quick UI signals
 	Regressed bool `json:"regressed"`
 }
