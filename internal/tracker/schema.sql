@@ -168,7 +168,12 @@ CREATE TABLE IF NOT EXISTS evidence_locations (
     xpath             TEXT,
     regex_pattern     TEXT,
     file_path         TEXT,
+    
+    -- DOM based indexes 0-based
+    parent_dom_index INTEGER,
+    dom_index        INTEGER,
 
+    -- file based locations
     byte_start        INTEGER,
     byte_end          INTEGER,
     line_start        INTEGER,
@@ -178,6 +183,7 @@ CREATE TABLE IF NOT EXISTS evidence_locations (
 
     header_name       TEXT,            -- for header-based evidence
     cookie_name       TEXT,            -- for cookie-based evidence
+    parameter_name    TEXT,            -- for GET/POST parameter-based evidence
 
     note              TEXT,
 
