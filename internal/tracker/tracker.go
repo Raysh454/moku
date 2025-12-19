@@ -20,10 +20,24 @@ type Tracker interface {
 	// ScoreAndAttributeVersion assigns a score (security relavance) for a given commit result
 	ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, opts *assessor.ScoreOptions) error
 
+	// GetScoreResult retrieves the ScoreResult associated with a specific snapshot ID.
+	GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error)
+
+	// GetScoreResultsFromVersionID retrieves all ScoreResults associated with a specific version ID.
+	GetScoreResultsFromVersionID(ctx context.Context, versionID string) ([]*assessor.ScoreResult, error)
+
+	// GetSecurityDiffOverview computes a security-focused diff overview between two versions.
+	// If baseID == "" treat it as an empty/base version.
+	GetSecurityDiffOverview(ctx context.Context, baseID, headID string) (*assessor.SecurityDiffOverview, error)
+
+	// GetSecurityDiff gets a detailed security diff between two snapshots.
+	// Enforces that both snapshots belong to the same URL.
+	GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error)
+
 	// SetAssessor sets the Assessor used by ScoreAndAttributeVersion to produce a score.
 	SetAssessor(a assessor.Assessor)
 
-	// Diff computes a delta between two versions identified by their IDs.
+	// Diff computes the text delta between two versions identified by their IDs.
 	// If baseID == "" treat it as an empty/base snapshot.
 	Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error)
 
