@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/models"
-	"github.com/raysh454/moku/internal/utils"
 	_ "modernc.org/sqlite"
 )
 
@@ -39,24 +37,13 @@ func (sa *ScoreAttributer) ScoreAndAttribute(ctx context.Context, cr *models.Com
 	defer cancel()
 
 	for _, s := range cr.Snapshots {
-		urlTools, err := utils.NewURLTools(s.URL)
-		if err != nil {
-			if sa.logger != nil {
-				sa.logger.Warn("failed to parse URL for scoring", logging.Field{Key: "url", Value: s.URL}, logging.Field{Key: "error", Value: err})
-			}
-			continue
-		}
-		filePath := urlTools.GetPath()
-
-		scoreRes, err := sa.assessor.ScoreHTML(scoreCtx, s.Body, fmt.Sprintf("version:%s", cr.Version.ID), s.ID, filePath)
+		scoreRes, err := sa.assessor.ScoreSnapshot(scoreCtx, s)
 		if err != nil {
 			if sa.logger != nil {
 				sa.logger.Warn("scoring failed", logging.Field{Key: "version_id", Value: cr.Version.ID}, logging.Field{Key: "error", Value: err})
 			}
 			continue
 		}
-
-		// TODO: Call ScoreHeaders when implemented.
 
 		if err := sa.attributeScore(ctx, scoreRes, cr.Version.ID); err != nil {
 			if sa.logger != nil {
@@ -209,31 +196,4 @@ func GetScoreResultForVersion(ctx context.Context, db *sql.DB, versionID string)
 	}
 
 	return &scoreRes, nil
-}
-
-// CompareVersionsForURL compares scores between two versions for a specific URL.
-// Returns a ScoreDelta with rule-level contributions and overall score change.
-func CompareVersionsForURL(
-	ctx context.Context,
-	db *sql.DB,
-	baseVersionID, headVersionID, url string,
-) (*ScoreDelta, error) {
-	if baseVersionID == "" || headVersionID == "" {
-		return nil, errors.New("base and head version IDs are required")
-	}
-
-	// Get score results for both versions
-	baseScore, err := GetScoreResultForVersion(ctx, db, baseVersionID)
-	if err != nil {
-		return nil, fmt.Errorf("get base score: %w", err)
-	}
-
-	headScore, err := GetScoreResultForVersion(ctx, db, headVersionID)
-	if err != nil {
-		return nil, fmt.Errorf("get head score: %w", err)
-	}
-
-	// If either score is missing, we can still return a delta (comparing with nil)
-	delta := DiffScoreResults(baseScore, headScore, url, baseVersionID, headVersionID)
-	return delta, nil
 }

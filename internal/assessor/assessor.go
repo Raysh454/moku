@@ -3,6 +3,7 @@ package assessor
 import (
 	"context"
 
+	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -15,9 +16,9 @@ import (
 // a precise locator (CSS selector, XPath, byte/line offsets). This makes
 // attribution deterministic and avoids fuzzy heuristics.
 type Assessor interface {
-	// ScoreHTML evaluates raw HTML bytes.
+	// ScoreSnapshot scores the provided snapshot.
 	// The opts parameter can request locations or a lightweight pass.
-	ScoreHTML(ctx context.Context, html []byte, source, snapshotID, filePath string) (*ScoreResult, error)
+	ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot) (*ScoreResult, error)
 
 	// TODO: Create ScoreHeaders, should receive separate rules for headers.
 

@@ -1,4 +1,4 @@
-package assessor
+package attacksurface
 
 import (
 	"testing"
@@ -159,12 +159,12 @@ func TestDiffAttackSurfaces_ScriptAdded(t *testing.T) {
 
 func TestDiffAttackSurfaces_HeaderAdded(t *testing.T) {
 	base := &AttackSurface{
-		Headers: map[string]string{},
+		Headers: map[string][]string{},
 	}
 
 	head := &AttackSurface{
-		Headers: map[string]string{
-			"x-frame-options": "DENY",
+		Headers: map[string][]string{
+			"x-frame-options": {"DENY"},
 		},
 	}
 
@@ -184,14 +184,14 @@ func TestDiffAttackSurfaces_HeaderAdded(t *testing.T) {
 
 func TestDiffAttackSurfaces_SecurityHeaderChanged(t *testing.T) {
 	base := &AttackSurface{
-		Headers: map[string]string{
-			"content-security-policy": "default-src 'self'",
+		Headers: map[string][]string{
+			"content-security-policy": {"default-src 'self'"},
 		},
 	}
 
 	head := &AttackSurface{
-		Headers: map[string]string{
-			"content-security-policy": "default-src 'self'; script-src 'unsafe-inline'",
+		Headers: map[string][]string{
+			"content-security-policy": {"default-src 'self'; script-src 'unsafe-inline'"},
 		},
 	}
 
@@ -218,8 +218,8 @@ func TestDiffAttackSurfaces_MultipleChanges(t *testing.T) {
 			{Name: "old-cookie"},
 		},
 		Scripts: []ScriptInfo{},
-		Headers: map[string]string{
-			"x-frame-options": "SAMEORIGIN",
+		Headers: map[string][]string{
+			"x-frame-options": {"SAMEORIGIN"},
 		},
 	}
 
@@ -234,9 +234,9 @@ func TestDiffAttackSurfaces_MultipleChanges(t *testing.T) {
 		Scripts: []ScriptInfo{
 			{Src: "app.js"},
 		},
-		Headers: map[string]string{
-			"x-frame-options":         "DENY",
-			"content-security-policy": "default-src 'self'",
+		Headers: map[string][]string{
+			"x-frame-options":         {"DENY"},
+			"content-security-policy": {"default-src 'self'"},
 		},
 	}
 

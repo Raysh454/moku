@@ -6,6 +6,7 @@ import (
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
+	"github.com/raysh454/moku/internal/tracker/models"
 )
 
 func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.T) {
@@ -27,7 +28,8 @@ func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.
 	html := []byte("<html>\n<body>\n<h1>Test</h1>\n<p>para</p>\n</body>\n</html>\n")
 	ctx := context.Background()
 
-	res, err := a.ScoreHTML(ctx, html, "source", "", "")
+	snapshot := &models.Snapshot{ID: "snap-1", URL: "source", StatusCode: 200, Body: html}
+	res, err := a.ScoreSnapshot(ctx, snapshot)
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -80,7 +82,8 @@ func TestScoreHTML_NoLocationsRequested_SuppressesLocationData(t *testing.T) {
 	defer a.Close()
 
 	html := []byte("<html>\n<body>\n<p>para</p>\n</body>\n</html>")
-	res, err := a.ScoreHTML(context.Background(), html, "src", "", "")
+	snapshot := &models.Snapshot{ID: "snap-2", URL: "src", StatusCode: 200, Body: html}
+	res, err := a.ScoreSnapshot(context.Background(), snapshot)
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}
@@ -105,7 +108,8 @@ func TestScoreHTML_NoRules_AddsDefaultEvidence(t *testing.T) {
 	}
 	defer a.Close()
 
-	res, err := a.ScoreHTML(context.Background(), []byte("<html></html>"), "src", "", "")
+	snapshot := &models.Snapshot{ID: "snap-3", URL: "src", StatusCode: 200, Body: []byte("<html></html>")}
+	res, err := a.ScoreSnapshot(context.Background(), snapshot)
 	if err != nil {
 		t.Fatalf("ScoreHTML error: %v", err)
 	}

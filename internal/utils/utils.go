@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/raysh454/moku/internal/tracker/models"
+	"github.com/raysh454/moku/internal/webclient"
 	"golang.org/x/net/idna"
 )
 
@@ -242,3 +244,30 @@ var (
 type errStr struct{ s string }
 
 func (e *errStr) Error() string { return e.s }
+
+// NewSnapshotFromResponse converts a webclient.Response to a model.Snapshot.
+func NewSnapshotFromResponse(resp *webclient.Response) *models.Snapshot {
+	if resp == nil {
+		return nil
+	}
+
+	for k, v := range resp.Headers {
+		// Lowercase header keys for consistency
+		lowerKey := strings.ToLower(k)
+		if lowerKey != k {
+			delete(resp.Headers, k)
+			resp.Headers[lowerKey] = v
+		}
+	}
+
+	snap := &models.Snapshot{
+		// ID left empty; tracker will assign one when persisting
+		StatusCode: resp.StatusCode,
+		URL:        resp.Request.URL,
+		Body:       resp.Body, // caller may reuse resp.Body; if you want a copy, copy bytes here
+		Headers:    resp.Headers,
+		CreatedAt:  resp.FetchedAt,
+	}
+
+	return snap
+}

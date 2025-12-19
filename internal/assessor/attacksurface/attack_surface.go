@@ -1,4 +1,4 @@
-package assessor
+package attacksurface
 
 import "time"
 
@@ -10,9 +10,9 @@ type AttackSurface struct {
 	SnapshotID  string    `json:"snapshot_id"`
 	CollectedAt time.Time `json:"collected_at"`
 
-	StatusCode int               `json:"status_code"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Cookies    []CookieInfo      `json:"cookies,omitempty"`
+	StatusCode int                 `json:"status_code"`
+	Headers    map[string][]string `json:"headers,omitempty"`
+	Cookies    []CookieInfo        `json:"cookies,omitempty"`
 
 	GetParams  []Param `json:"get_params,omitempty"`
 	PostParams []Param `json:"post_params,omitempty"`
@@ -48,6 +48,12 @@ type Form struct {
 	Action string      `json:"action"`
 	Method string      `json:"method"`
 	Inputs []FormInput `json:"inputs,omitempty"`
+
+	// Location hints
+	// 0-based index into formElement.getElementsByTagName("form")
+	DOMIndex   int      `json:"dom_index,omitempty"`
+	DOMID      string   `json:"dom_id,omitempty"`
+	DOMClasses []string `json:"dom_classes,omitempty"`
 }
 
 // FormInput represents an input field within a form.
@@ -55,12 +61,22 @@ type FormInput struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Required bool   `json:"required"`
+
+	// Location hints
+	// 0-based index into formElement.getElementsByTagName("input")
+	DOMIndex   int      `json:"dom_index,omitempty"`
+	DOMID      string   `json:"dom_id,omitempty"`
+	DOMClasses []string `json:"dom_classes,omitempty"`
 }
 
 // ScriptInfo represents a script tag in the page.
 type ScriptInfo struct {
 	Src    string `json:"src,omitempty"`
 	Inline bool   `json:"inline"`
+
+	// Location hints
+	// 0-based index into document.getElementsByTagName("script")
+	DOMIndex int `json:"dom_index,omitempty"`
 }
 
 // EventHandlerInfo represents a DOM event handler.

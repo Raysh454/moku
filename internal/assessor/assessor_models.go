@@ -3,6 +3,8 @@ package assessor
 import (
 	"regexp"
 	"time"
+
+	"github.com/raysh454/moku/internal/assessor/attacksurface"
 )
 
 // EvidenceLocation points to a specific part of the document for precise attribution.
@@ -27,6 +29,10 @@ type EvidenceLocation struct {
 
 	SnapshotID string `json:"snapshot_id,omitempty"`
 
+	// Dom Index is the 0-based index of the element in document.getElementsByTagName("*").
+	ParentDOMIndex *int `json:"parent_dom_index,omitempty"`
+	DOMIndex       *int `json:"dom_index,omitempty"`
+
 	// Optional byte offsets into the file/body (start inclusive, end exclusive).
 	// Useful when the assessor is text-based rather than DOM-aware.
 	ByteStart *int `json:"byte_start,omitempty"`
@@ -45,6 +51,8 @@ type EvidenceLocation struct {
 
 	// For cookie-based evidence: the name of the cookie.
 	CookieName string `json:"cookie_name,omitempty"`
+
+	ParamName string `json:"param_name,omitempty"`
 
 	// Optional human note about this specific location (e.g., "in modal dialog").
 	Note string `json:"note,omitempty"`
@@ -113,6 +121,8 @@ type ScoreResult struct {
 
 	// Timestamp is the time when this ScoreResult was produced.
 	Timestamp time.Time `json:"timestamp"`
+
+	AttackSurface *attacksurface.AttackSurface `json:"attack_surface,omitempty"`
 }
 
 // ScoreOptions control scoring behavior and the shape of returned evidence.
@@ -154,4 +164,38 @@ type Rule struct {
 	Selector string  // optional CSS selector to match nodes
 	Regex    string  // optional regex pattern (compiled at constructor)
 	compiled *regexp.Regexp
+}
+
+// ScoreDiff explains how the score changed between two snapshots.
+type ScoreDiff struct {
+	ScoreBase  float64 `json:"score_base"`
+	ScoreHead  float64 `json:"score_head"`
+	ScoreDelta float64 `json:"score_delta"`
+
+	// FeatureDeltas: feature -> (head - base)
+	FeatureDeltas map[string]float64 `json:"feature_deltas"`
+
+	// RuleDeltas: rule/feature id -> (headContrib - baseContrib)
+	// In your current design, rule id == feature name for AttackSurface features.
+	RuleDeltas map[string]float64 `json:"rule_deltas"`
+}
+
+// Tells us exactly what changed and why between two security snapshots.
+// Includes score deltas and attack surface changes.
+type SecurityDiff struct {
+	FilePath       string `json:"url"`
+	BaseSnapshotID string `json:"base_snapshot_id"`
+	HeadSnapshotID string `json:"head_snapshot_id"`
+
+	// Score deltas
+	ScoreBase  float64 `json:"score_base"`
+	ScoreHead  float64 `json:"score_head"`
+	ScoreDelta float64 `json:"score_delta"`
+	// Optional extra detail
+	FeatureDeltas map[string]float64 `json:"feature_deltas,omitempty"`
+	RuleDeltas    map[string]float64 `json:"rule_deltas,omitempty"`
+
+	// Attack surface deltas
+	AttackSurfaceChanged bool                                `json:"attack_surface_changed"`
+	AttackSurfaceChanges []attacksurface.AttackSurfaceChange `json:"attack_surface_changes,omitempty"`
 }
