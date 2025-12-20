@@ -38,7 +38,7 @@ type SQLiteTracker struct {
 
 // NewSQLiteTracker creates a new SQLiteTracker instance with custom configuration.
 // If config is nil, default configuration is used.
-func NewSQLiteTracker(logger logging.Logger, assessor assessor.Assessor, config *Config) (*SQLiteTracker, error) {
+func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.Assessor) (*SQLiteTracker, error) {
 	if logger == nil {
 		return nil, errors.New("tracker: nil logger provided")
 	}
@@ -48,14 +48,12 @@ func NewSQLiteTracker(logger logging.Logger, assessor assessor.Assessor, config 
 		config = &Config{}
 	}
 
-	// Default to redacting sensitive headers if not explicitly set
-	if config.RedactSensitiveHeaders == nil {
-		redactDefault := true
-		config.RedactSensitiveHeaders = &redactDefault
-	}
-
 	// Ensure .moku directory exists
 	mokuDir := filepath.Join(config.StoragePath, ".moku")
+	if _, err := os.Stat(mokuDir); err != nil && config.ProjectID == "" {
+		return nil, fmt.Errorf("storage path .moku does not exist; must provide project_id to initialize new tracker at %s", mokuDir)
+	}
+
 	if err := os.MkdirAll(mokuDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create .moku directory: %w", err)
 	}
@@ -97,13 +95,6 @@ func NewSQLiteTracker(logger logging.Logger, assessor assessor.Assessor, config 
 			// prefer failing fast so mismatch doesn't go unnoticed:
 			db.Close()
 			return nil, fmt.Errorf("project id mismatch or set failed: %w", err)
-		}
-	} else {
-		// optionally read and log
-		if pid, _ := t.GetProjectID(context.Background()); pid == "" {
-			t.logger.Info("no project_id set in DB meta; set via t.SetProjectID when available")
-		} else {
-			t.logger.Info("project_id loaded from DB meta", logging.Field{Key: "project_id", Value: pid})
 		}
 	}
 
@@ -222,7 +213,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *models.Snapshot, m
 		}
 	}()
 
-	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+	redactSensitive := t.config != nil && t.config.RedactSensitiveHeaders
 	normalizedHeaders := normalizeHeaders(snapshot.Headers, redactSensitive)
 	headersJSON, err := json.Marshal(normalizedHeaders)
 	if err != nil {
@@ -311,7 +302,7 @@ func (t *SQLiteTracker) computeDiff(ctx context.Context, tx *sql.Tx, baseID, hea
 		return nil, fmt.Errorf("failed to get head version snapshots: %w", err)
 	}
 
-	redactSensitive := t.config.RedactSensitiveHeaders != nil && *t.config.RedactSensitiveHeaders
+	redactSensitive := t.config != nil && t.config.RedactSensitiveHeaders
 
 	files := make([]models.CombinedFileDiff, 0)
 	// Only consider file_paths present in head; treat paths missing in head as unchanged (no removal reported)
@@ -892,7 +883,7 @@ func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, b
 	return nil
 }
 
-func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, opts *assessor.ScoreOptions) error {
+func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, scoreTimeout time.Duration) error {
 	if cr == nil {
 		return errors.New("nil CommitResult")
 	}
@@ -903,7 +894,7 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models
 
 	t.logger.Info("Starting scoring and attribution")
 
-	return t.score.ScoreAndAttribute(ctx, cr, opts)
+	return t.score.ScoreAndAttribute(ctx, cr, scoreTimeout)
 }
 
 func (t *SQLiteTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {

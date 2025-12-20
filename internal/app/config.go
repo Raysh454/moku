@@ -1,85 +1,72 @@
 package app
 
 import (
-	"os"
-	"strconv"
+	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/fetcher"
+	"github.com/raysh454/moku/internal/server"
+	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/utils"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 // Config contains a minimal set of runtime configuration options required by
 // internal modules during initial development. We intentionally keep this small
 // for the dev branch — add more fields later as wiring requires them.
 type Config struct {
-	// ServerAddr is the HTTP listen address for the API server (CLI uses
-	// the orchestrator in-process and does not require the network).
-	ServerAddr string
+	ServerCfg server.Config
 
-	// StorageRoot is the base path where snapshots and blob files are kept.
+	// StorageRoot is the base path where projects are kept.
 	StorageRoot string
 
-	// DBPath is the path to the SQLite index file.
-	DBPath string
+	// Tracker Configuration
+	trackerCfg tracker.Config
 
-	// SchedulerGlobalConcurrency is the default number of concurrently running jobs.
-	SchedulerGlobalConcurrency int
+	// Fetcher Configuration
+	FetcherCfg fetcher.Config
 
-	// FetcherConcurrency is the number of parallel fetch worker slots.
-	FetcherConcurrency int
+	// WebClient configuration
+	WebClientCfg webclient.WebClientConfig
 
-	// WebClientBackend selects which implementation of WebClient to use.
-	// Supported values:
-	//   "nethttp"   - use net/http-based client (default)
-	//   "chromedp"  - use chromedp-based client (experimental)
-	WebClientBackend string
+	// Assessor configuration
+	assessorCfg assessor.Config
+
+	// Url Parsing Options
+	urlCfg utils.CanonicalizeOptions
 }
 
 // DefaultConfig returns a Config populated with sensible development defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerAddr:                 "127.0.0.1:8080",
-		StorageRoot:                "./data",
-		DBPath:                     "./data/moku.db",
-		SchedulerGlobalConcurrency: 4,
-		FetcherConcurrency:         8,
-		WebClientBackend:           "nethttp",
+		ServerCfg: server.Config{
+			ServerAddr: "http://localhost:8080",
+		},
+		StorageRoot: "~/.config/moku",
+		trackerCfg: tracker.Config{
+			RedactSensitiveHeaders: false,
+			StoragePath:            "",    // Needs to be set! (Website Directory)
+			ProjectID:              "",    // Needs to be set! (Project Identifier for website)
+			ForceProjectID:         false, // Needs to be set! (Whether to overwrite existing project ID)
+		},
+		FetcherCfg: fetcher.Config{
+			MaxConcurrency: 4,
+			CommitSize:     10,
+			ScoreTimeout:   30,
+		},
+		WebClientCfg: webclient.WebClientConfig{
+			Client: webclient.ClientNetHTTP,
+		},
+		assessorCfg: assessor.Config{
+			ScoringVersion:    "v0.1.0",
+			DefaultConfidence: 0.5,
+			ScoreOpts: assessor.ScoreOptions{
+				RequestLocations: true,
+			},
+		},
+		urlCfg: utils.CanonicalizeOptions{
+			DropTrackingParams:     false,
+			StripTrailingSlash:     true,
+			DefaultScheme:          "https",
+			TrackingParamAllowlist: nil,
+		},
 	}
-}
-
-// LoadConfigFromEnv loads the minimal Config from environment variables,
-// falling back to defaults when variables are not set or malformed.
-//
-// Supported environment variables:
-//
-//	MOKU_SERVER_ADDR
-//	MOKU_STORAGE_ROOT
-//	MOKU_DB_PATH
-//	MOKU_SCHED_CONCURRENCY
-//	MOKU_FETCHER_CONCURRENCY
-//	MOKU_WEBCLIENT_BACKEND  (nethttp|chromedp)
-func LoadConfigFromEnv() *Config {
-	cfg := DefaultConfig()
-
-	if v := os.Getenv("MOKU_SERVER_ADDR"); v != "" {
-		cfg.ServerAddr = v
-	}
-	if v := os.Getenv("MOKU_STORAGE_ROOT"); v != "" {
-		cfg.StorageRoot = v
-	}
-	if v := os.Getenv("MOKU_DB_PATH"); v != "" {
-		cfg.DBPath = v
-	}
-	if v := os.Getenv("MOKU_WEBCLIENT_BACKEND"); v != "" {
-		cfg.WebClientBackend = v
-	}
-	if v := os.Getenv("MOKU_SCHED_CONCURRENCY"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.SchedulerGlobalConcurrency = n
-		}
-	}
-	if v := os.Getenv("MOKU_FETCHER_CONCURRENCY"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.FetcherConcurrency = n
-		}
-	}
-
-	return cfg
 }

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/logging"
 )
 
@@ -19,7 +18,7 @@ type NetHTTPClient struct {
 	logger logging.Logger
 }
 
-func NewNetHTTPClient(cfg *app.Config, logger logging.Logger, httpClient *http.Client) (WebClient, error) {
+func NewNetHTTPClient(cfg WebClientConfig, logger logging.Logger, httpClient *http.Client) (WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(logging.Field{Key: "backend", Value: "nethttp"})
 

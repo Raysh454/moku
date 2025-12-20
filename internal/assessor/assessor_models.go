@@ -141,9 +141,6 @@ type ScoreOptions struct {
 	// (Optional) MaxEvidence controls how many evidence items to return.
 	MaxEvidence int
 
-	// Timeout for a scoring operation. (12 Seconds by default)
-	Timeout time.Duration
-
 	// MaxRegexEvidenceSamples sets the maximum number of regex matches to process per rule.
 	// This prevents excessive processing time for large documents.
 	// (Default: 10 Matches)

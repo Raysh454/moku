@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/enumerator"
 	"github.com/raysh454/moku/internal/fetcher"
@@ -249,7 +248,7 @@ var SecurityRules = []assessor.Rule{
 
 func TestNewSQLiteTracker(t *testing.T) {
 	logger := logging.NewStdoutLogger("Tracker-test")
-	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, ScoreOpts: assessor.ScoreOptions{RequestLocations: true, Timeout: 15 * time.Second}}
+	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, ScoreOpts: assessor.ScoreOptions{RequestLocations: true}}
 
 	a, err := assessor.NewHeuristicsAssessor(cfg, nil, logger)
 	if err != nil {
@@ -257,13 +256,13 @@ func TestNewSQLiteTracker(t *testing.T) {
 	}
 
 	siteDir := "/tmp/moku"
-	tr, err := tracker.NewSQLiteTracker(logger, a, &tracker.Config{StoragePath: siteDir})
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir}, logger, a)
 	if err != nil {
 		t.Fatalf("Failed to create SQLiteTracker: %v", err)
 	}
 	defer tr.Close()
 
-	wc, _ := webclient.NewWebClient(&app.Config{WebClientBackend: "nethttp"}, logger)
+	wc, _ := webclient.NewWebClient(webclient.WebClientConfig{Client: webclient.ClientNetHTTP}, logger)
 	spider := enumerator.NewSpider(1, wc, logger)
 
 	targets, err := spider.Enumerate(context.Background(), "https://dsu.edu.pk")
@@ -271,7 +270,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 		t.Fatalf("Spider enumeration failed: %v", err)
 	}
 
-	fcher, err := fetcher.New(3, 1024, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), logger, &assessor.ScoreOptions{RequestLocations: true, Timeout: 15 * time.Second})
+	fcher, err := fetcher.New(fetcher.Config{MaxConcurrency: 3, CommitSize: 1024, ScoreTimeout: 15 * time.Second}, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), logger)
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}

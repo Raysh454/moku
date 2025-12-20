@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
@@ -18,25 +17,21 @@ import (
 // Module: fetcher
 // Fetches, Normalizes and stores pages
 type Fetcher struct {
-	MaxConcurrency int
-	CommitSize     int
-	ScoreOpts      *assessor.ScoreOptions
-	tracker        tracker.Tracker
-	wc             webclient.WebClient
-	indexer        indexer.EndpointIndex
-	logger         logging.Logger
+	config  Config
+	tracker tracker.Tracker
+	wc      webclient.WebClient
+	indexer indexer.EndpointIndex
+	logger  logging.Logger
 }
 
 // New creates a new Fetcher with the given webclient, logger and tracker
-func New(MaxConcurrency, CommitSize int, tracker tracker.Tracker, wc webclient.WebClient, indexer indexer.EndpointIndex, logger logging.Logger, scoreOpts *assessor.ScoreOptions) (*Fetcher, error) {
+func New(cfg Config, tracker tracker.Tracker, wc webclient.WebClient, indexer indexer.EndpointIndex, logger logging.Logger) (*Fetcher, error) {
 	return &Fetcher{
-		MaxConcurrency: MaxConcurrency,
-		CommitSize:     CommitSize,
-		ScoreOpts:      scoreOpts,
-		tracker:        tracker,
-		wc:             wc,
-		indexer:        indexer,
-		logger:         logger,
+		config:  cfg,
+		tracker: tracker,
+		wc:      wc,
+		indexer: indexer,
+		logger:  logger,
 	}, nil
 }
 
@@ -70,14 +65,14 @@ func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int) 
 // Gets and stores all given HTTP urls to file system
 func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, f.MaxConcurrency)
+	sem := make(chan struct{}, f.config.MaxConcurrency)
 	snapCh := make(chan *models.Snapshot)
 	batcherDone := make(chan struct{})
 
 	// Commit snapshots goroutine
 	go func() {
 		defer close(batcherDone)
-		batch := make([]*models.Snapshot, 0, f.CommitSize)
+		batch := make([]*models.Snapshot, 0, f.config.CommitSize)
 		flush := func() {
 			if len(batch) > 0 {
 				cr, err := f.tracker.CommitBatch(ctx, batch, "some kind of message", "^_^")
@@ -89,7 +84,7 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 					batch = batch[:0]
 					return
 				}
-				err = f.tracker.ScoreAndAttributeVersion(ctx, cr, f.ScoreOpts)
+				err = f.tracker.ScoreAndAttributeVersion(ctx, cr, f.config.ScoreTimeout)
 				if err != nil {
 					if f.logger != nil {
 						f.logger.Error("error while scoring and attributing version to committed snapshots",
@@ -126,7 +121,7 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 					return
 				}
 				batch = append(batch, snap)
-				if len(batch) == f.CommitSize {
+				if len(batch) == f.config.CommitSize {
 					flush()
 				}
 			}
