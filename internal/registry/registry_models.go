@@ -15,7 +15,6 @@ type Website struct {
 	ID          string `json:"id"`
 	ProjectID   string `json:"project_id"`
 	Slug        string `json:"slug"`
-	Name        string `json:"name,omitempty"`
 	Origin      string `json:"origin"`
 	StoragePath string `json:"storage_path"`
 	CreatedAt   int64  `json:"created_at"`
