@@ -18,7 +18,7 @@ type NetHTTPClient struct {
 	logger logging.Logger
 }
 
-func NewNetHTTPClient(cfg WebClientConfig, logger logging.Logger, httpClient *http.Client) (WebClient, error) {
+func NewNetHTTPClient(cfg Config, logger logging.Logger, httpClient *http.Client) (WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(logging.Field{Key: "backend", Value: "nethttp"})
 

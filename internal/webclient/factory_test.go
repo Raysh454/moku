@@ -21,7 +21,7 @@ func (n *factoryNoopLogger) With(fields ...logging.Field) logging.Logger {
 // TestNewWebClient_DefaultBackend verifies that empty backend defaults to nethttp
 func TestNewWebClient_DefaultBackend(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{}
+	cfg := webclient.Config{}
 	logger := &factoryNoopLogger{}
 
 	client, err := webclient.NewWebClient(cfg, logger)
@@ -37,7 +37,7 @@ func TestNewWebClient_DefaultBackend(t *testing.T) {
 // TestNewWebClient_NetHTTP verifies that the factory can create a nethttp client
 func TestNewWebClient_NetHTTP(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientNetHTTP}
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
 	logger := &factoryNoopLogger{}
 
 	client, err := webclient.NewWebClient(cfg, logger)
@@ -54,7 +54,7 @@ func TestNewWebClient_NetHTTP(t *testing.T) {
 // Note: This test may be skipped in CI environments where chromedp is not fully functional
 func TestNewWebClient_ChromeDP(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientChromedp}
+	cfg := webclient.Config{Client: webclient.ClientChromedp}
 	logger := &factoryNoopLogger{}
 
 	// Chromedp may fail to initialize in headless CI environments
@@ -70,7 +70,7 @@ func TestNewWebClient_ChromeDP(t *testing.T) {
 // TestNewWebClient_UnknownBackend verifies that unknown backend returns error
 func TestNewWebClient_UnknownBackend(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: "unknown"}
+	cfg := webclient.Config{Client: "unknown"}
 	logger := &factoryNoopLogger{}
 
 	client, err := webclient.NewWebClient(cfg, logger)

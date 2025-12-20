@@ -8,7 +8,7 @@ import (
 
 // NewWebClient constructs the configured WebClient backend based on cfg.GetWebClientBackend().
 // It returns an error if the backend is not supported or if construction fails.
-func NewWebClient(cfg WebClientConfig, logger logging.Logger) (WebClient, error) {
+func NewWebClient(cfg Config, logger logging.Logger) (WebClient, error) {
 	backend := cfg.Client
 	if backend == "" {
 		backend = "nethttp"

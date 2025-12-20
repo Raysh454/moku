@@ -25,7 +25,7 @@ type Config struct {
 	FetcherCfg fetcher.Config
 
 	// WebClient configuration
-	WebClientCfg webclient.WebClientConfig
+	WebClientCfg webclient.Config
 
 	// Assessor configuration
 	assessorCfg assessor.Config
@@ -52,7 +52,7 @@ func DefaultConfig() *Config {
 			CommitSize:     10,
 			ScoreTimeout:   30,
 		},
-		WebClientCfg: webclient.WebClientConfig{
+		WebClientCfg: webclient.Config{
 			Client: webclient.ClientNetHTTP,
 		},
 		assessorCfg: assessor.Config{
