@@ -592,6 +592,10 @@ func (t *SQLiteTracker) parseHeaders(headersJSON sql.NullString) map[string][]st
 	return headers
 }
 
+func (t *SQLiteTracker) DB() *sql.DB {
+	return t.db
+}
+
 // Close releases resources used by the tracker.
 func (t *SQLiteTracker) Close() error {
 	t.logger.Info("Closing SQLiteTracker")

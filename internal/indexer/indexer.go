@@ -3,12 +3,25 @@ package indexer
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/utils"
 )
+
+type EndpointIndex interface {
+	AddEndpoints(ctx context.Context, rawUrls []string, source string) ([]string, error)
+	ListEndpoints(ctx context.Context, status string, limit int) ([]Endpoint, error)
+	MarkPending(ctx context.Context, canonical string) error
+	MarkPendingBatch(ctx context.Context, canonicals []string) error
+	MarkFetched(ctx context.Context, canonical string, versionID string, fetchedAt time.Time) error
+	MarkFetchedBatch(ctx context.Context, canonicals []string, versionID string, fetchedAt time.Time) error
+	MarkFailed(ctx context.Context, canonical string, reason string) error
+}
+
+var _ EndpointIndex = (*Index)(nil)
 
 // Index persists and queries discovered endpoints in the site DB.
 type Index struct {
@@ -127,8 +140,55 @@ func (ix *Index) MarkPending(ctx context.Context, canonical string) error {
 	return err
 }
 
+func (ix *Index) MarkPendingBatch(ctx context.Context, canonicals []string) error {
+	if len(canonicals) == 0 {
+		return nil
+	}
+
+	// Build placeholders: ?, ?, ?, ...
+	placeholders := make([]string, len(canonicals))
+	args := make([]any, 0, 1+len(canonicals))
+	args = append(args, "pending") // first arg is status
+	for i, c := range canonicals {
+		placeholders[i] = "?"
+		args = append(args, c)
+	}
+
+	q := `
+		UPDATE endpoints
+		SET status = ?
+		WHERE canonical_url IN (` + strings.Join(placeholders, ",") + `)
+	`
+	_, err := ix.db.ExecContext(ctx, q, args...)
+	return err
+}
+
 func (ix *Index) MarkFetched(ctx context.Context, canonical string, versionID string, fetchedAt time.Time) error {
 	_, err := ix.db.ExecContext(ctx, `UPDATE endpoints SET last_fetched_version = ?, last_fetched_at = ?, status = ? WHERE canonical_url = ?`, versionID, fetchedAt.Unix(), "fetched", canonical)
+	return err
+}
+
+func (ix *Index) MarkFetchedBatch(ctx context.Context, canonicals []string, versionID string, fetchedAt time.Time) error {
+	if len(canonicals) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(canonicals))
+	args := make([]any, 0, 3+len(canonicals))
+	args = append(args, versionID, fetchedAt.Unix(), "fetched")
+	for i, c := range canonicals {
+		placeholders[i] = "?"
+		args = append(args, c)
+	}
+
+	q := `
+		UPDATE endpoints
+		SET last_fetched_version = ?,
+			last_fetched_at     = ?,
+			status              = ?
+		WHERE canonical_url IN (` + strings.Join(placeholders, ",") + `)
+	`
+	_, err := ix.db.ExecContext(ctx, q, args...)
 	return err
 }
 

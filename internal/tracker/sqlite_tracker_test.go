@@ -2,15 +2,18 @@ package tracker_test
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/enumerator"
 	"github.com/raysh454/moku/internal/fetcher"
+	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
+	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
-	"testing"
-	"time"
 )
 
 var SecurityRules = []assessor.Rule{
@@ -268,7 +271,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 		t.Fatalf("Spider enumeration failed: %v", err)
 	}
 
-	fcher, err := fetcher.New(3, 1024, tr, wc, logger, &assessor.ScoreOptions{RequestLocations: true, Timeout: 15 * time.Second})
+	fcher, err := fetcher.New(3, 1024, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), logger, &assessor.ScoreOptions{RequestLocations: true, Timeout: 15 * time.Second})
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}

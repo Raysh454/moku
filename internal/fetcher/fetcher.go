@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -21,19 +23,48 @@ type Fetcher struct {
 	ScoreOpts      *assessor.ScoreOptions
 	tracker        tracker.Tracker
 	wc             webclient.WebClient
+	indexer        indexer.EndpointIndex
 	logger         logging.Logger
 }
 
 // New creates a new Fetcher with the given webclient, logger and tracker
-func New(MaxConcurrency, CommitSize int, tracker tracker.Tracker, wc webclient.WebClient, logger logging.Logger, scoreOpts *assessor.ScoreOptions) (*Fetcher, error) {
+func New(MaxConcurrency, CommitSize int, tracker tracker.Tracker, wc webclient.WebClient, indexer indexer.EndpointIndex, logger logging.Logger, scoreOpts *assessor.ScoreOptions) (*Fetcher, error) {
 	return &Fetcher{
 		MaxConcurrency: MaxConcurrency,
 		CommitSize:     CommitSize,
 		ScoreOpts:      scoreOpts,
 		tracker:        tracker,
 		wc:             wc,
+		indexer:        indexer,
 		logger:         logger,
 	}, nil
+}
+
+// FetchFromIndex fetches endpoints from the index by status, updates their status,
+// commits snapshots, and returns whatever you need (e.g., created version IDs).
+func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int) error {
+	if f.indexer == nil {
+		return fmt.Errorf("fetcher: index is nil")
+	}
+
+	eps, err := f.indexer.ListEndpoints(ctx, status, limit)
+	if err != nil {
+		return err
+	}
+
+	urls := make([]string, 0, len(eps))
+	for _, e := range eps {
+		urls = append(urls, e.CanonicalURL)
+	}
+
+	err = f.indexer.MarkPendingBatch(ctx, urls)
+	if err != nil {
+		return fmt.Errorf("error marking endpoints as pending: %w", err)
+	}
+
+	f.Fetch(ctx, urls)
+
+	return nil
 }
 
 // Gets and stores all given HTTP urls to file system
@@ -55,12 +86,29 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 						f.logger.Error("error while committing snapshot batch",
 							logging.Field{Key: "error", Value: err})
 					}
+					batch = batch[:0]
+					return
 				}
 				err = f.tracker.ScoreAndAttributeVersion(ctx, cr, f.ScoreOpts)
 				if err != nil {
 					if f.logger != nil {
 						f.logger.Error("error while scoring and attributing version to committed snapshots",
 							logging.Field{Key: "error", Value: err})
+					}
+					batch = batch[:0]
+					return
+				}
+				urls := make([]string, 0, len(batch))
+				for _, snap := range batch {
+					urls = append(urls, snap.URL)
+				}
+				if f.indexer != nil {
+					err = f.indexer.MarkFetchedBatch(ctx, urls, cr.Version.ID, time.Now())
+					if err != nil {
+						if f.logger != nil {
+							f.logger.Error("error while marking endpoints as fetched in indexer",
+								logging.Field{Key: "error", Value: err})
+						}
 					}
 				}
 				batch = batch[:0]
@@ -107,6 +155,14 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 						logging.Field{Key: "url", Value: pageUrl},
 						logging.Field{Key: "error", Value: err})
 				}
+				if f.indexer != nil {
+					err := f.indexer.MarkFailed(ctx, pageUrl, err.Error())
+					if err != nil && f.logger != nil {
+						f.logger.Error("error while marking endpoint as failed in indexer",
+							logging.Field{Key: "url", Value: pageUrl},
+							logging.Field{Key: "error", Value: err})
+					}
+				}
 				return
 			}
 
@@ -135,6 +191,5 @@ func (f *Fetcher) HTTPGet(ctx context.Context, page string) (*webclient.Response
 		return nil, fmt.Errorf("error GETting %s: %w", page, err)
 	}
 
-	// TODO: Normalize response body somehow?
 	return resp, nil
 }
