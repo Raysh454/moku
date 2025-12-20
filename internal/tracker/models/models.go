@@ -9,6 +9,9 @@ type Snapshot struct {
 	// ID is an opaque identifier (e.g., uuid or incremental string) assigned by the tracker.
 	ID string `json:"id,omitempty"`
 
+	// VersionID is the version this snapshot belongs to.
+	VersionID string `json:"version_id,omitempty"`
+
 	// Status Code indicates the result of the snapshot attempt (e.g., 200, 404, error codes).
 	StatusCode int `json:"status_code,omitempty"`
 

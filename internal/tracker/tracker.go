@@ -44,7 +44,7 @@ type Tracker interface {
 	Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error)
 
 	// GetSnapshots returns all snapshots for a specific version ID.
-	// A version may reference multiple snapshots through the version_snapshots join table.
+	// A version may reference multiple snapshots directly through the version_id foreign key.
 	GetSnapshots(ctx context.Context, versionID string) ([]*models.Snapshot, error)
 
 	// ListVersions returns recent versions (e.g., head-first). The semantics of pagination

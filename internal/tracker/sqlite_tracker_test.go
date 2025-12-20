@@ -262,7 +262,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 	}
 	defer tr.Close()
 
-	wc, _ := webclient.NewWebClient(webclient.WebClientConfig{Client: webclient.ClientNetHTTP}, logger)
+	wc, _ := webclient.NewWebClient(webclient.Config{Client: webclient.ClientNetHTTP}, logger)
 	spider := enumerator.NewSpider(1, wc, logger)
 
 	targets, err := spider.Enumerate(context.Background(), "https://dsu.edu.pk")

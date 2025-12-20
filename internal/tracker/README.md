@@ -37,6 +37,7 @@ These working-tree files can be regenerated from the blob store at any time.
 
 **snapshots**: Captured web content at a point in time
 - `id` TEXT PRIMARY KEY (UUID)
+- `version_id` TEXT (foreign key to versions.id, NOT NULL)
 - `status_code` INTEGER
 - `url` TEXT (source URL)
 - `file_path` TEXT (relative path in working tree, e.g., "/example")
@@ -50,11 +51,6 @@ These working-tree files can be regenerated from the blob store at any time.
 - `message` TEXT (commit message)
 - `author` TEXT (optional)
 - `timestamp` INTEGER (Unix timestamp)
-
-**version_snapshots**: Join table linking versions to snapshots
-- `version_id` TEXT REFERENCES versions(id)
-- `snapshot_id` TEXT REFERENCES snapshots(id)
-- PRIMARY KEY (version_id, snapshot_id)
 
 **diffs**: Precomputed diffs between versions
 - `id` TEXT PRIMARY KEY (UUID)
@@ -107,23 +103,21 @@ This ensures:
 
 3. **Extract and normalize headers**: Parse headers from snapshot metadata, normalize (lowercase, sort, redact sensitive)
 
-4. **Insert snapshot**: Create snapshot record with ID, URL, file_path, timestamp, normalized headers JSON
+4. **Insert version**: Create version record linking to parent
 
-5. **Insert version**: Create version record linking to snapshot and parent
+5. **Insert snapshot**: Create snapshot record with version_id, URL, file_path, timestamp, normalized headers JSON
 
-6. **Insert version_files**: Create entries mapping file_path → blob_id for this version
-
-7. **Compute diffs**: Calculate combined diff (body + headers) from parent version (if exists)
+6. **Compute diffs**: Calculate combined diff (body + headers) from parent version (if exists)
    - Extract text content from both versions
    - Run diff algorithm (diffmatchpatch for body or a line-based diff)
    - Compute header diff (added, removed, changed, redacted)
    - Store combined diff JSON in diffs table with base_version_id and head_version_id
 
-8. **Commit transaction**: Persist all metadata
+7. **Commit transaction**: Persist all metadata
 
-9. **Write working-tree files**: Write `.page_body` and `.page_headers.json` using AtomicWriteFile
+8. **Write working-tree files**: Write `.page_body` and `.page_headers.json` using AtomicWriteFile
 
-10. **Write HEAD**: Update `.moku/HEAD` with new version ID
+9. **Write HEAD**: Update `.moku/HEAD` with new version ID
 
 #### Batch Commit
 
@@ -132,14 +126,12 @@ The `CommitBatch` method efficiently commits multiple snapshots in a single tran
 1. **Store all blobs**: Write all snapshot bodies to blob storage in parallel
 2. **Extract and normalize headers** for each snapshot
 3. **Begin transaction**
-4. **Insert first snapshot** (required for FK constraint on versions.snapshot_id)
-5. **Insert version record** (references first snapshot)
-6. **Insert version_files** for first snapshot
-7. **Insert remaining snapshots and version_files**
-8. **Compute diffs** for each file against parent version (if exists)
-9. **Commit transaction**
-10. **Write working-tree files** for all snapshots
-11. **Write HEAD**
+4. **Insert version record**
+5. **Insert all snapshots** with version_id
+6. **Compute diffs** for each file against parent version (if exists)
+7. **Commit transaction**
+8. **Write working-tree files** for all snapshots
+9. **Write HEAD**
 
 This is more efficient than individual commits when fetching multiple pages, as it uses a single transaction and reduces database overhead.
 
@@ -174,7 +166,7 @@ This is more efficient than individual commits when fetching multiple pages, as 
 ### Checkout Semantics
 
 **Checkout version N**:
-1. Read version_files for version N
+1. Read snapshots for version N (WHERE version_id = N)
 2. For each file_path → blob_id:
    - Read blob from `.moku/blobs/{hash[0:2]}/{hash}`
    - Write to working tree at file_path using AtomicWriteFile

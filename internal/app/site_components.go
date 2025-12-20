@@ -15,9 +15,9 @@ import (
 )
 
 type SiteComponents struct {
-	Tracker tracker.Tracker
-	Index   indexer.EndpointIndex
-	Fetcher *fetcher.Fetcher
+	Tracker   tracker.Tracker
+	Index     indexer.EndpointIndex
+	Fetcher   *fetcher.Fetcher
 	WebClient webclient.WebClient
 }
 
@@ -62,9 +62,9 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 	}
 
 	return &SiteComponents{
-		Tracker: tr,
-		Index:   ix,
-		Fetcher: f,
+		Tracker:   tr,
+		Index:     ix,
+		Fetcher:   f,
 		WebClient: wc,
 	}, nil
 }
