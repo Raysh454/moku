@@ -122,10 +122,7 @@ func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger log
 	if _, err := db.Exec(`INSERT INTO versions (id, parent_id, message, author, timestamp) VALUES (?, ?, ?, ?, ?)`, versionID, parentVersionID, "test", "", time.Now().Unix()); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`, snapshotID, 200, "https://example.com/test", "/test", uuid.New().String(), time.Now().Unix(), "{}"); err != nil {
-		return err
-	}
-	if _, err := db.Exec(`INSERT INTO version_snapshots (version_id, snapshot_id) VALUES (?, ?)`, versionID, snapshotID); err != nil {
+	if _, err := db.Exec(`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, snapshotID, versionID, 200, "https://example.com/test", "/test", uuid.New().String(), time.Now().Unix(), "{}"); err != nil {
 		return err
 	}
 
@@ -354,14 +351,14 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
 
 	// Insert snapshots
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		baseSnapshotID, 200, url, "/path", "blob-base", now, "{}",
+		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		baseSnapshotID, baseVersionID, 200, url, "/path", "blob-base", now, "{}",
 	); err != nil {
 		t.Fatalf("insert base snapshot: %v", err)
 	}
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		headSnapshotID, 200, url, "/path", "blob-head", now, "{}",
+		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		headSnapshotID, headVersionID, 200, url, "/path", "blob-head", now, "{}",
 	); err != nil {
 		t.Fatalf("insert head snapshot: %v", err)
 	}
@@ -548,14 +545,14 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs(t *testing.T) {
 
 	// Insert snapshots
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		baseSnapshotID, 200, url, "/path", "blob-base", now, "{}",
+		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		baseSnapshotID, baseVersionID, 200, url, "/path", "blob-base", now, "{}",
 	); err != nil {
 		t.Fatalf("insert base snapshot: %v", err)
 	}
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO snapshots (id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		headSnapshotID, 200, url, "/path", "blob-head", now, "{}",
+		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		headSnapshotID, headVersionID, 200, url, "/path", "blob-head", now, "{}",
 	); err != nil {
 		t.Fatalf("insert head snapshot: %v", err)
 	}

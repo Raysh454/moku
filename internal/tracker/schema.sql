@@ -12,6 +12,7 @@ INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2');
 
 -- Snapshots: captured web content at a point in time
 -- Each snapshot represents a single URL fetch and corresponds to exactly one file
+-- Each snapshot belongs to exactly one version (one-to-many relationship)
 
 -- Currently, each commit creates a new snapshot regardless of whether the file is changed, we can fix this by:
 --  adding: fetched_at, shows when content was last fetched, is updated if content is not changed and no new snapshot needs to be created
@@ -21,17 +22,20 @@ INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2');
 
 CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,
+    version_id TEXT NOT NULL,
     status_code INTEGER NOT NULL,
     url TEXT NOT NULL,
     file_path TEXT NOT NULL,
     blob_id TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    headers TEXT
+    headers TEXT,
+    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_url ON snapshots(url);
 CREATE INDEX IF NOT EXISTS idx_snapshots_blob_id ON snapshots(blob_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_version_id ON snapshots(version_id);
 
 -- Versions: commits/history entries
 -- A version represents a commit that may reference many snapshots
@@ -46,18 +50,6 @@ CREATE TABLE IF NOT EXISTS versions (
 
 CREATE INDEX IF NOT EXISTS idx_versions_timestamp ON versions(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_versions_parent_id ON versions(parent_id);
-
--- Version snapshots: many-to-many relationship between versions and snapshots
-CREATE TABLE IF NOT EXISTS version_snapshots (
-    version_id TEXT NOT NULL,
-    snapshot_id TEXT NOT NULL,
-    PRIMARY KEY (version_id, snapshot_id),
-    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE,
-    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_version_snapshots_version_id ON version_snapshots(version_id);
-CREATE INDEX IF NOT EXISTS idx_version_snapshots_snapshot_id ON version_snapshots(snapshot_id);
 
 -- Diffs: precomputed diffs between versions
 CREATE TABLE IF NOT EXISTS diffs (

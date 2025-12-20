@@ -24,7 +24,7 @@ func (n *chromedpNoopLogger) With(fields ...logging.Field) logging.Logger {
 // Note: This test may be skipped in CI environments where chromedp cannot initialize
 func TestNewChromedpClient_Construct(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientChromedp}
+	cfg := webclient.Config{Client: webclient.ClientChromedp}
 	logger := &chromedpNoopLogger{}
 
 	client, err := webclient.NewChromedpClient(cfg, logger)
@@ -41,7 +41,7 @@ func TestNewChromedpClient_Construct(t *testing.T) {
 // Note: chromedp only supports GET requests; other methods should fail
 func TestChromedpClient_DoSupportsGET(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientChromedp}
+	cfg := webclient.Config{Client: webclient.ClientChromedp}
 	logger := &chromedpNoopLogger{}
 
 	client, err := webclient.NewChromedpClient(cfg, logger)
@@ -68,7 +68,7 @@ func TestChromedpClient_DoSupportsGET(t *testing.T) {
 // TestChromedpClient_DoRejectsNonGET verifies that Do() returns error for non-GET methods
 func TestChromedpClient_DoRejectsNonGET(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientChromedp}
+	cfg := webclient.Config{Client: webclient.ClientChromedp}
 	logger := &chromedpNoopLogger{}
 
 	client, err := webclient.NewChromedpClient(cfg, logger)
