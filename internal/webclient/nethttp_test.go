@@ -23,7 +23,7 @@ func (n *noopLogger) With(fields ...logging.Field) logging.Logger {
 // TestNewNetHTTPClient_Construct verifies that NewNetHTTPClient returns a non-nil client
 func TestNewNetHTTPClient_Construct(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientNetHTTP}
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
 	logger := &noopLogger{}
 
 	client, err := webclient.NewNetHTTPClient(cfg, logger, nil)
@@ -39,7 +39,7 @@ func TestNewNetHTTPClient_Construct(t *testing.T) {
 // TestNewNetHTTPClient_WithCustomClient verifies that a custom *http.Client can be injected
 func TestNewNetHTTPClient_WithCustomClient(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientNetHTTP}
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
 	logger := &noopLogger{}
 	customClient := &http.Client{}
 
@@ -56,7 +56,7 @@ func TestNewNetHTTPClient_WithCustomClient(t *testing.T) {
 // TestNetHTTPClient_Close verifies that Close() does not panic and returns nil
 func TestNetHTTPClient_Close(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientNetHTTP}
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
 	logger := &noopLogger{}
 
 	client, err := webclient.NewNetHTTPClient(cfg, logger, nil)
@@ -77,7 +77,7 @@ func TestNetHTTPClient_Close(t *testing.T) {
 // TestNetHTTPClient_DoHTTPRequest verifies DoHTTPRequest method
 func TestNetHTTPClient_DoHTTPRequest(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientNetHTTP}
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
 	logger := &noopLogger{}
 
 	client, err := webclient.NewNetHTTPClient(cfg, logger, nil)
@@ -94,7 +94,7 @@ func TestNetHTTPClient_DoHTTPRequest(t *testing.T) {
 // TestNetHTTPClient_ErrInvalidRequest verifies ErrInvalidRequest method
 func TestNetHTTPClient_ErrInvalidRequest(t *testing.T) {
 	t.Parallel()
-	cfg := webclient.WebClientConfig{Client: webclient.ClientNetHTTP}
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
 	logger := &noopLogger{}
 
 	client, err := webclient.NewNetHTTPClient(cfg, logger, nil)

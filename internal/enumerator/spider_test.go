@@ -112,7 +112,7 @@ func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum
 	t.Helper()
 
 	// Create a simple webclient for testing
-	cfg := webclient.WebClientConfig{Client: webclient.ClientNetHTTP}
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
 	logger := logging.NewStdoutLogger("test")
 	wc, err := webclient.NewNetHTTPClient(cfg, logger, nil)
 	if err != nil {

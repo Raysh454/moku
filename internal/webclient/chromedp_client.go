@@ -30,7 +30,7 @@ type ChromeDPClient struct {
 	logger    logging.Logger
 }
 
-func NewChromedpClient(cfg WebClientConfig, logger logging.Logger) (WebClient, error) {
+func NewChromedpClient(cfg Config, logger logging.Logger) (WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(logging.Field{Key: "backend", Value: "chromedp"})
 
