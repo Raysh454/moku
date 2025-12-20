@@ -7,8 +7,8 @@ const (
 	ClientChromedp Client = "chromedp"
 )
 
-// WebClientConfig is the minimal interface required for constructing a WebClient.
+// Config is the minimal interface required for constructing a WebClient.
 // It is implemented by app.Config without creating an import cycle.
-type WebClientConfig struct {
+type Config struct {
 	Client Client
 }
