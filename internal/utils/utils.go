@@ -156,9 +156,6 @@ func Canonicalize(raw string, opts CanonicalizeOptions) (string, error) {
 		u.Host = host
 	}
 
-	// Drop userinfo (credentials)
-	u.User = nil
-
 	// Normalize path
 	cleanPath := path.Clean(u.Path)
 	if cleanPath == "." {
