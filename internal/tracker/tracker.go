@@ -3,6 +3,7 @@ package tracker
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -19,7 +20,7 @@ type Tracker interface {
 	CommitBatch(ctx context.Context, snapshots []*models.Snapshot, message, author string) (*models.CommitResult, error)
 
 	// ScoreAndAttributeVersion assigns a score (security relavance) for a given commit result
-	ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, opts *assessor.ScoreOptions) error
+	ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, scoreTimeout time.Duration) error
 
 	// GetScoreResult retrieves the ScoreResult associated with a specific snapshot ID.
 	GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error)

@@ -23,7 +23,7 @@ func TestNewSQLiteTracker_Constructable(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestSQLiteTracker_List(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: tmpDir})
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}

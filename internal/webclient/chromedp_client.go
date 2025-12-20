@@ -11,7 +11,6 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
-	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/logging"
 )
 
@@ -31,7 +30,7 @@ type ChromeDPClient struct {
 	logger    logging.Logger
 }
 
-func NewChromedpClient(cfg *app.Config, logger logging.Logger) (WebClient, error) {
+func NewChromedpClient(cfg WebClientConfig, logger logging.Logger) (WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(logging.Field{Key: "backend", Value: "chromedp"})
 

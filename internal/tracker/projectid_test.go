@@ -2,6 +2,8 @@ package tracker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/raysh454/moku/internal/logging"
@@ -14,8 +16,11 @@ func TestSetAndGetProjectID(t *testing.T) {
 	siteDir := t.TempDir()
 	logger := logging.NewStdoutLogger("tracker-test")
 
-	// create tracker without a preconfigured project id
-	tr, err := NewSQLiteTracker(logger, nil, &Config{StoragePath: siteDir})
+	// create tracker without a preconfigured project id but with existing storage path
+	if err := os.MkdirAll(filepath.Join(siteDir, ".moku"), 0o755); err != nil {
+		t.Fatalf("failed to create .moku dir: %v", err)
+	}
+	tr, err := NewSQLiteTracker(&Config{StoragePath: siteDir}, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig failed: %v", err)
 	}
@@ -51,7 +56,10 @@ func TestSetProjectID_MismatchAndForce(t *testing.T) {
 	siteDir := t.TempDir()
 	logger := logging.NewStdoutLogger("tracker-test")
 
-	tr, err := NewSQLiteTracker(logger, nil, &Config{StoragePath: siteDir})
+	if err := os.MkdirAll(filepath.Join(siteDir, ".moku"), 0o755); err != nil {
+		t.Fatalf("failed to create .moku dir: %v", err)
+	}
+	tr, err := NewSQLiteTracker(&Config{StoragePath: siteDir}, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig failed: %v", err)
 	}
@@ -104,7 +112,7 @@ func TestNewSQLiteTrackerWithConfig_ProjectID(t *testing.T) {
 
 	// create tracker A with project id "p-a"
 	cfgA := &Config{ProjectID: "p-a", StoragePath: siteDir}
-	trA, err := NewSQLiteTracker(logger, nil, cfgA)
+	trA, err := NewSQLiteTracker(cfgA, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig (A) failed: %v", err)
 	}
@@ -113,14 +121,14 @@ func TestNewSQLiteTrackerWithConfig_ProjectID(t *testing.T) {
 
 	// attempt to create tracker B with different project id -> should fail
 	cfgB := &Config{ProjectID: "p-b", ForceProjectID: false, StoragePath: siteDir}
-	_, err = NewSQLiteTracker(logger, nil, cfgB)
+	_, err = NewSQLiteTracker(cfgB, logger, nil)
 	if err == nil {
 		t.Fatalf("expected NewSQLiteTrackerWithConfig to fail on project id mismatch, but it succeeded")
 	}
 
 	// create tracker C with force overwrite -> should succeed and set project id to p-b
 	cfgC := &Config{ProjectID: "p-b", ForceProjectID: true, StoragePath: siteDir}
-	trC, err := NewSQLiteTracker(logger, nil, cfgC)
+	trC, err := NewSQLiteTracker(cfgC, logger, nil)
 	if err != nil {
 		t.Fatalf("NewSQLiteTrackerWithConfig (C) failed with force: %v", err)
 	}

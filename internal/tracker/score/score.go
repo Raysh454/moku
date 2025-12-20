@@ -30,12 +30,12 @@ func New(assessor assessor.Assessor, db *sql.DB, logger logging.Logger) *SQLiteS
 	}
 }
 
-func (sa *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, cr *models.CommitResult, opts *assessor.ScoreOptions) error {
+func (sa *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, cr *models.CommitResult, scoreTimeout time.Duration) error {
 	if sa.assessor == nil {
 		return nil
 	}
 
-	scoreCtx, cancel := context.WithTimeout(ctx, opts.Timeout*time.Second)
+	scoreCtx, cancel := context.WithTimeout(ctx, scoreTimeout*time.Second)
 	defer cancel()
 
 	for _, s := range cr.Snapshots {

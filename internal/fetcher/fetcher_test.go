@@ -71,7 +71,7 @@ func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*models.Snapshot
 	return &models.CommitResult{Snapshots: copySnaps}, nil
 }
 
-func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, _ *assessor.ScoreOptions) error {
+func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, _ time.Duration) error {
 	return nil
 }
 
@@ -214,7 +214,7 @@ func TestFetcher_Batching(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 2, tr, wc, idx, logger, nil)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestFetcher_ContextCancellation(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(10, 3, tr, wc, idx, logger, nil)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 10, CommitSize: 3}, tr, wc, idx, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestFetcher_LogsFetchErrors_AndMarksFailed(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 2, tr, wc, idx, logger, nil)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestFetcher_FetchResponseBodies(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 2, tr, wc, idx, logger, nil)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestFetcher_FinalBatchFlush(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 3, tr, wc, idx, logger, nil)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 3}, tr, wc, idx, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(20, 5, tr, wc, idx, logger, nil)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 20, CommitSize: 5}, tr, wc, idx, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
