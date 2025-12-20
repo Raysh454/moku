@@ -2,6 +2,7 @@ package fetcher_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
+	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/webclient"
@@ -73,9 +75,7 @@ func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.
 	return nil
 }
 
-func (t *DummyTracker) SetAssessor(a assessor.Assessor) {
-	// no-op for dummy
-}
+func (t *DummyTracker) SetAssessor(a assessor.Assessor) {}
 
 func (t *DummyTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
 	return nil, nil
@@ -105,9 +105,9 @@ func (t *DummyTracker) ListVersions(ctx context.Context, limit int) ([]*models.V
 	return nil, nil
 }
 
-func (t *DummyTracker) Checkout(ctx context.Context, versionID string) error {
-	return nil
-}
+func (t *DummyTracker) Checkout(ctx context.Context, versionID string) error { return nil }
+
+func (t *DummyTracker) DB() *sql.DB { return nil }
 
 func (t *DummyTracker) Close() error { return nil }
 
@@ -145,8 +145,59 @@ func (l *DummyLogger) Error(msg string, fields ...logging.Field) {
 }
 
 func (l *DummyLogger) With(fields ...logging.Field) logging.Logger {
-	// For simplicity, just return itself.
 	return l
+}
+
+// DummyEndpointIndex implements indexer.EndpointIndex for tests.
+type DummyEndpointIndex struct {
+	mu              sync.Mutex
+	Failed          []string
+	FetchedBatches  [][]string
+	PendingBatches  [][]string
+	ListedEndpoints []indexer.Endpoint
+
+	MarkFailedErr       error
+	MarkFetchedBatchErr error
+	MarkPendingBatchErr error
+}
+
+func (d *DummyEndpointIndex) AddEndpoints(ctx context.Context, rawUrls []string, source string) ([]string, error) {
+	return nil, nil
+}
+
+func (d *DummyEndpointIndex) ListEndpoints(ctx context.Context, status string, limit int) ([]indexer.Endpoint, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]indexer.Endpoint(nil), d.ListedEndpoints...), nil
+}
+
+func (d *DummyEndpointIndex) MarkPending(ctx context.Context, canonical string) error { return nil }
+
+func (d *DummyEndpointIndex) MarkFetched(ctx context.Context, canonical, versionID string, fetchedAt time.Time) error {
+	return nil
+}
+
+func (d *DummyEndpointIndex) MarkFailed(ctx context.Context, canonical string, reason string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.Failed = append(d.Failed, canonical)
+	return d.MarkFailedErr
+}
+
+func (d *DummyEndpointIndex) MarkPendingBatch(ctx context.Context, canonicals []string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	cp := append([]string(nil), canonicals...)
+	d.PendingBatches = append(d.PendingBatches, cp)
+	return d.MarkPendingBatchErr
+}
+
+func (d *DummyEndpointIndex) MarkFetchedBatch(ctx context.Context, canonicals []string, versionID string, fetchedAt time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	cp := append([]string(nil), canonicals...)
+	d.FetchedBatches = append(d.FetchedBatches, cp)
+	return d.MarkFetchedBatchErr
 }
 
 //
@@ -158,11 +209,12 @@ func (l *DummyLogger) With(fields ...logging.Field) logging.Logger {
 func TestFetcher_Batching(t *testing.T) {
 	ctx := context.Background()
 
-	tracker := &DummyTracker{}
+	tr := &DummyTracker{}
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 2, tracker, wc, logger, nil)
+	f, err := fetcher.New(5, 2, tr, wc, idx, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,12 +224,12 @@ func TestFetcher_Batching(t *testing.T) {
 
 	expected := []int{2, 2, 1}
 
-	if len(tracker.Batches) != len(expected) {
-		t.Fatalf("expected %d batches, got %d", len(expected), len(tracker.Batches))
+	if len(tr.Batches) != len(expected) {
+		t.Fatalf("expected %d batches, got %d", len(expected), len(tr.Batches))
 	}
 
 	for i, size := range expected {
-		if got := len(tracker.Batches[i]); got != size {
+		if got := len(tr.Batches[i]); got != size {
 			t.Fatalf("batch %d expected %d snapshots, got %d", i, size, got)
 		}
 	}
@@ -186,11 +238,12 @@ func TestFetcher_Batching(t *testing.T) {
 func TestFetcher_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tracker := &DummyTracker{}
+	tr := &DummyTracker{}
 	wc := &DummyWebClient{ResponseDelay: 50 * time.Millisecond}
 	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(10, 3, tracker, wc, logger, nil)
+	f, err := fetcher.New(10, 3, tr, wc, idx, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,19 +257,20 @@ func TestFetcher_ContextCancellation(t *testing.T) {
 
 	f.Fetch(ctx, urls)
 
-	if len(tracker.Batches) > 1 {
-		t.Fatalf("expected at most 1 batch due to cancellation, got %d", len(tracker.Batches))
+	if len(tr.Batches) > 1 {
+		t.Fatalf("expected at most 1 batch due to cancellation, got %d", len(tr.Batches))
 	}
 }
 
-func TestFetcher_LogsFetchErrors(t *testing.T) {
+func TestFetcher_LogsFetchErrors_AndMarksFailed(t *testing.T) {
 	ctx := context.Background()
 
-	tracker := &DummyTracker{}
+	tr := &DummyTracker{}
 	wc := &DummyWebClient{FailURLs: map[string]bool{"bad": true}}
 	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 2, tracker, wc, logger, nil)
+	f, err := fetcher.New(5, 2, tr, wc, idx, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,16 +280,29 @@ func TestFetcher_LogsFetchErrors(t *testing.T) {
 	if len(logger.Errors) == 0 {
 		t.Fatalf("expected logged errors but got none")
 	}
+
+	// Ensure indexer.MarkFailed was called for "bad"
+	foundBad := false
+	for _, u := range idx.Failed {
+		if u == "bad" {
+			foundBad = true
+			break
+		}
+	}
+	if !foundBad {
+		t.Fatalf("expected indexer.MarkFailed to be called for 'bad', got %v", idx.Failed)
+	}
 }
 
 func TestFetcher_FetchResponseBodies(t *testing.T) {
 	ctx := context.Background()
 
-	tracker := &DummyTracker{}
+	tr := &DummyTracker{}
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 2, tracker, wc, logger, nil)
+	f, err := fetcher.New(5, 2, tr, wc, idx, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +312,7 @@ func TestFetcher_FetchResponseBodies(t *testing.T) {
 
 	// Check that snapshot bodies match "ok:<url>"
 	found := map[string]bool{}
-	for _, batch := range tracker.Batches {
+	for _, batch := range tr.Batches {
 		for _, snap := range batch {
 			if string(snap.Body) != "ok:"+snap.URL {
 				t.Errorf("unexpected snapshot body: %s", string(snap.Body))
@@ -264,11 +331,12 @@ func TestFetcher_FetchResponseBodies(t *testing.T) {
 func TestFetcher_FinalBatchFlush(t *testing.T) {
 	ctx := context.Background()
 
-	tracker := &DummyTracker{}
+	tr := &DummyTracker{}
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(5, 3, tracker, wc, logger, nil)
+	f, err := fetcher.New(5, 3, tr, wc, idx, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,12 +345,12 @@ func TestFetcher_FinalBatchFlush(t *testing.T) {
 	f.Fetch(ctx, urls)
 
 	expectedBatches := 2 // one batch of 3, one batch of 1
-	if len(tracker.Batches) != expectedBatches {
-		t.Fatalf("expected %d batches, got %d", expectedBatches, len(tracker.Batches))
+	if len(tr.Batches) != expectedBatches {
+		t.Fatalf("expected %d batches, got %d", expectedBatches, len(tr.Batches))
 	}
 
 	// Ensure last batch has the remaining snapshot
-	lastBatch := tracker.Batches[len(tracker.Batches)-1]
+	lastBatch := tr.Batches[len(tr.Batches)-1]
 	if len(lastBatch) != 1 {
 		t.Errorf("expected last batch size 1, got %d", len(lastBatch))
 	}
@@ -291,11 +359,12 @@ func TestFetcher_FinalBatchFlush(t *testing.T) {
 func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
 	ctx := context.Background()
 
-	tracker := &DummyTracker{}
+	tr := &DummyTracker{}
 	wc := &DummyWebClient{}
 	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(20, 5, tracker, wc, logger, nil)
+	f, err := fetcher.New(20, 5, tr, wc, idx, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +383,7 @@ func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
 
 	// All snapshots should be committed
 	total := 0
-	for _, b := range tracker.Batches {
+	for _, b := range tr.Batches {
 		total += len(b)
 	}
 	if total != 6 {

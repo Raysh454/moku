@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -52,6 +53,9 @@ type Tracker interface {
 	// Checkout updates the working tree to match a specific version.
 	// This restores all files from the specified version to the working directory.
 	Checkout(ctx context.Context, versionID string) error
+
+	// Returns a reference to the underlying database (Owned by Tracker)
+	DB() *sql.DB
 
 	// Close releases resources used by the tracker.
 	Close() error
