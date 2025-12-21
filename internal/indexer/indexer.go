@@ -32,18 +32,18 @@ type Index struct {
 }
 
 type Endpoint struct {
-	ID                 string
-	RawURL             string
-	CanonicalURL       string
-	Host               string
-	Path               string
-	FirstDiscoveredAt  int64
-	LastDiscoveredAt   int64
-	LastFetchedVersion string
-	LastFetchedAt      int64
-	Status             string
-	Source             string
-	Meta               string
+	ID                 string `json:"id"`
+	RawURL             string `json:"url"`
+	CanonicalURL       string `json:"canonical_url"`
+	Host               string `json:"host"`
+	Path               string `json:"path"`
+	FirstDiscoveredAt  int64  `json:"first_discovered_at"`
+	LastDiscoveredAt   int64  `json:"last_discovered_at"`
+	LastFetchedVersion string `json:"last_fetched_version"`
+	LastFetchedAt      int64  `json:"last_fetched_at"`
+	Status             string `json:"status"`
+	Source             string `json:"source"`
+	Meta               string `json:"meta"`
 }
 
 func NewIndex(db *sql.DB, logger logging.Logger, opts utils.CanonicalizeOptions) *Index {
@@ -200,14 +200,18 @@ func (ix *Index) MarkFailed(ctx context.Context, canonical string, reason string
 // ListEndpoints with simple filters; extend filter struct as needed.
 // Limit of 0 means no limit.
 func (ix *Index) ListEndpoints(ctx context.Context, status string, limit int) ([]Endpoint, error) {
+	ix.logger.Debug("index: ListEndpoints called", logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 	if limit <= 0 {
 		limit = -1
+	}
+	if status == "*" {
+		status = "%"
 	}
 	q := `SELECT id, raw_url, canonical_url, host, path, first_discovered_at, last_discovered_at, last_fetched_version, last_fetched_at, status, discovery_source, meta FROM endpoints`
 	var rows *sql.Rows
 	var err error
 	if status != "" {
-		q += ` WHERE status = ? ORDER BY last_discovered_at DESC LIMIT ?`
+		q += ` WHERE status LIKE ? ORDER BY last_discovered_at DESC LIMIT ?`
 		rows, err = ix.db.QueryContext(ctx, q, status, limit)
 	} else {
 		q += ` ORDER BY last_discovered_at DESC LIMIT ?`
@@ -235,5 +239,6 @@ func (ix *Index) ListEndpoints(ctx context.Context, status string, limit int) ([
 		}
 		out = append(out, e)
 	}
+	ix.logger.Debug("index: ListEndpoints completed", logging.Field{Key: "returned_count", Value: len(out)})
 	return out, nil
 }

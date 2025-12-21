@@ -229,13 +229,6 @@ Path params:
 - `project` – project slug or id.
 - `site` – website slug.
 
-Request body (JSON, optional):
-```json
-{
-  "concurrency": 4  // optional; default 4 when <= 0
-}
-```
-
 Response `202 Accepted` (JSON job object):
 ```json
 {
@@ -334,9 +327,6 @@ Open a WebSocket that starts an enumerate job and streams its events.
 Path params:
 - `project` – project slug or id.
 - `site` – website slug.
-
-Query params:
-- `concurrency` (optional) – positive integer; default 4; invalid/non‑positive ignored.
 
 Behavior:
 - Connection upgrade starts an enumerate job (same semantics as POST jobs/enumerate).

@@ -177,6 +177,7 @@ func (o *Orchestrator) getCancel(jobID string) context.CancelFunc {
 }
 
 func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status string, limit int) (*Job, error) {
+	o.logger.Info("orchestrator: Starting fetch job", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 	o.closedMu.Lock()
 	closed := o.closed
 	o.closedMu.Unlock()
@@ -253,8 +254,10 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 				Total:     total,
 			})
 		}
+		o.logger.Info("Starting fetch job", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "website", Value: site}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 		overview, err := o.FetchWebsiteEndpoints(jobCtx, project, site, status, limit, cb)
 		if err != nil {
+			o.logger.Error("Orchestrator (StartFetchJob): Fetch job failed", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "error", Value: err.Error()})
 			select {
 			case <-jobCtx.Done():
 				o.jobsMu.Lock()
@@ -558,7 +561,7 @@ func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, 
 		return nil, err
 	}
 
-	_, err = comps.Index.AddEndpoints(ctx, targets, "enumerator")
+	_, err = comps.Index.AddEndpoints(ctx, targets, "spider-enumerator")
 	if err != nil {
 		return nil, err
 	}
@@ -574,6 +577,7 @@ func (o *Orchestrator) ListWebsiteEndpoints(ctx context.Context, projectIdentifi
 	if err != nil {
 		return nil, err
 	}
+	o.logger.Info("Listing endpoints", logging.Field{Key: "website_id", Value: web.ID}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 	return comps.Index.ListEndpoints(ctx, status, limit)
 }
 
@@ -581,10 +585,13 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 	if status == "" {
 		status = "*"
 	}
+
 	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
 	if err != nil {
 		return nil, err
 	}
+
+
 	comps, err := o.siteComponentsFor(ctx, web)
 	if err != nil {
 		return nil, err
@@ -608,6 +615,7 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 		return nil, err
 	}
 
+	o.logger.Info("Starting fetch of website endpoints", logging.Field{Key: "website_id", Value: web.ID}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit}, logging.Field{Key: "previous_head_id", Value: prevHeadID})
 	if err := comps.Fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
 		return nil, err
 	}
@@ -627,7 +635,7 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 type EndpointDetails struct {
 	Snapshot     *models.Snapshot         `json:"snapshot"`
 	ScoreResult  *assessor.ScoreResult    `json:"score_result,omitempty"`
-	SecurityDiff *assessor.SecurityDiff   `json:"diff_with_prev,omitempty"`
+	SecurityDiff *assessor.SecurityDiff   `json:"security_diff,omitempty"`
 	Diff         *models.CombinedFileDiff `json:"diff,omitempty"`
 }
 
