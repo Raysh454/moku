@@ -265,7 +265,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 	wc, _ := webclient.NewWebClient(webclient.Config{Client: webclient.ClientNetHTTP}, logger)
 	spider := enumerator.NewSpider(1, wc, logger)
 
-	targets, err := spider.Enumerate(context.Background(), "https://dsu.edu.pk")
+	targets, err := spider.Enumerate(context.Background(), "https://dsu.edu.pk", nil)
 	if err != nil {
 		t.Fatalf("Spider enumeration failed: %v", err)
 	}
@@ -275,5 +275,5 @@ func TestNewSQLiteTracker(t *testing.T) {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}
 
-	fcher.Fetch(context.Background(), targets)
+	fcher.Fetch(context.Background(), targets, nil)
 }

@@ -244,7 +244,7 @@ func TestFetcher_Batching(t *testing.T) {
 	}
 
 	urls := []string{"1", "2", "3", "4", "5"}
-	f.Fetch(ctx, urls)
+	f.Fetch(ctx, urls, nil)
 
 	expected := []int{2, 2, 1}
 
@@ -279,7 +279,7 @@ func TestFetcher_ContextCancellation(t *testing.T) {
 		cancel() // cancel while fetching
 	}()
 
-	f.Fetch(ctx, urls)
+	f.Fetch(ctx, urls, nil)
 
 	if len(tr.Batches) > 1 {
 		t.Fatalf("expected at most 1 batch due to cancellation, got %d", len(tr.Batches))
@@ -299,7 +299,7 @@ func TestFetcher_LogsFetchErrors_AndMarksFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.Fetch(ctx, []string{"a", "bad", "b"})
+	f.Fetch(ctx, []string{"a", "bad", "b"}, nil)
 
 	if len(logger.Errors) == 0 {
 		t.Fatalf("expected logged errors but got none")
@@ -332,7 +332,7 @@ func TestFetcher_FetchResponseBodies(t *testing.T) {
 	}
 
 	urls := []string{"x", "y", "z"}
-	f.Fetch(ctx, urls)
+	f.Fetch(ctx, urls, nil)
 
 	// Check that snapshot bodies match "ok:<url>"
 	found := map[string]bool{}
@@ -366,7 +366,7 @@ func TestFetcher_FinalBatchFlush(t *testing.T) {
 	}
 
 	urls := []string{"a", "b", "c", "d"} // 4 snapshots, commit size = 3
-	f.Fetch(ctx, urls)
+	f.Fetch(ctx, urls, nil)
 
 	expectedBatches := 2 // one batch of 3, one batch of 1
 	if len(tr.Batches) != expectedBatches {
@@ -400,7 +400,7 @@ func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			urls := []string{fmt.Sprintf("u%d-1", i), fmt.Sprintf("u%d-2", i)}
-			f.Fetch(ctx, urls)
+			f.Fetch(ctx, urls, nil)
 		}(i)
 	}
 	wg.Wait()
