@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/server"
@@ -17,6 +19,9 @@ type Config struct {
 
 	// StorageRoot is the base path where projects are kept.
 	StorageRoot string
+
+	// A job will be deleted during cleanup if it exceedes JobRetentionTime.
+	JobRetentionTime time.Duration
 
 	// Tracker Configuration
 	trackerCfg tracker.Config
@@ -40,7 +45,8 @@ func DefaultConfig() *Config {
 		ServerCfg: server.Config{
 			ServerAddr: "http://localhost:8080",
 		},
-		StorageRoot: "~/.config/moku",
+		StorageRoot:      "~/.config/moku",
+		JobRetentionTime: 60 * time.Minute,
 		trackerCfg: tracker.Config{
 			RedactSensitiveHeaders: false,
 			StoragePath:            "",    // Needs to be set! (Website Directory)

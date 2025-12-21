@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/raysh454/moku/internal/indexer"
@@ -37,7 +38,7 @@ func New(cfg Config, tracker tracker.Tracker, wc webclient.WebClient, indexer in
 
 // FetchFromIndex fetches endpoints from the index by status, updates their status,
 // commits snapshots, and returns whatever you need (e.g., created version IDs).
-func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int) error {
+func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int, cb utils.ProgressCallback) error {
 	if f.indexer == nil {
 		return fmt.Errorf("fetcher: index is nil")
 	}
@@ -57,17 +58,27 @@ func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int) 
 		return fmt.Errorf("error marking endpoints as pending: %w", err)
 	}
 
-	f.Fetch(ctx, urls)
+	f.Fetch(ctx, urls, cb)
 
 	return nil
 }
 
 // Gets and stores all given HTTP urls to file system
-func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
+func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.ProgressCallback) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.config.MaxConcurrency)
 	snapCh := make(chan *models.Snapshot)
 	batcherDone := make(chan struct{})
+
+	total := len(pageUrls)
+	var processed int32
+
+	emitProgress := func() {
+		if cb != nil {
+			p := atomic.AddInt32(&processed, 1)
+			cb(int(p), total)
+		}
+	}
 
 	// Commit snapshots goroutine
 	go func() {
@@ -142,6 +153,8 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string) {
 
 			sem <- struct{}{}
 			defer func() { <-sem }()
+
+			defer emitProgress()
 
 			response, err := f.HTTPGet(ctx, pageUrl)
 			if err != nil {

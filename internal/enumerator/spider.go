@@ -28,7 +28,6 @@ type spiderHelper struct {
 }
 
 // NewSpider creates a new Spider with the given webclient and logger.
-// TODO: Update call sites to pass wc and logger when wiring modules in cmd/main or composition root.
 func NewSpider(maxDepth int, wc webclient.WebClient, logger logging.Logger) *Spider {
 	return &Spider{
 		MaxDepth: maxDepth,
@@ -169,7 +168,7 @@ func (sh *spiderHelper) appendPages(pages []string, lastDepth int) {
 	}
 }
 
-func (sh *spiderHelper) run(ctx context.Context) error {
+func (sh *spiderHelper) run(ctx context.Context, cb utils.ProgressCallback) error {
 	currPage := 0
 
 	for currPage < len(sh.results) {
@@ -189,18 +188,22 @@ func (sh *spiderHelper) run(ctx context.Context) error {
 
 		sh.appendPages(crawledPages, currDepth)
 		currPage += 1
+
+		if cb != nil {
+			cb(currPage, len(sh.results))
+		}
 	}
 
 	return nil
 }
 
-func (s *Spider) Enumerate(ctx context.Context, target string) ([]string, error) {
+func (s *Spider) Enumerate(ctx context.Context, target string, cb utils.ProgressCallback) ([]string, error) {
 	helper, err := newSpiderHelper(s, target)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := helper.run(ctx); err != nil {
+	if err := helper.run(ctx, cb); err != nil {
 		fmt.Fprintf(os.Stderr, "helper.run failed: %v\n", err)
 	}
 	return helper.results, nil

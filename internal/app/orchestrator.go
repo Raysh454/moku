@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/registry"
 	"github.com/raysh454/moku/internal/tracker/models"
+	"github.com/raysh454/moku/internal/utils"
 )
 
 type JobEventType string
@@ -69,9 +71,13 @@ type Orchestrator struct {
 	siteCompMutex       sync.Mutex
 	siteComponentsCache map[string]*SiteComponents
 
-	jobsMu     sync.Mutex
-	jobs       map[string]*Job
-	jobCancels map[string]context.CancelFunc
+	jobsMu           sync.Mutex
+	jobs             map[string]*Job
+	jobCancels       map[string]context.CancelFunc
+	jobRetentionTime time.Duration
+
+	closedMu sync.Mutex
+	closed   bool
 }
 
 // NewOrchestrator ties together config, registry and logger.
@@ -80,9 +86,10 @@ func NewOrchestrator(cfg *Config, reg *registry.Registry, logger logging.Logger)
 		cfg = DefaultConfig()
 	}
 	return &Orchestrator{
-		cfg:      cfg,
-		registry: reg,
-		logger:   logger,
+		cfg:              cfg,
+		registry:         reg,
+		logger:           logger,
+		jobRetentionTime: cfg.JobRetentionTime,
 	}
 }
 
@@ -121,6 +128,33 @@ func (o *Orchestrator) setJob(job *Job) {
 	o.jobs[job.ID] = job
 }
 
+func (o *Orchestrator) cleanupFinishedJobsLocked() {
+	// caller MUST hold o.jobsMu
+	if o.jobRetentionTime <= 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	for id, job := range o.jobs {
+		// Only remove jobs that are finished and past retention
+		if job == nil {
+			delete(o.jobs, id)
+			continue
+		}
+
+		if job.Status != JobDone && job.Status != JobFailed && job.Status != JobCanceled {
+			continue
+		}
+		if job.EndedAt.IsZero() {
+			continue
+		}
+
+		if now.Sub(job.EndedAt) > o.jobRetentionTime {
+			delete(o.jobs, id)
+		}
+	}
+}
+
 func (o *Orchestrator) setCancel(jobID string, cancel context.CancelFunc) {
 	o.jobsMu.Lock()
 	defer o.jobsMu.Unlock()
@@ -143,6 +177,12 @@ func (o *Orchestrator) getCancel(jobID string) context.CancelFunc {
 }
 
 func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status string, limit int) (*Job, error) {
+	o.closedMu.Lock()
+	closed := o.closed
+	o.closedMu.Unlock()
+	if closed {
+		return nil, fmt.Errorf("orchestrator is closed")
+	}
 	o.ensureJobMaps()
 
 	jobID := uuid.New().String()
@@ -176,18 +216,23 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 			if j, ok := o.jobs[jobID]; ok {
 				j.EndedAt = time.Now().UTC()
 			}
+
+			// Cleanup old jobs while we hold the lock
+			o.cleanupFinishedJobsLocked()
+
+			// Capture events chan before unlocking
+			var events chan JobEvent
+			if j, ok := o.jobs[jobID]; ok && j != nil {
+				events = j.Events
+			}
 			o.jobsMu.Unlock()
+
 			o.deleteCancel(jobID)
 
-			// Close events channel so websocket loop can terminate cleanly
-			o.jobsMu.Lock()
-			j := o.jobs[jobID]
-			o.jobsMu.Unlock()
-			if j != nil && j.Events != nil {
-				close(j.Events)
+			if events != nil {
+				close(events)
 			}
 		}()
-
 		// Mark running
 		o.jobsMu.Lock()
 		if j, ok := o.jobs[jobID]; ok {
@@ -200,7 +245,15 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 			Status: JobRunning,
 		})
 
-		overview, err := o.FetchWebsiteEndpoints(jobCtx, project, site, status, limit)
+		cb := func(processed, total int) {
+			o.emitJobEvent(jobID, JobEvent{
+				JobID:     jobID,
+				Type:      JobEventProgress,
+				Processed: processed,
+				Total:     total,
+			})
+		}
+		overview, err := o.FetchWebsiteEndpoints(jobCtx, project, site, status, limit, cb)
 		if err != nil {
 			select {
 			case <-jobCtx.Done():
@@ -266,6 +319,12 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 }
 
 func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, concurrency int) (*Job, error) {
+	o.closedMu.Lock()
+	closed := o.closed
+	o.closedMu.Unlock()
+	if closed {
+		return nil, fmt.Errorf("orchestrator is closed")
+	}
 	o.ensureJobMaps()
 
 	jobID := uuid.New().String()
@@ -298,17 +357,23 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 			if j, ok := o.jobs[jobID]; ok {
 				j.EndedAt = time.Now().UTC()
 			}
+
+			// Cleanup old jobs while we hold the lock
+			o.cleanupFinishedJobsLocked()
+
+			// Capture events chan before unlocking
+			var events chan JobEvent
+			if j, ok := o.jobs[jobID]; ok && j != nil {
+				events = j.Events
+			}
 			o.jobsMu.Unlock()
+
 			o.deleteCancel(jobID)
 
-			o.jobsMu.Lock()
-			j := o.jobs[jobID]
-			o.jobsMu.Unlock()
-			if j != nil && j.Events != nil {
-				close(j.Events)
+			if events != nil {
+				close(events)
 			}
 		}()
-
 		o.jobsMu.Lock()
 		if j, ok := o.jobs[jobID]; ok {
 			j.Status = JobRunning
@@ -320,7 +385,15 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 			Status: JobRunning,
 		})
 
-		urls, err := o.EnumerateWebsite(jobCtx, project, site, concurrency)
+		cb := func(processed, total int) {
+			o.emitJobEvent(jobID, JobEvent{
+				JobID:     jobID,
+				Type:      JobEventProgress,
+				Processed: processed,
+				Total:     total,
+			})
+		}
+		urls, err := o.EnumerateWebsite(jobCtx, project, site, concurrency, cb)
 		if err != nil {
 			select {
 			case <-jobCtx.Done():
@@ -453,7 +526,7 @@ func (o *Orchestrator) AddWebsiteEndpoints(ctx context.Context, projectIdentifie
 	return comps.Index.AddEndpoints(ctx, rawURLs, source)
 }
 
-func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, concurrency int) ([]string, error) {
+func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, concurrency int, cb utils.ProgressCallback) ([]string, error) {
 	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
 	if err != nil {
 		return nil, err
@@ -466,7 +539,7 @@ func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, 
 	// Currently, we only have a spider enumerator.
 	// When multiple enumerators are added, we can make this configurable.
 	spider := enumerator.NewSpider(concurrency, comps.WebClient, o.logger)
-	targets, err := spider.Enumerate(ctx, web.Origin)
+	targets, err := spider.Enumerate(ctx, web.Origin, cb)
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +563,7 @@ func (o *Orchestrator) ListWebsiteEndpoints(ctx context.Context, projectIdentifi
 	return comps.Index.ListEndpoints(ctx, status, limit)
 }
 
-func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int) (*assessor.SecurityDiffOverview, error) {
+func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int, cb utils.ProgressCallback) (*assessor.SecurityDiffOverview, error) {
 	if status == "" {
 		status = "*"
 	}
@@ -510,7 +583,7 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 
 	if !headExists {
 		// First fetch, no previous version to compare against
-		if err := comps.Fetcher.FetchFromIndex(ctx, status, limit); err != nil {
+		if err := comps.Fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -521,7 +594,7 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 		return nil, err
 	}
 
-	if err := comps.Fetcher.FetchFromIndex(ctx, status, limit); err != nil {
+	if err := comps.Fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
 		return nil, err
 	}
 
@@ -608,4 +681,42 @@ func (o *Orchestrator) GetEndpointDetails(ctx context.Context, projectIdentifier
 		SecurityDiff: secDiff,
 		Diff:         diff,
 	}, nil
+}
+
+func (o *Orchestrator) Close() {
+	// Mark closed so no new jobs should be started.
+	o.closedMu.Lock()
+	if o.closed {
+		o.closedMu.Unlock()
+		return
+	}
+	o.closed = true
+	o.closedMu.Unlock()
+
+	// Cancel all running jobs.
+	o.jobsMu.Lock()
+	for id, cancel := range o.jobCancels {
+		if cancel != nil {
+			cancel()
+		}
+		delete(o.jobCancels, id)
+	}
+	o.cleanupFinishedJobsLocked()
+	o.jobsMu.Unlock()
+
+	// Close all site components (DB connections, HTTP clients, etc.).
+	o.siteCompMutex.Lock()
+	for id, sc := range o.siteComponentsCache {
+		if sc != nil {
+			// Ignore individual errors on close; log if you want.
+			if err := sc.Close(); err != nil && o.logger != nil {
+				o.logger.Warn("failed to close site components",
+					logging.Field{Key: "website_id", Value: id},
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+			}
+		}
+		delete(o.siteComponentsCache, id)
+	}
+	o.siteCompMutex.Unlock()
 }

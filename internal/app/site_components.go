@@ -74,7 +74,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 // Any ongoing fetch operations will be stopped.
 func (sc *SiteComponents) Close() error {
 	var firstErr error
-	if err := sc.WebClient.Close(); err != nil && firstErr == nil {
+	if err := sc.WebClient.Close(); err != nil {
 		firstErr = fmt.Errorf("close webclient: %w", err)
 	}
 	if err := sc.Tracker.Close(); err != nil && firstErr == nil {
