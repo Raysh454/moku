@@ -42,7 +42,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	// Make sure storage root exists
-	storageRoot, err := expandPath(cfg.AppConfig.StorageRoot)
+	storageRoot, err := expandPath(filepath.Join((cfg.AppConfig.StorageRoot), "registry.db"))
 	if err != nil {
 		return nil, fmt.Errorf("expanding storage root path: %w", err)
 	}
