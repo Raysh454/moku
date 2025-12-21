@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -36,8 +38,18 @@ func NewServer(cfg Config) (*Server, error) {
 
 	logger := cfg.Logger
 	if logger == nil {
-		// Fallback to a very simple logger if you have one; otherwise leave nil.
 		logger = logging.NewStdoutLogger("Server")
+	}
+
+	// Make sure storage root exists
+	storageRoot, err := expandPath(cfg.AppConfig.StorageRoot)
+	if err != nil {
+		return nil, fmt.Errorf("expanding storage root path: %w", err)
+	}
+	cfg.AppConfig.StorageRoot = storageRoot
+	err = os.MkdirAll(cfg.AppConfig.StorageRoot, 0755)
+	if err != nil {
+		logger.Warn("creating storage root directory", logging.Field{Key: "path", Value: cfg.AppConfig.StorageRoot}, logging.Field{Key: "error", Value: err.Error()})
 	}
 
 	// Set up registry DB
@@ -420,4 +432,15 @@ func (s *Server) handleEnumerateWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func expandPath(p string) (string, error) {
+	if len(p) > 0 && p[0] == '~' {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, p[1:]), nil
+	}
+	return p, nil
 }
