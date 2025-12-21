@@ -206,5 +206,6 @@ func (s *Spider) Enumerate(ctx context.Context, target string, cb utils.Progress
 	if err := helper.run(ctx, cb); err != nil {
 		fmt.Fprintf(os.Stderr, "helper.run failed: %v\n", err)
 	}
+	s.logger.Info("spider: enumeration completed", logging.Field{Key: "total_pages", Value: len(helper.results)})
 	return helper.results, nil
 }
