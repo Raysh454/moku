@@ -43,6 +43,7 @@ func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int, 
 		return fmt.Errorf("fetcher: index is nil")
 	}
 
+	f.logger.Info("fetcher: listing endpoints from index", logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 	eps, err := f.indexer.ListEndpoints(ctx, status, limit)
 	if err != nil {
 		return err
@@ -58,6 +59,7 @@ func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int, 
 		return fmt.Errorf("error marking endpoints as pending: %w", err)
 	}
 
+	f.logger.Info("starting fetch for endpoints", logging.Field{Key: "count", Value: len(urls)})
 	f.Fetch(ctx, urls, cb)
 
 	return nil

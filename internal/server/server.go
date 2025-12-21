@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,7 +45,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	// Make sure storage root exists
-	storageRoot, err := expandPath(filepath.Join((cfg.AppConfig.StorageRoot), "registry.db"))
+	storageRoot, err := expandPath(cfg.AppConfig.StorageRoot)
 	if err != nil {
 		return nil, fmt.Errorf("expanding storage root path: %w", err)
 	}
@@ -53,7 +56,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	// Set up registry DB
-	db, err := sql.Open("sqlite", cfg.AppConfig.StorageRoot)
+	db, err := sql.Open("sqlite", filepath.Join(cfg.AppConfig.StorageRoot, "registry.db"))
 	if err != nil {
 		return nil, fmt.Errorf("opening registry database: %w", err)
 	}
@@ -92,6 +95,20 @@ func (s *Server) Orchestrator() *app.Orchestrator {
 func (s *Server) routes() {
 	r := s.router
 
+	r.Use(s.corsMiddleware)
+
+	// CORS preflight
+	r.Options("/projects", s.optionsHandler("GET, POST"))
+	r.Options("/projects/{project}/websites", s.optionsHandler("GET, POST"))
+	r.Options("/projects/{project}/websites/{site}/endpoints", s.optionsHandler("GET, POST"))
+	r.Options("/projects/{project}/websites/{site}/endpoints/details", s.optionsHandler("GET"))
+	r.Options("/projects/{project}/websites/{site}/jobs/fetch", s.optionsHandler("POST"))
+	r.Options("/projects/{project}/websites/{site}/jobs/enumerate", s.optionsHandler("POST"))
+	r.Options("/jobs", s.optionsHandler("GET"))
+	r.Options("/jobs/{jobID}", s.optionsHandler("GET, DELETE"))
+	r.Options("/ws/projects/{project}/websites/{site}/fetch", s.optionsHandler("GET"))
+	r.Options("/ws/projects/{project}/websites/{site}/enumerate", s.optionsHandler("GET"))
+
 	// Projects
 	r.Post("/projects", s.handleCreateProject)
 	r.Get("/projects", s.handleListProjects)
@@ -117,8 +134,43 @@ func (s *Server) routes() {
 	r.Get("/ws/projects/{project}/websites/{site}/enumerate", s.handleEnumerateWS)
 }
 
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) optionsHandler(methods string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Methods", methods)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fields := []logging.Field{
+		{Key: "method", Value: r.Method},
+		{Key: "path", Value: r.URL.Path},
+	}
+
+	if q := r.URL.Query(); len(q) > 0 {
+		fields = append(fields, logging.Field{Key: "query", Value: q})
+	}
+
+	if r.Body != nil && (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch) {
+		if bodyBytes, err := io.ReadAll(r.Body); err == nil {
+			fields = append(fields, logging.Field{Key: "body", Value: string(bodyBytes)})
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+	}
+
+	s.logger.Info("http_request", fields...)
+
 	s.router.ServeHTTP(w, r)
 }
 
@@ -173,18 +225,22 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	p, err := s.orchestrator.CreateProject(r.Context(), body.Slug, body.Name, body.Description)
 	if err != nil {
+		s.logger.Warn("creating project", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logger.Info("created project", logging.Field{Key: "slug", Value: p.Slug})
 	writeJSON(w, http.StatusCreated, p)
 }
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	ps, err := s.orchestrator.ListProjects(r.Context())
 	if err != nil {
+		s.logger.Warn("listing projects", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logger.Info("listed projects", logging.Field{Key: "count", Value: len(ps)})
 	writeJSON(w, http.StatusOK, ps)
 }
 
@@ -199,14 +255,17 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		s.logger.Warn("decoding create website body", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
 
 	web, err := s.orchestrator.CreateWebsite(r.Context(), project, body.Slug, body.Origin)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		s.logger.Warn("creating website", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
+	s.logger.Info("created website", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: web.Slug})
 	writeJSON(w, http.StatusCreated, web)
 }
 
@@ -215,9 +274,11 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request) {
 
 	ws, err := s.orchestrator.ListWebsites(r.Context(), project)
 	if err != nil {
+		s.logger.Warn("listing websites", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logger.Info("listed websites", logging.Field{Key: "project", Value: project}, logging.Field{Key: "count", Value: len(ws)})
 	writeJSON(w, http.StatusOK, ws)
 }
 
@@ -232,6 +293,7 @@ func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Reques
 		Source string   `json:"source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		s.logger.Warn("decoding add endpoints body", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -241,9 +303,11 @@ func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Reques
 
 	added, err := s.orchestrator.AddWebsiteEndpoints(r.Context(), project, site, body.URLs, body.Source)
 	if err != nil {
+		s.logger.Warn("adding website endpoints", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logger.Info("added website endpoints", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "added_count", Value: added})
 	writeJSON(w, http.StatusCreated, map[string]any{"added": added})
 }
 
@@ -262,9 +326,11 @@ func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Reque
 
 	eps, err := s.orchestrator.ListWebsiteEndpoints(r.Context(), project, site, status, limit)
 	if err != nil {
+		s.logger.Warn("listing website endpoints", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logger.Info("listed website endpoints", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "count", Value: len(eps)})
 	writeJSON(w, http.StatusOK, eps)
 }
 
@@ -273,15 +339,19 @@ func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request
 	site := chi.URLParam(r, "site")
 	url := r.URL.Query().Get("url")
 	if url == "" {
+		s.logger.Warn("getting endpoint details: missing url query parameter")
 		writeError(w, http.StatusBadRequest, "missing url query parameter")
 		return
 	}
 
 	details, err := s.orchestrator.GetEndpointDetails(r.Context(), project, site, url)
 	if err != nil {
+		s.logger.Warn("getting endpoint details", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	s.logger.Info("got endpoint details", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "url", Value: url})
 	writeJSON(w, http.StatusOK, details)
 }
 
@@ -305,11 +375,13 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 		body.Limit = 100
 	}
 
-	job, err := s.orchestrator.StartFetchJob(r.Context(), project, site, body.Status, body.Limit)
+	job, err := s.orchestrator.StartFetchJob(context.Background(), project, site, body.Status, body.Limit)
 	if err != nil {
+		s.logger.Warn("starting fetch job", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logger.Info("started fetch job", logging.Field{Key: "job_id", Value: job.ID}, logging.Field{Key: "status", Value: body.Status}, logging.Field{Key: "limit", Value: body.Limit})
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -317,21 +389,15 @@ func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request)
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 
-	var body struct {
-		Concurrency int `json:"concurrency"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	maxDepth := 4
 
-	// Use default if not provided
-	if body.Concurrency <= 0 {
-		body.Concurrency = 4
-	}
-
-	job, err := s.orchestrator.StartEnumerateJob(r.Context(), project, site, body.Concurrency)
+	job, err := s.orchestrator.StartEnumerateJob(r.Context(), project, site, maxDepth)
 	if err != nil {
+		s.logger.Warn("starting enumerate job", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logger.Info("started enumerate job", logging.Field{Key: "job_id", Value: job.ID})
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -339,20 +405,24 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	job := s.orchestrator.GetJob(jobID)
 	if job == nil {
+		s.logger.Warn("getting job: not found", logging.Field{Key: "job_id", Value: jobID})
 		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
+	s.logger.Info("got job", logging.Field{Key: "job_id", Value: job.ID})
 	writeJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	s.orchestrator.CancelJob(jobID)
+	s.logger.Info("canceled job", logging.Field{Key: "job_id", Value: jobID})
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	jobs := s.orchestrator.ListJobs()
+	s.logger.Info("listed jobs", logging.Field{Key: "count", Value: len(jobs)})
 	writeJSON(w, http.StatusOK, jobs)
 }
 
@@ -375,6 +445,7 @@ func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		s.logger.Warn("upgrading to websocket", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
 	defer conn.Close()
@@ -383,11 +454,13 @@ func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 
 	job, err := s.orchestrator.StartFetchJob(ctx, project, site, status, limit)
 	if err != nil {
+		s.logger.Warn("starting fetch job", logging.Field{Key: "error", Value: err.Error()})
 		_ = conn.WriteJSON(map[string]string{"error": err.Error()})
 		return
 	}
 
 	// Optionally send initial job struct
+	s.logger.Info("started fetch job", logging.Field{Key: "job_id", Value: job.ID})
 	_ = conn.WriteJSON(job)
 
 	for ev := range job.Events {
@@ -403,27 +476,25 @@ func (s *Server) handleEnumerateWS(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 
-	concurrency := 4
-	if cs := r.URL.Query().Get("concurrency"); cs != "" {
-		if v, err := strconv.Atoi(cs); err == nil && v > 0 {
-			concurrency = v
-		}
-	}
+	maxDepth := 4
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		s.logger.Warn("upgrading to websocket", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
 	defer conn.Close()
 
 	ctx := r.Context()
 
-	job, err := s.orchestrator.StartEnumerateJob(ctx, project, site, concurrency)
+	job, err := s.orchestrator.StartEnumerateJob(ctx, project, site, maxDepth)
 	if err != nil {
 		_ = conn.WriteJSON(map[string]string{"error": err.Error()})
+		s.logger.Warn("starting enumerate job", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
 
+	s.logger.Info("started enumerate job", logging.Field{Key: "job_id", Value: job.ID})
 	_ = conn.WriteJSON(job)
 
 	for ev := range job.Events {
