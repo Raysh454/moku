@@ -216,7 +216,7 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 	}
 
 	// Compute diff
-	diff, err := tr.Diff(ctx, result1.Version.ID, result2.Version.ID)
+	diff, err := tr.DiffVersions(ctx, result1.Version.ID, result2.Version.ID)
 	if err != nil {
 		t.Fatalf("Diff returned error: %v", err)
 	}

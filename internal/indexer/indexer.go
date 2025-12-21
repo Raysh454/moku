@@ -198,7 +198,11 @@ func (ix *Index) MarkFailed(ctx context.Context, canonical string, reason string
 }
 
 // ListEndpoints with simple filters; extend filter struct as needed.
+// Limit of 0 means no limit.
 func (ix *Index) ListEndpoints(ctx context.Context, status string, limit int) ([]Endpoint, error) {
+	if limit <= 0 {
+		limit = -1
+	}
 	q := `SELECT id, raw_url, canonical_url, host, path, first_discovered_at, last_discovered_at, last_fetched_version, last_fetched_at, status, discovery_source, meta FROM endpoints`
 	var rows *sql.Rows
 	var err error

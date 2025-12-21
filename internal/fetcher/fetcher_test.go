@@ -93,7 +93,15 @@ func (t *DummyTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID, head
 	return nil, nil
 }
 
-func (t *DummyTracker) Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error) {
+func (t *DummyTracker) DiffVersions(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) DiffSnapshots(ctx context.Context, baseSnapshotID, headSnapshotID string) (*models.CombinedFileDiff, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) GetSnapshot(ctx context.Context, snapshotID string) (*models.Snapshot, error) {
 	return nil, nil
 }
 
@@ -101,11 +109,27 @@ func (t *DummyTracker) GetSnapshots(ctx context.Context, versionID string) ([]*m
 	return nil, nil
 }
 
+func (t *DummyTracker) GetSnapshotByURL(ctx context.Context, url string) (*models.Snapshot, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) GetSnapshotByURLAndVersionID(ctx context.Context, url, versionID string) (*models.Snapshot, error) {
+	return nil, nil
+}
+
+func (t *DummyTracker) GetParentVersionID(ctx context.Context, versionID string) (string, error) {
+	return "", nil
+}
+
 func (t *DummyTracker) ListVersions(ctx context.Context, limit int) ([]*models.Version, error) {
 	return nil, nil
 }
 
 func (t *DummyTracker) Checkout(ctx context.Context, versionID string) error { return nil }
+
+func (t *DummyTracker) HEADExists() (bool, error) { return false, nil }
+
+func (t *DummyTracker) ReadHEAD() (string, error) { return "", nil }
 
 func (t *DummyTracker) DB() *sql.DB { return nil }
 
