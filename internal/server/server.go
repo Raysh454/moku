@@ -391,7 +391,7 @@ func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request)
 
 	maxDepth := 4
 
-	job, err := s.orchestrator.StartEnumerateJob(r.Context(), project, site, maxDepth)
+	job, err := s.orchestrator.StartEnumerateJob(context.Background(), project, site, maxDepth)
 	if err != nil {
 		s.logger.Warn("starting enumerate job", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())

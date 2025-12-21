@@ -321,7 +321,7 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 	return job, nil
 }
 
-func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, concurrency int) (*Job, error) {
+func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, maxDepth int) (*Job, error) {
 	o.closedMu.Lock()
 	closed := o.closed
 	o.closedMu.Unlock()
@@ -396,7 +396,7 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 				Total:     total,
 			})
 		}
-		urls, err := o.EnumerateWebsite(jobCtx, project, site, concurrency, cb)
+		urls, err := o.EnumerateWebsite(jobCtx, project, site, maxDepth, cb)
 		if err != nil {
 			select {
 			case <-jobCtx.Done():
@@ -543,7 +543,7 @@ func (o *Orchestrator) AddWebsiteEndpoints(ctx context.Context, projectIdentifie
 	return comps.Index.AddEndpoints(ctx, rawURLs, source)
 }
 
-func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, concurrency int, cb utils.ProgressCallback) ([]string, error) {
+func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, maxDepth int, cb utils.ProgressCallback) ([]string, error) {
 	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
 	if err != nil {
 		return nil, err
@@ -555,7 +555,7 @@ func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, 
 
 	// Currently, we only have a spider enumerator.
 	// When multiple enumerators are added, we can make this configurable.
-	spider := enumerator.NewSpider(concurrency, comps.WebClient, o.logger)
+	spider := enumerator.NewSpider(maxDepth, comps.WebClient, o.logger)
 	targets, err := spider.Enumerate(ctx, web.Origin, cb)
 	if err != nil {
 		return nil, err
@@ -590,7 +590,6 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 	if err != nil {
 		return nil, err
 	}
-
 
 	comps, err := o.siteComponentsFor(ctx, web)
 	if err != nil {
