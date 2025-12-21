@@ -475,6 +475,20 @@ func (o *Orchestrator) GetJob(jobID string) *Job {
 	return j
 }
 
+// ListJobs returns a list of current jobs.
+func (o *Orchestrator) ListJobs() []*Job {
+	o.jobsMu.Lock()
+	defer o.jobsMu.Unlock()
+
+	jobs := make([]*Job, 0, len(o.jobs))
+	for _, j := range o.jobs {
+		if j != nil {
+			jobs = append(jobs, j)
+		}
+	}
+	return jobs
+}
+
 func (o *Orchestrator) siteComponentsFor(ctx context.Context, web *registry.Website) (*SiteComponents, error) {
 	o.siteCompMutex.Lock()
 	if o.siteComponentsCache == nil {

@@ -5,7 +5,6 @@ import (
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
-	"github.com/raysh454/moku/internal/server"
 	"github.com/raysh454/moku/internal/tracker"
 	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
@@ -15,8 +14,6 @@ import (
 // internal modules during initial development. We intentionally keep this small
 // for the dev branch — add more fields later as wiring requires them.
 type Config struct {
-	ServerCfg server.Config
-
 	// StorageRoot is the base path where projects are kept.
 	StorageRoot string
 
@@ -42,9 +39,6 @@ type Config struct {
 // DefaultConfig returns a Config populated with sensible development defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerCfg: server.Config{
-			ServerAddr: "http://localhost:8080",
-		},
 		StorageRoot:      "~/.config/moku",
 		JobRetentionTime: 60 * time.Minute,
 		trackerCfg: tracker.Config{

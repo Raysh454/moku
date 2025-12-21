@@ -6,7 +6,9 @@ require (
 	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
 	github.com/chromedp/chromedp v0.14.2
+	github.com/go-chi/chi/v5 v5.2.3
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/sergi/go-diff v1.4.0
 	golang.org/x/net v0.47.0
 	modernc.org/sqlite v1.40.1
