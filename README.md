@@ -150,7 +150,7 @@ Core packages
   - Model types for analyzer payloads/results are available under `internal/models` (ScanRequest, ScanResult, Vulnerability).
 
 Models & interfaces
-- Cross-package interfaces and domain models (`WebClient`, `Assessor`, `Tracker`, `ScoreResult`, `Response`, `Request`) are defined in `internal/interfaces` and `internal/model` / `internal/models`. When adding new models, prefer keeping common types in the central model package to reduce confusion.
+- Cross-package interfaces (`WebClient`, `Assessor`, `Tracker`, `Analyzer`, etc.) live in their respective packages, and domain models are kept close to their components (for example `internal/tracker/models`, `internal/analyzer/analyzer_models`, and `internal/assessor`). When adding new models, prefer keeping types in the most relevant component package instead of a single global model package.
 
 Testing
 - Tests use the external-package pattern (`package foo_test`) to exercise the public API.
@@ -158,8 +158,8 @@ Testing
 - If you prefer a global test logger, add a small `internal/logging` noop logger to simplify test setup.
 
 Known caveats and TODOs
-- `chromedp` backend needs a fuller implementation (rendering, browser lifecycle, etc.).
-- Assessor: implement feature extraction, rule registry, and rule execution to produce meaningful scores.
-- Tracker: implement snapshot storage, ID generation and diff algorithms (text and DOM-aware).
+- `chromedp` backend needs further hardening (browser lifecycle management, broader test coverage, performance tuning).
+- Assessor: extend rule packs, feature extraction, and weighting to produce richer, better-calibrated scores.
+- Tracker: add garbage collection for unreachable blobs, pagination/filtering for history queries, and additional performance tuning for large histories.
 - Analyzer: add integration tests and a simple reference analyzer (e.g., Python FastAPI) for contract testing.
-- Consolidate model packages (prefer a single `internal/model`) to reduce confusion between `internal/model` and `internal/models`.
+- Continue to keep model types close to their components to avoid confusion between similarly named types.

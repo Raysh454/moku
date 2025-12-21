@@ -263,10 +263,10 @@ This is more efficient than individual commits when fetching multiple pages, as 
 
 ```go
 type Config struct {
-    StoragePath             string         // Root directory; .moku lives under this path
-    ProjectID               string         // Optional project identifier to enforce in DB meta
-    ForceProjectID          bool           // Overwrite existing project_id when true
-    RedactSensitiveHeaders  *bool          // If nil, defaults to true; controls header redaction
+    StoragePath            string // Root directory; .moku lives under this path
+    RedactSensitiveHeaders bool   // If true, redact sensitive headers (Authorization, Cookie, etc.) in snapshots and diffs
+    ProjectID              string // Optional project identifier to enforce in DB meta (required when initializing a new .moku directory)
+    ForceProjectID         bool   // Overwrite existing project_id when true
 }
 ```
 
@@ -341,32 +341,33 @@ Fetcher integration is not enabled by default in this repository. The tracker is
 ```go
 // Initialize tracker
 logger := logging.NewStdoutLogger("tracker")
-t, err := tracker.NewSQLiteTracker(logger, nil, &tracker.Config{StoragePath: "/path/to/site"})
+cfg := &tracker.Config{
+    StoragePath: "/path/to/site",
+    ProjectID:   "tracker-example", // required when initializing a new .moku directory
+}
+t, err := tracker.NewSQLiteTracker(cfg, logger, nil)
 if err != nil {
     log.Fatal(err)
 }
 defer t.Close()
 
 // Commit a snapshot with headers (direct tracker API)
-headers := map[string][]string{
-    "Content-Type": {"text/html; charset=utf-8"},
-    "Cache-Control": {"no-cache", "no-store"},
-}
-headersJSON, _ := json.Marshal(headers)
-
-snapshot := &tracker.Snapshot{
+snapshot := &models.Snapshot{
     URL:  "https://example.com",
     Body: []byte("<html>...</html>"),
-    Headers: headers,
+    Headers: map[string][]string{
+        "Content-Type": {"text/html; charset=utf-8"},
+        "Cache-Control": {"no-cache", "no-store"},
+    },
 }
 cr, err := t.Commit(ctx, snapshot, "Initial commit", "user@example.com")
 
 // Batch commit multiple snapshots (more efficient)
-snapshots := []*tracker.Snapshot{snapshot1, snapshot2, snapshot3}
+snapshots := []*models.Snapshot{snapshot1, snapshot2, snapshot3}
 cr, err := t.CommitBatch(ctx, snapshots, "Batch commit", "user@example.com")
 
-// Get diff between versions (returns body diff for backward compatibility)
-diff, err := t.Diff(ctx, crs[0].Version.ID, cr.Version.ID)
+// Get combined diff between versions (body + headers)
+diff, err := t.DiffVersions(ctx, oldVersionID, cr.Version.ID)
 
 // For full combined diff including headers, query diffs table directly
 // SELECT diff_json FROM diffs WHERE base_version_id = ? AND head_version_id = ?
@@ -375,7 +376,7 @@ diff, err := t.Diff(ctx, crs[0].Version.ID, cr.Version.ID)
 err = t.Checkout(ctx, cr.Version.ID)
 
 // List recent versions
-versions, err := t.List(ctx, 10)
+versions, err := t.ListVersions(ctx, 10)
 ```
 
 ### Working-Tree Files
