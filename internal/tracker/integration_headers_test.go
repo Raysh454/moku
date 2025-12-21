@@ -80,7 +80,7 @@ func TestHeaderStorage_Integration(t *testing.T) {
 		t.Fatalf("Commit 2 returned error: %v", err)
 	}
 
-	diff, err := tr.Diff(ctx, result1.Version.ID, result2.Version.ID)
+	diff, err := tr.DiffVersions(ctx, result1.Version.ID, result2.Version.ID)
 	if err != nil {
 		t.Fatalf("Diff returned error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 		t.Fatalf("Expected 3 versions, got %d", len(versionIDs))
 	}
 
-	diff12, err := tr.Diff(ctx, r1.Version.ID, r2.Version.ID)
+	diff12, err := tr.DiffVersions(ctx, r1.Version.ID, r2.Version.ID)
 	if err != nil {
 		t.Fatalf("Failed to compute diff 1->2: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestMultipleVersionsWithHeaders_Integration(t *testing.T) {
 		t.Fatal("Diff 1->2 returned nil")
 	}
 
-	diff23, err := tr.Diff(ctx, r2.Version.ID, r3.Version.ID)
+	diff23, err := tr.DiffVersions(ctx, r2.Version.ID, r3.Version.ID)
 	if err != nil {
 		t.Fatalf("Failed to compute diff 2->3: %v", err)
 	}

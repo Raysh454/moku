@@ -256,7 +256,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 	}
 
 	siteDir := "/tmp/moku"
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir}, logger, a)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir, ProjectID: "0xbeef"}, logger, a)
 	if err != nil {
 		t.Fatalf("Failed to create SQLiteTracker: %v", err)
 	}

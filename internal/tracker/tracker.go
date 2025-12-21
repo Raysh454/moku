@@ -41,11 +41,27 @@ type Tracker interface {
 
 	// Diff computes the text delta between two versions identified by their IDs.
 	// If baseID == "" treat it as an empty/base snapshot.
-	Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error)
+	DiffVersions(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error)
+
+	// DiffSnapshots computes the text delta between two snapshots identified by their IDs.
+	DiffSnapshots(ctx context.Context, baseSnapshotID, headSnapshotID string) (*models.CombinedFileDiff, error)
+
+	// GetSnapshot retrieves a snapshot by its ID.
+	GetSnapshot(ctx context.Context, snapshotID string) (*models.Snapshot, error)
 
 	// GetSnapshots returns all snapshots for a specific version ID.
 	// A version may reference multiple snapshots directly through the version_id foreign key.
 	GetSnapshots(ctx context.Context, versionID string) ([]*models.Snapshot, error)
+
+	// GetSnapshotByURL retrieves the latest snapshot for a given URL.
+	GetSnapshotByURL(ctx context.Context, url string) (*models.Snapshot, error)
+
+	// GetSnapshotByURLAndVersionID retrieves a snapshot for a given URL and version ID.
+	GetSnapshotByURLAndVersionID(ctx context.Context, url, versionID string) (*models.Snapshot, error)
+
+	// GetParentVersionID returns the parent version ID of a given version.
+	// If the version has no parent (e.g., initial commit), returns an empty string.
+	GetParentVersionID(ctx context.Context, versionID string) (string, error)
 
 	// ListVersions returns recent versions (e.g., head-first). The semantics of pagination
 	// can be added later.
@@ -54,6 +70,12 @@ type Tracker interface {
 	// Checkout updates the working tree to match a specific version.
 	// This restores all files from the specified version to the working directory.
 	Checkout(ctx context.Context, versionID string) error
+
+	// HEADExists checks if a HEAD exists.
+	HEADExists() (bool, error)
+
+	// ReadHEAD returns the current head version ID.
+	ReadHEAD() (string, error)
 
 	// Returns a reference to the underlying database (Owned by Tracker)
 	DB() *sql.DB

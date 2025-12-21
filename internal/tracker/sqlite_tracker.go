@@ -198,7 +198,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *models.Snapshot, m
 		timestamp = snapshot.CreatedAt.Unix()
 	}
 
-	parentID, err := t.readHEAD()
+	parentID, err := t.ReadHEAD()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("failed to read HEAD: %w", err)
 	}
@@ -326,7 +326,7 @@ func (t *SQLiteTracker) computeDiff(ctx context.Context, tx *sql.Tx, baseID, hea
 }
 
 // Diff computes a delta between two versions identified by their IDs.
-func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error) {
+func (t *SQLiteTracker) DiffVersions(ctx context.Context, baseID, headID string) (*models.CombinedMultiDiff, error) {
 	t.logger.Debug("Computing diff",
 		logging.Field{Key: "baseID", Value: baseID},
 		logging.Field{Key: "headID", Value: headID})
@@ -370,6 +370,86 @@ func (t *SQLiteTracker) Diff(ctx context.Context, baseID, headID string) (*model
 	}
 
 	return multi, nil
+}
+
+// DiffSnapshots computes the text delta between two snapshots identified by their IDs.
+func (t *SQLiteTracker) DiffSnapshots(ctx context.Context, baseSnapshotID, headSnapshotID string) (*models.CombinedFileDiff, error) {
+	t.logger.Debug("Computing snapshot diff", logging.Field{Key: "baseSnapshotID", Value: baseSnapshotID}, logging.Field{Key: "headSnapshotID", Value: headSnapshotID})
+
+	baseSnap, err := t.GetSnapshot(ctx, baseSnapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get base snapshot: %w", err)
+	}
+	headSnap, err := t.GetSnapshot(ctx, headSnapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get head snapshot: %w", err)
+	}
+	if baseSnap.URL != headSnap.URL {
+		return nil, fmt.Errorf("snapshot URL mismatch: base(%s) != head(%s)", baseSnap.URL, headSnap.URL)
+	}
+	vDiff, err := t.DiffVersions(ctx, baseSnap.VersionID, headSnap.VersionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to diff versions: %w", err)
+	}
+	for _, fileDiff := range vDiff.Files {
+		urlTools, err := utils.NewURLTools(headSnap.URL)
+		if err != nil {
+			t.logger.Warn("Failed to parse snapshot URL during diff", logging.Field{Key: "error", Value: err.Error()})
+			continue
+		}
+		if fileDiff.FilePath == urlTools.GetPath() {
+			return &fileDiff, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no diff found for snapshot URL: %s", headSnap.URL)
+}
+
+// GetSnapshot retrieves a snapshot by its ID.
+func (t *SQLiteTracker) GetSnapshot(ctx context.Context, snapshotID string) (*models.Snapshot, error) {
+	t.logger.Debug("Getting snapshot", logging.Field{Key: "snapshotID", Value: snapshotID})
+	var (
+		snapshotVersionID, url, filePath, blobID string
+		createdAt                                int64
+		statusCode                               int
+		headersJSONSQL                           sql.NullString
+	)
+
+	err := t.db.QueryRowContext(ctx, `
+		SELECT s.version_id, s.status_code, s.url, s.file_path, s.blob_id, s.created_at, s.headers
+		FROM snapshots s
+		WHERE s.id = ?
+	`, snapshotID).Scan(&snapshotVersionID, &statusCode, &url, &filePath, &blobID, &createdAt, &headersJSONSQL)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("snapshot not found: %s", snapshotID)
+		}
+		return nil, fmt.Errorf("failed to query snapshot: %w", err)
+	}
+	body, err := t.store.Get(blobID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get blob %s: %w", blobID, err)
+	}
+	var headers map[string][]string
+	if headersJSONSQL.Valid {
+		if err := json.Unmarshal([]byte(headersJSONSQL.String), &headers); err != nil {
+			t.logger.Warn("Failed to parse headers",
+				logging.Field{Key: "error", Value: err.Error()},
+				logging.Field{Key: "snapshot_id", Value: snapshotID},
+			)
+		}
+	} else {
+		headers = make(map[string][]string)
+	}
+	return &models.Snapshot{
+		ID:         snapshotID,
+		VersionID:  snapshotVersionID,
+		StatusCode: statusCode,
+		URL:        url,
+		Body:       body,
+		Headers:    headers,
+		CreatedAt:  time.Unix(createdAt, 0),
+	}, nil
 }
 
 // Get returns all snapshots for a specific version ID.
@@ -433,6 +513,114 @@ func (t *SQLiteTracker) GetSnapshots(ctx context.Context, versionID string) ([]*
 	return snapshots, nil
 }
 
+// GetSnapshotByURL retrieves the latest snapshot for a given URL.
+func (t *SQLiteTracker) GetSnapshotByURL(ctx context.Context, url string) (*models.Snapshot, error) {
+	t.logger.Debug("Getting snapshot by URL", logging.Field{Key: "url", Value: url})
+
+	var (
+		snapshotID     string
+		versionID      string
+		blobID         string
+		statusCode     int
+		createdAtUnix  int64
+		headersJSONSQL sql.NullString
+	)
+
+	err := t.db.QueryRowContext(ctx, `
+		SELECT s.id, s.version_id, s.status_code, s.blob_id, s.created_at, s.headers
+		FROM snapshots s
+		WHERE s.url = ?
+		ORDER BY s.created_at DESC
+		LIMIT 1
+	`, url).Scan(&snapshotID, &versionID, &statusCode, &blobID, &createdAtUnix, &headersJSONSQL)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("snapshot not found for URL: %s", url)
+		}
+		return nil, fmt.Errorf("failed to query snapshot: %w", err)
+	}
+
+	body, err := t.store.Get(blobID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get blob %s: %w", blobID, err)
+	}
+
+	var headers map[string][]string
+	if headersJSONSQL.Valid {
+		if err := json.Unmarshal([]byte(headersJSONSQL.String), &headers); err != nil {
+			t.logger.Warn("Failed to parse headers",
+				logging.Field{Key: "error", Value: err.Error()},
+				logging.Field{Key: "snapshot_id", Value: snapshotID},
+			)
+		}
+	} else {
+		headers = make(map[string][]string)
+	}
+
+	return &models.Snapshot{
+		ID:         snapshotID,
+		VersionID:  versionID,
+		StatusCode: statusCode,
+		URL:        url,
+		Body:       body,
+		Headers:    headers,
+		CreatedAt:  time.Unix(createdAtUnix, 0),
+	}, nil
+}
+
+// GetSnapshotByURLAndVersionID retrieves a snapshot by its URL and version ID.
+func (t *SQLiteTracker) GetSnapshotByURLAndVersionID(ctx context.Context, url, versionID string) (*models.Snapshot, error) {
+	t.logger.Debug("Getting snapshot by URL and VersionID", logging.Field{Key: "url", Value: url}, logging.Field{Key: "versionID", Value: versionID})
+
+	var (
+		snapshotID     string
+		blobID         string
+		statusCode     int
+		createdAtUnix  int64
+		headersJSONSQL sql.NullString
+	)
+
+	err := t.db.QueryRowContext(ctx, `
+		SELECT s.id, s.status_code, s.blob_id, s.created_at, s.headers
+		FROM snapshots s
+		WHERE s.url = ? AND s.version_id = ?
+		LIMIT 1
+	`, url, versionID).Scan(&snapshotID, &statusCode, &blobID, &createdAtUnix, &headersJSONSQL)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("snapshot not found for URL %s and version %s", url, versionID)
+		}
+		return nil, fmt.Errorf("failed to query snapshot: %w", err)
+	}
+
+	body, err := t.store.Get(blobID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get blob %s: %w", blobID, err)
+	}
+
+	var headers map[string][]string
+	if headersJSONSQL.Valid {
+		if err := json.Unmarshal([]byte(headersJSONSQL.String), &headers); err != nil {
+			t.logger.Warn("Failed to parse headers",
+				logging.Field{Key: "error", Value: err.Error()},
+				logging.Field{Key: "snapshot_id", Value: snapshotID},
+			)
+		}
+	} else {
+		headers = make(map[string][]string)
+	}
+
+	return &models.Snapshot{
+		ID:         snapshotID,
+		VersionID:  versionID,
+		StatusCode: statusCode,
+		URL:        url,
+		Body:       body,
+		Headers:    headers,
+		CreatedAt:  time.Unix(createdAtUnix, 0),
+	}, nil
+}
+
 // List returns recent versions (head-first).
 func (t *SQLiteTracker) ListVersions(ctx context.Context, limit int) ([]*models.Version, error) {
 	t.logger.Debug("Listing versions", logging.Field{Key: "limit", Value: limit})
@@ -478,6 +666,26 @@ func (t *SQLiteTracker) ListVersions(ctx context.Context, limit int) ([]*models.
 	}
 
 	return versions, nil
+}
+
+// GetParentVersionID returns the parent version ID for a given version.
+func (t *SQLiteTracker) GetParentVersionID(ctx context.Context, versionID string) (string, error) {
+	t.logger.Debug("Getting parent version ID", logging.Field{Key: "versionID", Value: versionID})
+
+	var parentID sql.NullString
+	err := t.db.QueryRowContext(ctx, `
+		SELECT parent_id FROM versions WHERE id = ?
+	`, versionID).Scan(&parentID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("version not found: %s", versionID)
+		}
+		return "", fmt.Errorf("failed to query parent version ID: %w", err)
+	}
+	if !parentID.Valid {
+		return "", nil
+	}
+	return parentID.String, nil
 }
 
 // Checkout updates the working tree to match a specific version.
@@ -647,7 +855,19 @@ func (t *SQLiteTracker) getVersionSnapshots(ctx context.Context, tx *sql.Tx, ver
 	return res, nil
 }
 
-func (t *SQLiteTracker) readHEAD() (string, error) {
+func (t *SQLiteTracker) HEADExists() (bool, error) {
+	headPath := filepath.Join(t.config.StoragePath, ".moku", "HEAD")
+	_, err := os.Stat(headPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (t *SQLiteTracker) ReadHEAD() (string, error) {
 	headPath := filepath.Join(t.config.StoragePath, ".moku", "HEAD")
 	data, err := os.ReadFile(headPath)
 	if err != nil {
@@ -759,7 +979,7 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*models.Sna
 	versionID := uuid.New().String()
 	ts := time.Now().Unix()
 
-	parentID, _ := t.readHEAD()
+	parentID, _ := t.ReadHEAD()
 
 	tx, err := t.db.BeginTx(ctx, nil)
 	if err != nil {
