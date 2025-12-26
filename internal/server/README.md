@@ -172,7 +172,7 @@ Response `200 OK` (JSON):
 {
   "snapshot": { /* tracker Snapshot model */ },
   "score_result": { /* assessor.ScoreResult, may be null */ },
-  "diff_with_prev": { /* assessor.SecurityDiff, may be null */ },
+  "security_diff": { /* assessor.SecurityDiff, may be null */ },
   "diff": { /* tracker.CombinedFileDiff, may be null */ }
 }
 ```
