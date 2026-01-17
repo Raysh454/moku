@@ -71,7 +71,7 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 		StatusCode: 200,
 		Body:       []byte("<html><body>Hello World</body></html>"),
 		Headers: map[string][]string{
-			"Content-Type": []string{"text/html"},
+			"Content-Type": {"text/html"},
 		},
 	}
 

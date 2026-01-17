@@ -17,7 +17,7 @@ type Config struct {
 	// StorageRoot is the base path where projects are kept.
 	StorageRoot string
 
-	// A job will be deleted during cleanup if it exceedes JobRetentionTime.
+	// A job will be deleted during cleanup if it exceeds JobRetentionTime.
 	JobRetentionTime time.Duration
 
 	// Tracker Configuration
