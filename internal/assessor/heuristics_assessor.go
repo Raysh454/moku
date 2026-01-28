@@ -77,15 +77,7 @@ func (h *HeuristicsAssessor) domRuleBasedScoring(snapshot *models.Snapshot, res 
 	byteToLine := func(pos int) int { return byteToLineFromStarts(lineStarts, pos) }
 
 	// Run rules
-	if h.cfg.ScoreOpts.MaxCSSEvidenceSamples <= 0 {
-		h.cfg.ScoreOpts.MaxCSSEvidenceSamples = 10 // Default max samples
-	}
-	if h.cfg.ScoreOpts.MaxRegexEvidenceSamples <= 0 {
-		h.cfg.ScoreOpts.MaxRegexEvidenceSamples = 10 // Default max samples
-	}
-	if h.cfg.ScoreOpts.MaxRegexMatchValueLen <= 0 {
-		h.cfg.ScoreOpts.MaxRegexMatchValueLen = 200 // Default max length
-	}
+	h.ensureScoreOptionDefaults()
 
 	urlTools, err := utils.NewURLTools(snapshot.URL)
 	if err != nil {
@@ -168,20 +160,7 @@ func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models
 	}
 
 	// Prepare result scaffolding
-	res := &ScoreResult{
-		Score:         0.0,
-		SnapshotID:    snapshot.ID,
-		VersionID:     versionID,
-		Normalized:    0,
-		Confidence:    h.cfg.DefaultConfidence,
-		Version:       h.cfg.ScoringVersion,
-		Evidence:      []EvidenceItem{},
-		MatchedRules:  []Rule{},
-		RawFeatures:   map[string]float64{},
-		ContribByRule: map[string]float64{},
-		Meta:          map[string]any{"snapshot_id": snapshot.ID, "url": snapshot.URL},
-		Timestamp:     time.Now().UTC(),
-	}
+	res := newScoreResult(snapshot, versionID, h.cfg)
 
 	as, err := h.scoreUsingAttackSurface(snapshot, res)
 	if err != nil {
@@ -217,6 +196,35 @@ func (h *HeuristicsAssessor) Close() error {
 
 // Helpers extracted for clarity and testability
 
+func (h *HeuristicsAssessor) ensureScoreOptionDefaults() {
+	if h.cfg.ScoreOpts.MaxCSSEvidenceSamples <= 0 {
+		h.cfg.ScoreOpts.MaxCSSEvidenceSamples = 10 // Default max samples
+	}
+	if h.cfg.ScoreOpts.MaxRegexEvidenceSamples <= 0 {
+		h.cfg.ScoreOpts.MaxRegexEvidenceSamples = 10 // Default max samples
+	}
+	if h.cfg.ScoreOpts.MaxRegexMatchValueLen <= 0 {
+		h.cfg.ScoreOpts.MaxRegexMatchValueLen = 200 // Default max length
+	}
+}
+
+func newScoreResult(snapshot *models.Snapshot, versionID string, cfg *Config) *ScoreResult {
+	return &ScoreResult{
+		Score:         0.0,
+		SnapshotID:    snapshot.ID,
+		VersionID:     versionID,
+		Normalized:    0,
+		Confidence:    cfg.DefaultConfidence,
+		Version:       cfg.ScoringVersion,
+		Evidence:      []EvidenceItem{},
+		MatchedRules:  []Rule{},
+		RawFeatures:   map[string]float64{},
+		ContribByRule: map[string]float64{},
+		Meta:          map[string]any{"snapshot_id": snapshot.ID, "url": snapshot.URL},
+		Timestamp:     time.Now().UTC(),
+	}
+}
+
 func buildLineStarts(html []byte) []int {
 	starts := make([]int, 0, 1024)
 	starts = append(starts, 0)
@@ -251,48 +259,7 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 		return
 	}
 
-	matches := []string{}
-	locs := []EvidenceLocation{}
-	matchCount := 0
-
-	if opts.RequestLocations {
-		for _, m := range rule.compiled.FindAllIndex(html, -1) {
-			start, end := m[0], m[1]
-			ls, le := byteToLine(start), byteToLine(end)
-			locs = append(locs, EvidenceLocation{
-				Type:         "regex",
-				FilePath:     filePath,
-				Selector:     rule.Selector,
-				RegexPattern: rule.Regex,
-				SnapshotID:   snapshotID,
-				ByteStart:    &start,
-				ByteEnd:      &end,
-				LineStart:    &ls,
-				LineEnd:      &le,
-			})
-			sample := string(html[start:end])
-			if len(sample) > opts.MaxRegexMatchValueLen {
-				sample = sample[:opts.MaxRegexMatchValueLen] + "..."
-			}
-
-			if len(matches) < opts.MaxRegexEvidenceSamples {
-				matches = append(matches, sample)
-			}
-			matchCount++
-		}
-	} else {
-		for _, m := range rule.compiled.FindAllIndex(html, -1) {
-			start, end := m[0], m[1]
-			sample := string(html[start:end])
-			if len(sample) > opts.MaxRegexMatchValueLen {
-				sample = sample[:opts.MaxRegexMatchValueLen] + "..."
-			}
-			if len(matches) < opts.MaxRegexEvidenceSamples {
-				matches = append(matches, sample)
-			}
-			matchCount++
-		}
-	}
+	matches, locs, matchCount := collectRegexEvidenceSamples(html, byteToLine, rule, filePath, snapshotID, opts)
 
 	if matchCount == 0 {
 		return
@@ -316,6 +283,41 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 	res.ContribByRule[rule.ID] += contribution
 }
 
+func collectRegexEvidenceSamples(html []byte, byteToLine func(int) int, rule Rule, filePath, snapshotID string, opts ScoreOptions) ([]string, []EvidenceLocation, int) {
+	matches := []string{}
+	locs := []EvidenceLocation{}
+	matchCount := 0
+
+	for _, m := range rule.compiled.FindAllIndex(html, -1) {
+		start, end := m[0], m[1]
+
+		if opts.RequestLocations {
+			ls, le := byteToLine(start), byteToLine(end)
+			locs = append(locs, EvidenceLocation{
+				Type:         "regex",
+				FilePath:     filePath,
+				Selector:     rule.Selector,
+				RegexPattern: rule.Regex,
+				SnapshotID:   snapshotID,
+				ByteStart:    &start,
+				ByteEnd:      &end,
+				LineStart:    &ls,
+				LineEnd:      &le,
+			})
+		}
+
+		sample := string(html[start:end])
+		if len(sample) > opts.MaxRegexMatchValueLen {
+			sample = sample[:opts.MaxRegexMatchValueLen] + "..."
+		}
+		if len(matches) < opts.MaxRegexEvidenceSamples {
+			matches = append(matches, sample)
+		}
+		matchCount++
+	}
+
+	return matches, locs, matchCount
+}
 func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) int, rule Rule, res *ScoreResult, filePath, snapshotID string, logger logging.Logger, opts ScoreOptions) {
 	if rule.Selector == "" || doc == nil {
 		logger.Warn("css selector rule skipped due to empty selector or nil document", logging.Field{Key: "rule_id", Value: rule.ID})

@@ -287,6 +287,37 @@ func (t *SQLiteTracker) diffFromCache(diffJSON string) (*models.CombinedMultiDif
 	return &multi, nil
 }
 
+func (t *SQLiteTracker) parseHeadersJSON(headersJSON string, logFields ...logging.Field) map[string][]string {
+	var headers map[string][]string
+	if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
+		if t.logger != nil {
+			fields := append([]logging.Field{{Key: "error", Value: err.Error()}}, logFields...)
+			t.logger.Warn("Failed to parse headers", fields...)
+		}
+		return nil
+	}
+	return headers
+}
+
+func buildSnapshot(
+	snapshotID, versionID string,
+	statusCode int,
+	url string,
+	body []byte,
+	headers map[string][]string,
+	createdAtUnix int64,
+) *models.Snapshot {
+	return &models.Snapshot{
+		ID:         snapshotID,
+		VersionID:  versionID,
+		StatusCode: statusCode,
+		URL:        url,
+		Body:       body,
+		Headers:    headers,
+		CreatedAt:  time.Unix(createdAtUnix, 0),
+	}
+}
+
 func (t *SQLiteTracker) computeDiff(ctx context.Context, tx *sql.Tx, baseID, headID string) (*models.CombinedMultiDiff, error) {
 	// Load all snapshots for base and head versions keyed by file_path
 	baseSnaps, err := t.getVersionSnapshots(ctx, tx, baseID)
@@ -432,24 +463,11 @@ func (t *SQLiteTracker) GetSnapshot(ctx context.Context, snapshotID string) (*mo
 	}
 	var headers map[string][]string
 	if headersJSONSQL.Valid {
-		if err := json.Unmarshal([]byte(headersJSONSQL.String), &headers); err != nil {
-			t.logger.Warn("Failed to parse headers",
-				logging.Field{Key: "error", Value: err.Error()},
-				logging.Field{Key: "snapshot_id", Value: snapshotID},
-			)
-		}
+		headers = t.parseHeadersJSON(headersJSONSQL.String, logging.Field{Key: "snapshot_id", Value: snapshotID})
 	} else {
 		headers = make(map[string][]string)
 	}
-	return &models.Snapshot{
-		ID:         snapshotID,
-		VersionID:  snapshotVersionID,
-		StatusCode: statusCode,
-		URL:        url,
-		Body:       body,
-		Headers:    headers,
-		CreatedAt:  time.Unix(createdAt, 0),
-	}, nil
+	return buildSnapshot(snapshotID, snapshotVersionID, statusCode, url, body, headers, createdAt), nil
 }
 
 // Get returns all snapshots for a specific version ID.
@@ -486,20 +504,9 @@ func (t *SQLiteTracker) GetSnapshots(ctx context.Context, versionID string) ([]*
 		}
 
 		headersJSON := headersJSONSQL.String
-		var headers map[string][]string
-		if err := json.Unmarshal([]byte(headersJSON), &headers); err != nil {
-			t.logger.Warn("Failed to parse headers", logging.Field{Key: "error", Value: err.Error()})
-		}
+		headers := t.parseHeadersJSON(headersJSON, logging.Field{Key: "snapshot_id", Value: snapshotID})
 
-		snapshots = append(snapshots, &models.Snapshot{
-			ID:         snapshotID,
-			VersionID:  snapshotVersionID,
-			StatusCode: statusCode,
-			URL:        url,
-			Body:       body,
-			Headers:    headers,
-			CreatedAt:  time.Unix(createdAt, 0),
-		})
+		snapshots = append(snapshots, buildSnapshot(snapshotID, snapshotVersionID, statusCode, url, body, headers, createdAt))
 	}
 
 	if err := rows.Err(); err != nil {
@@ -547,25 +554,12 @@ func (t *SQLiteTracker) GetSnapshotByURL(ctx context.Context, url string) (*mode
 
 	var headers map[string][]string
 	if headersJSONSQL.Valid {
-		if err := json.Unmarshal([]byte(headersJSONSQL.String), &headers); err != nil {
-			t.logger.Warn("Failed to parse headers",
-				logging.Field{Key: "error", Value: err.Error()},
-				logging.Field{Key: "snapshot_id", Value: snapshotID},
-			)
-		}
+		headers = t.parseHeadersJSON(headersJSONSQL.String, logging.Field{Key: "snapshot_id", Value: snapshotID})
 	} else {
 		headers = make(map[string][]string)
 	}
 
-	return &models.Snapshot{
-		ID:         snapshotID,
-		VersionID:  versionID,
-		StatusCode: statusCode,
-		URL:        url,
-		Body:       body,
-		Headers:    headers,
-		CreatedAt:  time.Unix(createdAtUnix, 0),
-	}, nil
+	return buildSnapshot(snapshotID, versionID, statusCode, url, body, headers, createdAtUnix), nil
 }
 
 // GetSnapshotByURLAndVersionID retrieves a snapshot by its URL and version ID.
@@ -600,25 +594,12 @@ func (t *SQLiteTracker) GetSnapshotByURLAndVersionID(ctx context.Context, url, v
 
 	var headers map[string][]string
 	if headersJSONSQL.Valid {
-		if err := json.Unmarshal([]byte(headersJSONSQL.String), &headers); err != nil {
-			t.logger.Warn("Failed to parse headers",
-				logging.Field{Key: "error", Value: err.Error()},
-				logging.Field{Key: "snapshot_id", Value: snapshotID},
-			)
-		}
+		headers = t.parseHeadersJSON(headersJSONSQL.String, logging.Field{Key: "snapshot_id", Value: snapshotID})
 	} else {
 		headers = make(map[string][]string)
 	}
 
-	return &models.Snapshot{
-		ID:         snapshotID,
-		VersionID:  versionID,
-		StatusCode: statusCode,
-		URL:        url,
-		Body:       body,
-		Headers:    headers,
-		CreatedAt:  time.Unix(createdAtUnix, 0),
-	}, nil
+	return buildSnapshot(snapshotID, versionID, statusCode, url, body, headers, createdAtUnix), nil
 }
 
 // List returns recent versions (head-first).
