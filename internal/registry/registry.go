@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -151,13 +152,17 @@ func normalizeOriginForDir(origin string) string {
 	}
 
 	base = strings.ReplaceAll(base, string(os.PathSeparator), "_")
+	if runtime.GOOS == "windows" {
+		base = strings.ReplaceAll(base, ":", "_")
+	}
 
 	var b strings.Builder
+	allowColon := runtime.GOOS != "windows"
 	for _, r := range base {
 		if (r >= 'A' && r <= 'Z') ||
 			(r >= 'a' && r <= 'z') ||
 			(r >= '0' && r <= '9') ||
-			r == '-' || r == '_' || r == '.' || r == ':' {
+			r == '-' || r == '_' || r == '.' || (allowColon && r == ':') {
 			b.WriteRune(r)
 		} else {
 			b.WriteRune('_')

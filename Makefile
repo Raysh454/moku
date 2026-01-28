@@ -11,9 +11,31 @@ BINARY := moku
 GOCMD := go
 GOTEST := $(GOCMD) test
 GOLANGCI := $(BIN_DIR)/golangci-lint
+GOOS := $(shell $(GOCMD) env GOOS)
+NULL_DEVICE := /dev/null
+
+# OS-specific settings for Windows compatibility
+PATH_SEP := :
+GOLANGCI_BIN := $(GOLANGCI)
+MKDIR_BIN := mkdir -p $(BIN_DIR)
+MKDIR_TEST_RESULTS := mkdir -p test-results
+RM_CLEAN := rm -rf $(BIN_DIR) coverage.out coverage.html test-results
+COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out | tee test-results/coverage.txt
+INSTALL_GOLANGCI := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+ifeq ($(GOOS),windows)
+PATH_SEP := ;
+GOLANGCI_BIN := $(GOLANGCI).exe
+NULL_DEVICE := NUL
+MKDIR_BIN := if not exist "$(BIN_DIR)" mkdir "$(BIN_DIR)"
+MKDIR_TEST_RESULTS := if not exist "test-results" mkdir "test-results"
+RM_CLEAN := if exist "$(BIN_DIR)" rmdir /S /Q "$(BIN_DIR)" & if exist "coverage.out" del /Q "coverage.out" & if exist "coverage.html" del /Q "coverage.html" & if exist "test-results" rmdir /S /Q "test-results"
+COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out > "test-results\\coverage.txt" & type "test-results\\coverage.txt"
+INSTALL_GOLANGCI := set GOBIN=$(BIN_DIR) && $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+endif
 
 # Ensure local bin is used first
-export PATH := $(BIN_DIR):$(PATH)
+export PATH := $(BIN_DIR)$(PATH_SEP)$(PATH)
 
 .PHONY: all build run test test-race test-pkg fmt vet lint install-golangci coverage coverage-html ci clean
 
@@ -21,18 +43,14 @@ all: build
 
 # Build root package if it contains a main, otherwise build cmd/* packages
 build:
-	@mkdir -p $(BIN_DIR)
-	@if [ -f "./main.go" ]; then \
-	  echo "==> building root package -> $(BIN_DIR)/$(BINARY)"; \
-	  $(GOCMD) build -v -o $(BIN_DIR)/$(BINARY) . ; \
-	else \
-	  echo "==> building cmd/* packages into $(BIN_DIR)/"; \
-	  for pkg in $$(go list ./... | grep '/cmd/' || true); do \
-	    name=$$(basename $$pkg); \
-	    echo "==> building $$pkg -> $(BIN_DIR)/$$name"; \
-	    $(GOCMD) build -v -o $(BIN_DIR)/$$name $$pkg; \
-	  done; \
-	fi
+	@$(MKDIR_BIN)
+ifneq (,$(wildcard ./main.go))
+	@echo "==> building root package -> $(BIN_DIR)/$(BINARY)"
+	@$(GOCMD) build -v -o $(BIN_DIR)/$(BINARY) .
+else
+	@echo "==> building cmd/* packages into $(BIN_DIR)/"
+	@$(foreach pkg,$(shell $(GOCMD) list ./cmd/... 2>$(NULL_DEVICE)),echo "==> building $(pkg) -> $(BIN_DIR)/$(notdir $(pkg))" && $(GOCMD) build -v -o $(BIN_DIR)/$(notdir $(pkg)) $(pkg);)
+endif
 
 run: build
 	@echo "==> running $(BIN_DIR)/$(BINARY)"
@@ -46,7 +64,11 @@ test:
 # Race detector (slower)
 test-race:
 	@echo "==> go test -race ./..."
+ifeq ($(GOOS),windows)
+	@echo "==> race detector is not supported on Windows; skipping"
+else
 	$(GOTEST) -race ./... -v
+endif
 
 # Run tests for a single package: make test-pkg PKG=./internal/webclient
 test-pkg:
@@ -69,12 +91,12 @@ vet:
 # Lint (uses local golangci-lint binary installed to ./bin)
 lint:
 	@echo "==> golangci-lint run"
-	@if [ -x "$(GOLANGCI)" ]; then \
-	  "$(GOLANGCI)" run; \
-	else \
-	  echo "golangci-lint not found in $(BIN_DIR). Run 'make install-golangci' or install it globally."; \
-	  exit 1; \
-	fi
+ifneq (,$(wildcard $(GOLANGCI_BIN)))
+	"$(GOLANGCI_BIN)" run
+else
+	@echo "golangci-lint not found in $(BIN_DIR). Run 'make install-golangci' or install it globally."
+	@exit 1
+endif
 
 # Install golangci-lint locally to ./bin
 # Default: build with the local Go toolchain using `go install`.
@@ -84,20 +106,20 @@ GOLANGCI_LINT_VERSION ?= latest
 
 install-golangci:
 	@echo "==> Installing golangci-lint to $(BIN_DIR) (built with local Go)"
-	@mkdir -p $(BIN_DIR)
-	@if [ -x "$(GOLANGCI)" ]; then \
-	  echo "golangci-lint already installed at $(GOLANGCI)"; \
-	else \
-	  GOBIN=$(BIN_DIR) $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
-	fi
+	@$(MKDIR_BIN)
+ifneq (,$(wildcard $(GOLANGCI_BIN)))
+	@echo "golangci-lint already installed at $(GOLANGCI_BIN)"
+else
+	@$(INSTALL_GOLANGCI)
+endif
 
 # Coverage: produce coverage.out and a text summary
 coverage:
 	@echo "==> running tests with coverage"
-	@mkdir -p test-results
+	@$(MKDIR_TEST_RESULTS)
 	$(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
 	@echo "==> coverage summary"
-	@go tool cover -func=coverage.out | tee test-results/coverage.txt
+	@$(COVERAGE_SUMMARY)
 
 # Produce HTML coverage viewer (requires coverage target already run)
 coverage-html:
@@ -118,4 +140,4 @@ ci: fmt vet install-golangci lint test-race coverage
 
 clean:
 	@echo "==> cleaning"
-	@rm -rf $(BIN_DIR) coverage.out coverage.html test-results
+	@$(RM_CLEAN)
