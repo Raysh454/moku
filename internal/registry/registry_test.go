@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -39,14 +40,18 @@ func newTestRegistry(t *testing.T) (*Registry, func()) {
 }
 
 func TestNormalizeOriginForDir(t *testing.T) {
+	portSeparator := ":"
+	if runtime.GOOS == "windows" {
+		portSeparator = "_"
+	}
 	cases := []struct {
 		origin string
 		want   string
 	}{
 		{"https://example.com", "https-example.com"},
 		{"http://example.com", "http-example.com"},
-		{"https://example.com:8443", "https-example.com:8443"},
-		{"http://example.com:8080", "http-example.com:8080"},
+		{"https://example.com:8443", "https-example.com" + portSeparator + "8443"},
+		{"http://example.com:8080", "http-example.com" + portSeparator + "8080"},
 		{"example.com", "example.com"},
 		{" example.com ", "example.com"},
 	}
@@ -93,10 +98,14 @@ func TestCreateProjectAndWebsite_DirectoryLayout(t *testing.T) {
 	}
 
 	// Check storage paths and directories
+	portSeparator := ":"
+	if runtime.GOOS == "windows" {
+		portSeparator = "_"
+	}
 	expectedDirs := map[string]bool{
-		"https-example.com":      false,
-		"http-example.com":       false,
-		"https-example.com:8443": false,
+		"https-example.com":                          false,
+		"http-example.com":                           false,
+		"https-example.com" + portSeparator + "8443": false,
 	}
 
 	for _, w := range []*Website{w1, w2, w3} {
