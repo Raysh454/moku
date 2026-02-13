@@ -13,6 +13,7 @@ GOTEST := $(GOCMD) test
 GOLANGCI := $(BIN_DIR)/golangci-lint
 GOOS := $(shell $(GOCMD) env GOOS)
 NULL_DEVICE := /dev/null
+GOLANGCI_LINT_VERSION := latest
 
 # OS-specific settings for Windows compatibility
 PATH_SEP := :
@@ -31,7 +32,7 @@ MKDIR_BIN := if not exist "$(BIN_DIR)" mkdir "$(BIN_DIR)"
 MKDIR_TEST_RESULTS := if not exist "test-results" mkdir "test-results"
 RM_CLEAN := if exist "$(BIN_DIR)" rmdir /S /Q "$(BIN_DIR)" & if exist "coverage.out" del /Q "coverage.out" & if exist "coverage.html" del /Q "coverage.html" & if exist "test-results" rmdir /S /Q "test-results"
 COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out > "test-results\\coverage.txt" & type "test-results\\coverage.txt"
-INSTALL_GOLANGCI := set GOBIN=$(BIN_DIR) && $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+INSTALL_GOLANGCI := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 endif
 
 # Ensure local bin is used first
@@ -91,6 +92,7 @@ vet:
 # Lint (uses local golangci-lint binary installed to ./bin)
 lint:
 	@echo "==> golangci-lint run"
+	echo $(GOLANGCI_BIN)
 ifneq (,$(wildcard $(GOLANGCI_BIN)))
 	"$(GOLANGCI_BIN)" run
 else
@@ -102,7 +104,6 @@ endif
 # Default: build with the local Go toolchain using `go install`.
 # You may pin a version by setting GOLANGCI_LINT_VERSION, e.g.:
 #   make install-golangci GOLANGCI_LINT_VERSION=v1.64.8
-GOLANGCI_LINT_VERSION ?= latest
 
 install-golangci:
 	@echo "==> Installing golangci-lint to $(BIN_DIR) (built with local Go)"
