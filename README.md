@@ -98,6 +98,23 @@ go test ./...
 ```
 Note: The repository contains scaffolding tests (external-package style). Many scaffolds intentionally return `not implemented` or neutral results — tests assert that behavior. Some components (chromedp backend) are intentionally non-functional in the current dev branch and tests reflect that.
 
+## API documentation (Swagger)
+
+The HTTP server exposes interactive API documentation powered by Swagger/UI. Regenerate the spec whenever you change handlers or request/response models.
+
+1. Install the generator (once):
+  ```bash
+  go install github.com/swaggo/swag/cmd/swag@latest
+  ```
+  Ensure `$GOBIN` (or `~/go/bin`) is in your `PATH` so the `swag` binary is available.
+2. Generate the spec and embedded docs:
+  ```bash
+  make swagger
+  ```
+3. Run the server (`go run .` or `make run`) and open `http://localhost:8080/swagger/index.html` (adjust the port if you changed `ListenAddr`). You can read every endpoint description and use **Try it out** to exercise the REST endpoints without building a full UI.
+
+The generated files live under `docs/swagger/` and are committed so CI/CD environments can serve the docs without running `swag init`.
+
 Compose/wire components (example)
 - Create a net/http-backed WebClient (use `nil` for a default `*http.Client` or inject a configured client):
 ```go

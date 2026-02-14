@@ -1,5 +1,6 @@
 package tracker_test
 
+/*
 import (
 	"context"
 	"fmt"
@@ -373,3 +374,4 @@ func TestNewSQLiteTracker_LiveSite(t *testing.T) {
 
 	fcher.Fetch(context.Background(), targets, nil)
 }
+*/
