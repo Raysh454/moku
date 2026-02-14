@@ -286,13 +286,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "default": "new",
+                        "default": "all",
                         "description": "Filter by status",
                         "name": "status",
                         "in": "query"
                     },
                     {
                         "type": "integer",
+                        "default": 100,
                         "description": "Maximum results",
                         "name": "limit",
                         "in": "query"

@@ -864,12 +864,13 @@ paths:
         name: site
         required: true
         type: string
-      - default: new
+      - default: all
         description: Filter by status
         in: query
         name: status
         type: string
-      - description: Maximum results
+      - default: 100
+        description: Maximum results
         in: query
         name: limit
         type: integer
