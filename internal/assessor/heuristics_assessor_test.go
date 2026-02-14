@@ -44,7 +44,6 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 	}
 	defer a.Close()
 
-	// Small HTML fixture
 	html := []byte(`<html><body><h1>Test</h1></body></html>`)
 
 	ctx := context.Background()
@@ -57,22 +56,18 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 		t.Fatal("ScoreHTML returned nil result")
 	}
 
-	// Assert score is within expected bounds
 	if result.Score < 0.0 || result.Score > 1.0 {
 		t.Errorf("Expected Score in [0.0,1.0], got %v", result.Score)
 	}
 
-	// Assert we have at least one evidence item
 	if len(result.Evidence) == 0 {
 		t.Errorf("Expected at least 1 evidence item, got %d", len(result.Evidence))
 	}
 
-	// Assert confidence matches config
 	if result.Confidence != cfg.DefaultConfidence {
 		t.Errorf("Expected Confidence == %v, got %v", cfg.DefaultConfidence, result.Confidence)
 	}
 
-	// Assert version matches config
 	if result.Version != cfg.ScoringVersion {
 		t.Errorf("Expected Version == %q, got %q", cfg.ScoringVersion, result.Version)
 	}

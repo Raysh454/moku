@@ -7,6 +7,15 @@ import (
 	"github.com/raysh454/moku/internal/assessor/attacksurface"
 )
 
+type Snapshot struct {
+	ID         string
+	VersionID  string
+	StatusCode int
+	URL        string
+	Headers    map[string][]string
+	Body       []byte
+}
+
 // EvidenceLocation points to a specific part of the document for precise attribution.
 // Assessor implementations should populate one or more locations per EvidenceItem when
 // RequestLocations is enabled in ScoreOptions.
