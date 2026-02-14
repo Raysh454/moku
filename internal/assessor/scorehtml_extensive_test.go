@@ -40,7 +40,6 @@ func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.
 	if len(res.Evidence) < 2 {
 		t.Fatalf("expected at least 2 evidence items, got %d", len(res.Evidence))
 	}
-	// Verify locations are present and line numbers reasonable
 	foundRegex := false
 	foundSelector := false
 	for _, ev := range res.Evidence {
@@ -61,7 +60,6 @@ func TestScoreHTML_RegexAndSelector_MatchesLocationsAndNormalization(t *testing.
 		t.Errorf("expected both regex and selector evidence; regex=%v selector=%v", foundRegex, foundSelector)
 	}
 
-	// Score normalization bounds
 	if res.Score < 0 || res.Score > 1 {
 		t.Errorf("score out of bounds: %v", res.Score)
 	}
