@@ -15,7 +15,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 
+	_ "github.com/raysh454/moku/docs/swagger"
 	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/registry"
@@ -96,6 +98,11 @@ func (s *Server) routes() {
 	r := s.router
 
 	r.Use(s.corsMiddleware)
+
+	// Interactive Swagger docs (development helper)
+	r.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("/swagger/doc.json"),
+	))
 
 	// CORS preflight
 	r.Options("/projects", s.optionsHandler("GET, POST"))
@@ -205,19 +212,26 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	writeJSON(w, status, ErrorResponse{Error: msg})
 }
 
 // --- HTTP handlers ---
 
 // Projects
 
+// handleCreateProject godoc
+// @Summary Create a project
+// @Description Creates a named project that groups websites.
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param request body CreateProjectRequest true "Project payload"
+// @Success 201 {object} registry.Project
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /projects [post]
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Slug        string `json:"slug"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
+	var body CreateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -233,6 +247,14 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, p)
 }
 
+// handleListProjects godoc
+// @Summary List projects
+// @Description Returns all configured projects.
+// @Tags Projects
+// @Produce json
+// @Success 200 {array} registry.Project
+// @Failure 500 {object} ErrorResponse
+// @Router /projects [get]
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	ps, err := s.orchestrator.ListProjects(r.Context())
 	if err != nil {
@@ -246,13 +268,22 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 
 // Websites
 
+// handleCreateWebsite godoc
+// @Summary Create a website inside a project
+// @Description Registers a website origin scoped to the provided project slug.
+// @Tags Websites
+// @Accept json
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param request body CreateWebsiteRequest true "Website payload"
+// @Success 201 {object} registry.Website
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites [post]
 func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 
-	var body struct {
-		Slug   string `json:"slug"`
-		Origin string `json:"origin"`
-	}
+	var body CreateWebsiteRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		s.logger.Warn("decoding create website body", logging.Field{Key: "error", Value: err.Error()})
@@ -269,6 +300,15 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, web)
 }
 
+// handleListWebsites godoc
+// @Summary List websites in a project
+// @Description Retrieves websites scoped to a project slug.
+// @Tags Websites
+// @Produce json
+// @Param project path string true "Project slug"
+// @Success 200 {array} registry.Website
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites [get]
 func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 
@@ -284,14 +324,24 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request) {
 
 // Endpoints
 
+// handleAddWebsiteEndpoints godoc
+// @Summary Add website endpoints
+// @Description Adds canonicalized URLs to the endpoint index for a website.
+// @Tags Endpoints
+// @Accept json
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param request body AddWebsiteEndpointsRequest true "Endpoint payload"
+// @Success 201 {object} AddedEndpointsResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/endpoints [post]
 func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 
-	var body struct {
-		URLs   []string `json:"urls"`
-		Source string   `json:"source"`
-	}
+	var body AddWebsiteEndpointsRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		s.logger.Warn("decoding add endpoints body", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -307,10 +357,22 @@ func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.logger.Info("added website endpoints", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "added_count", Value: added})
-	writeJSON(w, http.StatusCreated, map[string]any{"added": added})
+	s.logger.Info("added website endpoints", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "added_count", Value: len(added)})
+	writeJSON(w, http.StatusCreated, AddedEndpointsResponse{Added: len(added)})
 }
 
+// handleListWebsiteEndpoints godoc
+// @Summary List website endpoints
+// @Description Lists endpoints for the given project/site combination.
+// @Tags Endpoints
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param status query string false "Filter by status" default(all)
+// @Param limit query int false "Maximum results" default(100)
+// @Success 200 {array} indexer.Endpoint
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/endpoints [get]
 func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
@@ -334,6 +396,18 @@ func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, eps)
 }
 
+// handleGetEndpointDetails godoc
+// @Summary Get detailed endpoint information
+// @Description Returns snapshot, scoring, diff, and security info for a canonical URL.
+// @Tags Endpoints
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param url query string true "Canonical URL"
+// @Success 200 {object} app.EndpointDetails
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/endpoints/details [get]
 func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
@@ -357,14 +431,23 @@ func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request
 
 // Jobs (REST)
 
+// handleStartFetchJob godoc
+// @Summary Start a fetch job
+// @Description Triggers a fetch of endpoints, optionally filtered by status/limit.
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param request body StartFetchJobRequest false "Fetch options"
+// @Success 202 {object} app.Job
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/jobs/fetch [post]
 func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 
-	var body struct {
-		Status string `json:"status"`
-		Limit  int    `json:"limit"`
-	}
+	var body StartFetchJobRequest
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	//  Use defaults if not provided
@@ -385,6 +468,16 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, job)
 }
 
+// handleStartEnumerateJob godoc
+// @Summary Start an enumeration job
+// @Description Launches a crawl that discovers new endpoints up to a default depth of 4.
+// @Tags Jobs
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Success 202 {object} app.Job
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/jobs/enumerate [post]
 func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
@@ -401,6 +494,15 @@ func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusAccepted, job)
 }
 
+// handleGetJob godoc
+// @Summary Get job details
+// @Description Returns the current state of a background job.
+// @Tags Jobs
+// @Produce json
+// @Param jobID path string true "Job identifier"
+// @Success 200 {object} app.Job
+// @Failure 404 {object} ErrorResponse
+// @Router /jobs/{jobID} [get]
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	job := s.orchestrator.GetJob(jobID)
@@ -413,6 +515,13 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 
+// handleCancelJob godoc
+// @Summary Cancel a job
+// @Description Signals the orchestrator to stop a running job.
+// @Tags Jobs
+// @Param jobID path string true "Job identifier"
+// @Success 204 {string} string ""
+// @Router /jobs/{jobID} [delete]
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	s.orchestrator.CancelJob(jobID)
@@ -420,6 +529,13 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
+// handleListJobs godoc
+// @Summary List active jobs
+// @Description Returns in-memory jobs tracked by the orchestrator.
+// @Tags Jobs
+// @Produce json
+// @Success 200 {array} app.Job
+// @Router /jobs [get]
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	jobs := s.orchestrator.ListJobs()
 	s.logger.Info("listed jobs", logging.Field{Key: "count", Value: len(jobs)})
@@ -428,6 +544,17 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 
 // WebSockets
 
+// handleFetchWS godoc
+// @Summary Stream fetch job events over WebSocket
+// @Description Upgrades the connection and streams fetch progress events.
+// @Tags Jobs
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param status query string false "Endpoint status filter" default(new)
+// @Param limit query int false "Maximum endpoints"
+// @Success 101 {string} string "WebSocket Upgrade"
+// @Failure 400 {object} ErrorResponse
+// @Router /ws/projects/{project}/websites/{site}/fetch [get]
 func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
@@ -472,6 +599,15 @@ func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleEnumerateWS godoc
+// @Summary Stream enumerate job events over WebSocket
+// @Description Upgrades the connection and streams enumeration progress events.
+// @Tags Jobs
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Success 101 {string} string "WebSocket Upgrade"
+// @Failure 400 {object} ErrorResponse
+// @Router /ws/projects/{project}/websites/{site}/enumerate [get]
 func (s *Server) handleEnumerateWS(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")

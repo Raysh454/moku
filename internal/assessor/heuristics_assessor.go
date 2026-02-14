@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -550,11 +551,9 @@ func indexOf(buf, sub []byte) int {
 }
 
 func normalizeScore(rawScore float64) float64 {
-	if rawScore < 0 {
+	if rawScore <= 0 {
 		return 0.0
 	}
-	if rawScore > 1.0 {
-		return 1.0
-	}
-	return rawScore
+	k := 3.0
+	return 1.0 - math.Exp(-k*rawScore)
 }

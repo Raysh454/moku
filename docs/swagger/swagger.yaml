@@ -1,0 +1,1094 @@
+definitions:
+  app.EndpointDetails:
+    properties:
+      diff:
+        $ref: '#/definitions/models.CombinedFileDiff'
+      score_result:
+        $ref: '#/definitions/assessor.ScoreResult'
+      security_diff:
+        $ref: '#/definitions/assessor.SecurityDiff'
+      snapshot:
+        $ref: '#/definitions/models.Snapshot'
+    type: object
+  app.Job:
+    properties:
+      ended_at:
+        type: string
+      enumerated_urls:
+        items:
+          type: string
+        type: array
+      error:
+        type: string
+      id:
+        type: string
+      project:
+        type: string
+      security_overview:
+        $ref: '#/definitions/assessor.SecurityDiffOverview'
+      started_at:
+        type: string
+      status:
+        $ref: '#/definitions/app.JobStatus'
+      type:
+        type: string
+      website:
+        type: string
+    type: object
+  app.JobStatus:
+    enum:
+    - pending
+    - running
+    - done
+    - failed
+    - canceled
+    type: string
+    x-enum-varnames:
+    - JobPending
+    - JobRunning
+    - JobDone
+    - JobFailed
+    - JobCanceled
+  assessor.EvidenceItem:
+    properties:
+      contribution:
+        description: |-
+          Contribution is the numeric score contribution of this specific evidence item.
+          Used to explain how each piece of evidence contributed to the overall score.
+        type: number
+      description:
+        description: Description is a short human-readable explanation of the evidence.
+        type: string
+      id:
+        description: |-
+          ID is an optional stable identifier for this evidence item in the ScoreResult.
+          Useful for attribution rows to reference an evidence item unambiguously.
+        type: string
+      key:
+        description: Key is a short identifier for the evidence (e.g. "has-iframe",
+          "suspicious-link").
+        type: string
+      locations:
+        description: |-
+          Locations holds zero or more structured locators where this evidence was observed.
+          When non-empty it enables exact attribution and deterministic UI highlighting.
+        items:
+          $ref: '#/definitions/assessor.EvidenceLocation'
+        type: array
+      rule_id:
+        description: RuleID identifies the rule that produced this evidence.
+        type: string
+      severity:
+        description: Severity is a human-level severity bucket such as "low", "medium",
+          "high", "critical".
+        type: string
+      value:
+        description: Value contains the raw value that triggered the evidence (string/number/map...).
+    type: object
+  assessor.EvidenceLocation:
+    properties:
+      byte_end:
+        type: integer
+      byte_start:
+        description: |-
+          Optional byte offsets into the file/body (start inclusive, end exclusive).
+          Useful when the assessor is text-based rather than DOM-aware.
+        type: integer
+      column:
+        type: integer
+      cookie_name:
+        description: 'For cookie-based evidence: the name of the cookie.'
+        type: string
+      dom_index:
+        type: integer
+      file_path:
+        description: Optional file path relative to the site working tree.
+        type: string
+      header_name:
+        description: 'For header-based evidence: the name of the header.'
+        type: string
+      line:
+        description: Line and Column for precise text-based locations.
+        type: integer
+      line_end:
+        type: integer
+      line_start:
+        description: Optional line numbers (1-based). Useful for working-tree highlighting
+          in the UI.
+        type: integer
+      note:
+        description: Optional human note about this specific location (e.g., "in modal
+          dialog").
+        type: string
+      param_name:
+        type: string
+      parent_dom_index:
+        description: Dom Index is the 0-based index of the element in document.getElementsByTagName("*").
+        type: integer
+      regex:
+        description: Regex pattern that matched (if applicable).
+        type: string
+      selector:
+        description: 'Preferred: CSS selector that identifies the element.'
+        type: string
+      snapshot_id:
+        type: string
+      type:
+        description: |-
+          Type describes what kind of location this is (e.g., "css", "xpath", "header", "cookie").
+          Used by the UI to determine how to interpret and highlight the location.
+        type: string
+      xpath:
+        description: XPath expression (optional alternative to CSS selector).
+        type: string
+    type: object
+  assessor.Rule:
+    properties:
+      id:
+        description: unique rule id (eg. "forms:autocomplete-off")
+        type: string
+      key:
+        description: short key presented in UI (eg. "autocomplete-off")
+        type: string
+      regex:
+        description: optional regex pattern (compiled at constructor)
+        type: string
+      selector:
+        description: optional CSS selector to match nodes
+        type: string
+      severity:
+        description: '"low"|"medium"|"high"|"critical"'
+        type: string
+      weight:
+        description: numeric weight used to build score
+        format: float64
+        type: number
+    type: object
+  assessor.ScoreResult:
+    properties:
+      attack_surface:
+        $ref: '#/definitions/attacksurface.AttackSurface'
+      confidence:
+        description: Confidence is the assessor's confidence [0.0 .. 1.0] in this
+          result.
+        type: number
+      contrib_by_rule:
+        additionalProperties:
+          format: float64
+          type: number
+        description: |-
+          ContribByRule maps rule IDs to their total contribution to the score.
+          This allows computing rule deltas between versions without re-running the assessor.
+        type: object
+      evidence:
+        description: Evidence is the list of contributing evidence items.
+        items:
+          $ref: '#/definitions/assessor.EvidenceItem'
+        type: array
+      matched_rules:
+        description: MatchedRules lists rules that matched during evaluation.
+        items:
+          $ref: '#/definitions/assessor.Rule'
+        type: array
+      meta:
+        additionalProperties: {}
+        description: Meta contains any additional metadata about the scoring process.
+        type: object
+      normalized:
+        description: Normalized is an integer normalized form [0 .. 100] for ease
+          of reporting.
+        type: integer
+      raw_features:
+        additionalProperties:
+          format: float64
+          type: number
+        description: 'RawFeatures contains extracted numeric features (featureName
+          -> value), e.g: "has_password_field": 1.0, num_forms: 3.0'
+        type: object
+      score:
+        description: Score is the normalized internal score range [0.0 .. 1.0].
+        type: number
+      snapshot_id:
+        description: SnapshotID is the snapshot this score applies to.
+        type: string
+      timestamp:
+        description: Timestamp is the time when this ScoreResult was produced.
+        type: string
+      version:
+        description: |-
+          Version identifies the scoring algorithm / heuristics version used.
+          This should map to the assessor's ruleset version (for auditability).
+        type: string
+      version_id:
+        description: VersionID is the version this score applies to.
+        type: string
+    type: object
+  assessor.SecurityDiff:
+    properties:
+      attack_surface_changed:
+        description: Attack surface deltas
+        type: boolean
+      attack_surface_changes:
+        items:
+          $ref: '#/definitions/attacksurface.AttackSurfaceChange'
+        type: array
+      base_snapshot_id:
+        type: string
+      base_version_id:
+        type: string
+      feature_deltas:
+        additionalProperties:
+          format: float64
+          type: number
+        description: Optional extra detail
+        type: object
+      head_snapshot_id:
+        type: string
+      head_version_id:
+        type: string
+      rule_deltas:
+        additionalProperties:
+          format: float64
+          type: number
+        type: object
+      score_base:
+        description: Score deltas
+        type: number
+      score_delta:
+        type: number
+      score_head:
+        type: number
+      url:
+        type: string
+    type: object
+  assessor.SecurityDiffOverview:
+    properties:
+      base_version_id:
+        type: string
+      entries:
+        items:
+          $ref: '#/definitions/assessor.SecurityDiffOverviewEntry'
+        type: array
+      head_version_id:
+        type: string
+    type: object
+  assessor.SecurityDiffOverviewEntry:
+    properties:
+      attack_surface_changed:
+        type: boolean
+      base_snapshot_id:
+        type: string
+      head_snapshot_id:
+        type: string
+      num_attack_surface_changes:
+        type: integer
+      regressed:
+        description: (scoreDelta > 0) for quick UI signals
+        type: boolean
+      score_base:
+        type: number
+      score_delta:
+        type: number
+      score_head:
+        type: number
+      url:
+        type: string
+    type: object
+  attacksurface.AttackSurface:
+    properties:
+      collected_at:
+        type: string
+      content_type:
+        type: string
+      cookies:
+        items:
+          $ref: '#/definitions/attacksurface.CookieInfo'
+        type: array
+      error_indicators:
+        items:
+          type: string
+        type: array
+      event_handlers:
+        items:
+          $ref: '#/definitions/attacksurface.EventHandlerInfo'
+        type: array
+      forms:
+        items:
+          $ref: '#/definitions/attacksurface.Form'
+        type: array
+      framework_hints:
+        items:
+          type: string
+        type: array
+      get_params:
+        items:
+          $ref: '#/definitions/attacksurface.Param'
+        type: array
+      headers:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        type: object
+      post_params:
+        items:
+          $ref: '#/definitions/attacksurface.Param'
+        type: array
+      scripts:
+        items:
+          $ref: '#/definitions/attacksurface.ScriptInfo'
+        type: array
+      snapshot_id:
+        type: string
+      status_code:
+        type: integer
+      url:
+        type: string
+    type: object
+  attacksurface.AttackSurfaceChange:
+    properties:
+      detail:
+        description: human-readable description of the change
+        type: string
+      evidence_locations:
+        items:
+          $ref: '#/definitions/attacksurface.EvidenceLocation'
+        type: array
+      kind:
+        description: e.g., "form_added", "input_added", "header_changed", "cookie_changed",
+          "script_added"
+        type: string
+    type: object
+  attacksurface.CookieInfo:
+    properties:
+      domain:
+        type: string
+      http_only:
+        type: boolean
+      name:
+        type: string
+      path:
+        type: string
+      same_site:
+        type: string
+      secure:
+        type: boolean
+    type: object
+  attacksurface.EventHandlerInfo:
+    properties:
+      element_selector:
+        type: string
+      event_type:
+        description: e.g. "click", "submit"
+        type: string
+    type: object
+  attacksurface.EvidenceLocation:
+    properties:
+      cookie_name:
+        type: string
+      dom_index:
+        description: index into getElementsByTagName for this Type
+        type: integer
+      header_name:
+        type: string
+      param_name:
+        type: string
+      parent_dom_index:
+        description: index of parent form for inputs
+        type: integer
+      snapshot_id:
+        type: string
+      type:
+        description: '"form","input","header","cookie","script",...'
+        type: string
+    type: object
+  attacksurface.Form:
+    properties:
+      action:
+        type: string
+      dom_classes:
+        items:
+          type: string
+        type: array
+      dom_id:
+        type: string
+      dom_index:
+        description: |-
+          Location hints
+          0-based index into formElement.getElementsByTagName("form")
+        type: integer
+      inputs:
+        items:
+          $ref: '#/definitions/attacksurface.FormInput'
+        type: array
+      method:
+        type: string
+    type: object
+  attacksurface.FormInput:
+    properties:
+      dom_classes:
+        items:
+          type: string
+        type: array
+      dom_id:
+        type: string
+      dom_index:
+        description: |-
+          Location hints
+          0-based index into formElement.getElementsByTagName("input")
+        type: integer
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
+    type: object
+  attacksurface.Param:
+    properties:
+      name:
+        type: string
+      origin:
+        description: '"query", "body", "form"'
+        type: string
+    type: object
+  attacksurface.ScriptInfo:
+    properties:
+      dom_index:
+        description: |-
+          Location hints
+          0-based index into document.getElementsByTagName("script")
+        type: integer
+      inline:
+        type: boolean
+      src:
+        type: string
+    type: object
+  indexer.Endpoint:
+    properties:
+      canonical_url:
+        type: string
+      first_discovered_at:
+        type: integer
+      host:
+        type: string
+      id:
+        type: string
+      last_discovered_at:
+        type: integer
+      last_fetched_at:
+        type: integer
+      last_fetched_version:
+        type: string
+      meta:
+        type: string
+      path:
+        type: string
+      source:
+        type: string
+      status:
+        type: string
+      url:
+        type: string
+    type: object
+  models.BodyDiff:
+    properties:
+      base_id:
+        type: string
+      chunks:
+        items:
+          $ref: '#/definitions/models.DiffChunk'
+        type: array
+      head_id:
+        type: string
+    type: object
+  models.Change:
+    properties:
+      from:
+        items:
+          type: string
+        type: array
+      to:
+        items:
+          type: string
+        type: array
+    type: object
+  models.CombinedFileDiff:
+    properties:
+      body_diff:
+        $ref: '#/definitions/models.BodyDiff'
+      file_path:
+        type: string
+      headers_diff:
+        $ref: '#/definitions/models.HeaderDiff'
+    type: object
+  models.DiffChunk:
+    properties:
+      base_len:
+        type: integer
+      base_start:
+        type: integer
+      content:
+        description: content for added/modified chunks
+        type: string
+      head_len:
+        type: integer
+      head_start:
+        type: integer
+      path:
+        description: optional DOM selector or descriptor
+        type: string
+      type:
+        description: e.g., "added", "removed", "modified"
+        type: string
+    type: object
+  models.HeaderDiff:
+    properties:
+      added:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        type: object
+      changed:
+        additionalProperties:
+          $ref: '#/definitions/models.Change'
+        type: object
+      redacted:
+        items:
+          type: string
+        type: array
+      removed:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        type: object
+    type: object
+  models.Snapshot:
+    properties:
+      body:
+        description: Body contains the raw HTML bytes for the snapshot.
+        items:
+          type: integer
+        type: array
+      created_at:
+        description: CreatedAt is the capture timestamp (if known).
+        type: string
+      headers:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        description: Headers contains optional header data (headers, content-type,
+          etc).
+        type: object
+      id:
+        description: ID is an opaque identifier (e.g., uuid or incremental string)
+          assigned by the tracker.
+        type: string
+      status_code:
+        description: Status Code indicates the result of the snapshot attempt (e.g.,
+          200, 404, error codes).
+        type: integer
+      url:
+        description: URL is the source URL for the snapshot when available.
+        type: string
+      version_id:
+        description: VersionID is the version this snapshot belongs to.
+        type: string
+    type: object
+  registry.Project:
+    properties:
+      created_at:
+        type: integer
+      description:
+        type: string
+      id:
+        type: string
+      meta:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  registry.Website:
+    properties:
+      config:
+        type: string
+      created_at:
+        type: integer
+      id:
+        type: string
+      last_seen_at:
+        type: integer
+      origin:
+        type: string
+      project_id:
+        type: string
+      slug:
+        type: string
+      storage_path:
+        type: string
+    type: object
+  server.AddWebsiteEndpointsRequest:
+    properties:
+      source:
+        example: manual
+        type: string
+      urls:
+        example:
+        - '["http://localhost:9999/index"]'
+        items:
+          type: string
+        type: array
+    type: object
+  server.AddedEndpointsResponse:
+    properties:
+      added:
+        example: 42
+        type: integer
+    type: object
+  server.CreateProjectRequest:
+    properties:
+      description:
+        example: Project for IBM's public website
+        type: string
+      name:
+        example: IBM
+        type: string
+      slug:
+        example: ibm
+        type: string
+    type: object
+  server.CreateWebsiteRequest:
+    properties:
+      origin:
+        example: http://localhost:9999
+        type: string
+      slug:
+        example: demo
+        type: string
+    type: object
+  server.ErrorResponse:
+    properties:
+      error:
+        example: not found
+        type: string
+    type: object
+  server.StartFetchJobRequest:
+    properties:
+      limit:
+        example: 100
+        type: integer
+      status:
+        example: '*'
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /jobs:
+    get:
+      description: Returns in-memory jobs tracked by the orchestrator.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/app.Job'
+            type: array
+      summary: List active jobs
+      tags:
+      - Jobs
+  /jobs/{jobID}:
+    delete:
+      description: Signals the orchestrator to stop a running job.
+      parameters:
+      - description: Job identifier
+        in: path
+        name: jobID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      summary: Cancel a job
+      tags:
+      - Jobs
+    get:
+      description: Returns the current state of a background job.
+      parameters:
+      - description: Job identifier
+        in: path
+        name: jobID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.Job'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Get job details
+      tags:
+      - Jobs
+  /projects:
+    get:
+      description: Returns all configured projects.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/registry.Project'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: List projects
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Creates a named project that groups websites.
+      parameters:
+      - description: Project payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/registry.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Create a project
+      tags:
+      - Projects
+  /projects/{project}/websites:
+    get:
+      description: Retrieves websites scoped to a project slug.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/registry.Website'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: List websites in a project
+      tags:
+      - Websites
+    post:
+      consumes:
+      - application/json
+      description: Registers a website origin scoped to the provided project slug.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateWebsiteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/registry.Website'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Create a website inside a project
+      tags:
+      - Websites
+  /projects/{project}/websites/{site}/endpoints:
+    get:
+      description: Lists endpoints for the given project/site combination.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - default: new
+        description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Maximum results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/indexer.Endpoint'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: List website endpoints
+      tags:
+      - Endpoints
+    post:
+      consumes:
+      - application/json
+      description: Adds canonicalized URLs to the endpoint index for a website.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Endpoint payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.AddWebsiteEndpointsRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.AddedEndpointsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Add website endpoints
+      tags:
+      - Endpoints
+  /projects/{project}/websites/{site}/endpoints/details:
+    get:
+      description: Returns snapshot, scoring, diff, and security info for a canonical
+        URL.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Canonical URL
+        in: query
+        name: url
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.EndpointDetails'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Get detailed endpoint information
+      tags:
+      - Endpoints
+  /projects/{project}/websites/{site}/jobs/enumerate:
+    post:
+      description: Launches a crawl that discovers new endpoints up to a default depth
+        of 4.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/app.Job'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Start an enumeration job
+      tags:
+      - Jobs
+  /projects/{project}/websites/{site}/jobs/fetch:
+    post:
+      consumes:
+      - application/json
+      description: Triggers a fetch of endpoints, optionally filtered by status/limit.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Fetch options
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/server.StartFetchJobRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/app.Job'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Start a fetch job
+      tags:
+      - Jobs
+  /ws/projects/{project}/websites/{site}/enumerate:
+    get:
+      description: Upgrades the connection and streams enumeration progress events.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      responses:
+        "101":
+          description: WebSocket Upgrade
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Stream enumerate job events over WebSocket
+      tags:
+      - Jobs
+  /ws/projects/{project}/websites/{site}/fetch:
+    get:
+      description: Upgrades the connection and streams fetch progress events.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - default: new
+        description: Endpoint status filter
+        in: query
+        name: status
+        type: string
+      - description: Maximum endpoints
+        in: query
+        name: limit
+        type: integer
+      responses:
+        "101":
+          description: WebSocket Upgrade
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Stream fetch job events over WebSocket
+      tags:
+      - Jobs
+swagger: "2.0"

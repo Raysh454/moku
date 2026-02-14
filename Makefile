@@ -11,6 +11,7 @@ BINARY := moku
 GOCMD := go
 GOTEST := $(GOCMD) test
 GOLANGCI := $(BIN_DIR)/golangci-lint
+SWAGGER := $(BIN_DIR)/swag
 GOOS := $(shell $(GOCMD) env GOOS)
 NULL_DEVICE := /dev/null
 GOLANGCI_LINT_VERSION := latest
@@ -18,32 +19,39 @@ GOLANGCI_LINT_VERSION := latest
 # OS-specific settings for Windows compatibility
 PATH_SEP := :
 GOLANGCI_BIN := $(GOLANGCI)
+DEMO_SERVER_BIN := $(BIN_DIR)/demo-server
+SWAG_BIN := $(SWAGGER)
 MKDIR_BIN := mkdir -p $(BIN_DIR)
 MKDIR_TEST_RESULTS := mkdir -p test-results
 RM_CLEAN := rm -rf $(BIN_DIR) coverage.out coverage.html test-results
 COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out | tee test-results/coverage.txt
 INSTALL_GOLANGCI := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+INSTALL_SWAGGER := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
 
 ifeq ($(GOOS),windows)
+BINARY := moku.exe
+DEMO_SERVER_BIN := $(BIN_DIR)/demo-server.exe
 PATH_SEP := ;
 GOLANGCI_BIN := $(GOLANGCI).exe
+SWAG_BIN := $(SWAGGER).exe
 NULL_DEVICE := NUL
 MKDIR_BIN := if not exist "$(BIN_DIR)" mkdir "$(BIN_DIR)"
 MKDIR_TEST_RESULTS := if not exist "test-results" mkdir "test-results"
 RM_CLEAN := if exist "$(BIN_DIR)" rmdir /S /Q "$(BIN_DIR)" & if exist "coverage.out" del /Q "coverage.out" & if exist "coverage.html" del /Q "coverage.html" & if exist "test-results" rmdir /S /Q "test-results"
 COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out > "test-results\\coverage.txt" & type "test-results\\coverage.txt"
 INSTALL_GOLANGCI := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+INSTALL_SWAGGER := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
 endif
 
 # Ensure local bin is used first
 export PATH := $(BIN_DIR)$(PATH_SEP)$(PATH)
 
-.PHONY: all build run test test-race test-pkg fmt vet lint install-golangci coverage coverage-html ci clean
+.PHONY: all build run test test-race test-pkg fmt vet lint install-golangci coverage coverage-html install-swagger swagger ci clean
 
 all: build
 
 # Build root package if it contains a main, otherwise build cmd/* packages
-build:
+build: install-swagger swagger
 	@$(MKDIR_BIN)
 ifneq (,$(wildcard ./main.go))
 	@echo "==> building root package -> $(BIN_DIR)/$(BINARY)"
@@ -56,6 +64,10 @@ endif
 run: build
 	@echo "==> running $(BIN_DIR)/$(BINARY)"
 	$(BIN_DIR)/$(BINARY)
+
+demo-server:
+	@echo "==> building demo-server -> $(DEMO_SERVER_BIN)"
+	@$(GOCMD) build -v -o $(DEMO_SERVER_BIN) ./cmd/demoserver
 
 # Run all tests
 test:
@@ -90,15 +102,9 @@ vet:
 	$(GOCMD) vet ./...
 
 # Lint (uses local golangci-lint binary installed to ./bin)
-lint:
+lint: install-golangci
 	@echo "==> golangci-lint run"
-	echo $(GOLANGCI_BIN)
-ifneq (,$(wildcard $(GOLANGCI_BIN)))
 	"$(GOLANGCI_BIN)" run
-else
-	@echo "golangci-lint not found in $(BIN_DIR). Run 'make install-golangci' or install it globally."
-	@exit 1
-endif
 
 # Install golangci-lint locally to ./bin
 # Default: build with the local Go toolchain using `go install`.
@@ -108,10 +114,10 @@ endif
 install-golangci:
 	@echo "==> Installing golangci-lint to $(BIN_DIR) (built with local Go)"
 	@$(MKDIR_BIN)
-ifneq (,$(wildcard $(GOLANGCI_BIN)))
-	@echo "golangci-lint already installed at $(GOLANGCI_BIN)"
+ifeq ($(GOOS),windows)
+	@if not exist "$(GOLANGCI_BIN)" $(INSTALL_GOLANGCI)
 else
-	@$(INSTALL_GOLANGCI)
+	@test -f "$(GOLANGCI_BIN)" || $(INSTALL_GOLANGCI)
 endif
 
 # Coverage: produce coverage.out and a text summary
@@ -136,8 +142,21 @@ endif
 	@echo "coverage.html generated"
 
 # CI target: runs canonical checks used by CI
-ci: fmt vet install-golangci lint test-race coverage
+ci: install-swagger swagger fmt vet install-golangci lint test-race coverage
 	@echo "==> CI checks completed"
+
+install-swagger:
+	@echo "==> Installing swagger to $(BIN_DIR) (built with local Go)"
+	@$(MKDIR_BIN)
+ifeq ($(GOOS),windows)
+	@if not exist "$(SWAG_BIN)" $(INSTALL_SWAGGER)
+else
+	@test -f "$(SWAG_BIN)" || $(INSTALL_SWAGGER)
+endif
+
+swagger: install-swagger
+	@echo "==> generating Swagger docs"
+	$(SWAG_BIN) init -g internal/server/server.go -o docs/swagger
 
 clean:
 	@echo "==> cleaning"

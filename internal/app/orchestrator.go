@@ -25,12 +25,12 @@ const (
 )
 
 type JobEvent struct {
-	JobID string       `json:"job_id"`
-	Type  JobEventType `json:"type"`
-	Status JobStatus `json:"status,omitempty"`
-	Error  string    `json:"error,omitempty"`
-	Processed int `json:"processed,omitempty"`
-	Total     int `json:"total,omitempty"`
+	JobID     string       `json:"job_id"`
+	Type      JobEventType `json:"type"`
+	Status    JobStatus    `json:"status,omitempty"`
+	Error     string       `json:"error,omitempty"`
+	Processed int          `json:"processed,omitempty"`
+	Total     int          `json:"total,omitempty"`
 }
 
 type JobStatus string
@@ -44,15 +44,15 @@ const (
 )
 
 type Job struct {
-	ID        string        `json:"id"`
-	Type      string        `json:"type"`
-	Project   string        `json:"project"`
-	Website   string        `json:"website"`
-	Status    JobStatus     `json:"status"`
-	Error     string        `json:"error,omitempty"`
-	StartedAt time.Time     `json:"started_at"`
-	EndedAt   time.Time     `json:"ended_at"`
-	Events    chan JobEvent `json:"-"`
+	ID               string                         `json:"id"`
+	Type             string                         `json:"type"`
+	Project          string                         `json:"project"`
+	Website          string                         `json:"website"`
+	Status           JobStatus                      `json:"status"`
+	Error            string                         `json:"error,omitempty"`
+	StartedAt        time.Time                      `json:"started_at"`
+	EndedAt          time.Time                      `json:"ended_at"`
+	Events           chan JobEvent                  `json:"-"`
 	SecurityOverview *assessor.SecurityDiffOverview `json:"security_overview,omitempty"`
 	EnumeratedURLs   []string                       `json:"enumerated_urls,omitempty"`
 }
