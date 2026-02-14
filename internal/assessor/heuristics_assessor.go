@@ -15,10 +15,6 @@ import (
 	"github.com/raysh454/moku/internal/utils"
 )
 
-// HeuristicsAssessor is a scaffolded, heuristics-driven implementation
-// of the assessor contract. This file provides the type, constructor and
-// method stubs so the rest of the codebase can depend on a concrete type
-// without an implementation of any scoring logic yet.
 type HeuristicsAssessor struct {
 	cfg    *Config
 	logger logging.Logger
@@ -26,16 +22,11 @@ type HeuristicsAssessor struct {
 }
 
 const (
-	DefaultMaxCSSEvidenceSamples   = 10
-	DefaultMaxRegexEvidenceSamples = 10
-	DefaultMaxRegexMatchValueLen   = 200
+	defaultMaxCSSEvidenceSamples   = 10
+	defaultMaxRegexEvidenceSamples = 10
+	defaultMaxRegexMatchValueLen   = 200
 )
 
-// NewHeuristicsAssessor constructs a heuristics-based assessor scaffold.
-// It returns Assessor so callers can depend on the interfaces package contract.
-//
-// Note: this constructor requires a non-nil logger. If you prefer a no-op logger
-// fallback, I can add a small noop logger implementation under internal/logging.
 func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (Assessor, error) {
 	if cfg == nil {
 		return nil, errors.New("assessor: nil config; please pass a valid Config")
@@ -44,7 +35,6 @@ func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (As
 		return nil, errors.New("assessor: nil logger; please pass a valid logging.Logger")
 	}
 
-	// create a context-aware logger for this component and construct the instance
 	l := logger.With(logging.Field{Key: "component", Value: "heuristics-assessor"})
 
 	for i := range rules {
@@ -69,30 +59,30 @@ func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (As
 	return inst, nil
 }
 
-func (heuristicsAssessor *HeuristicsAssessor) domRuleBasedScoring(snapshot *models.Snapshot, res *ScoreResult) error {
+func (h *HeuristicsAssessor) domRuleBasedScoring(snapshot *models.Snapshot, res *ScoreResult) error {
 
 	doc, err := goqueryDocumentFromBytes(snapshot.Body)
 	if err != nil {
-		heuristicsAssessor.logger.Warn("couldn't convert html to goqueryDoc, skipping CSS only rules.", logging.Field{Key: "err", Value: err})
+		h.logger.Warn("couldn't convert html to goqueryDoc, skipping CSS only rules.", logging.Field{Key: "err", Value: err})
 	}
 
 	lineStartOffsets := buildLineStarts(snapshot.Body)
 	byteToLine := func(position int) int { return byteToLineFromStarts(lineStartOffsets, position) }
 
-	heuristicsAssessor.ensureScoreOptionDefaults()
+	h.ensureScoreOptionDefaults()
 
 	urlTools, err := utils.NewURLTools(snapshot.URL)
 	if err != nil {
-		heuristicsAssessor.logger.Warn("failed to parse snapshot URL for path extraction", logging.Field{Key: "err", Value: err}, logging.Field{Key: "url", Value: snapshot.URL})
+		h.logger.Warn("failed to parse snapshot URL for path extraction", logging.Field{Key: "err", Value: err}, logging.Field{Key: "url", Value: snapshot.URL})
 	}
 	filePath := urlTools.GetPath()
 
-	for _, r := range heuristicsAssessor.rules {
+	for _, r := range h.rules {
 		if r.Regex != "" && r.compiled != nil {
-			appendRegexEvidence(snapshot.Body, byteToLine, r, res, filePath, snapshot.ID, heuristicsAssessor.logger, heuristicsAssessor.cfg.ScoreOpts)
+			appendRegexEvidence(snapshot.Body, byteToLine, r, res, filePath, snapshot.ID, h.logger, h.cfg.ScoreOpts)
 		}
 		if r.Selector != "" && doc != nil {
-			appendCSSEvidence(doc, snapshot.Body, byteToLine, r, res, filePath, snapshot.ID, heuristicsAssessor.logger, heuristicsAssessor.cfg.ScoreOpts)
+			appendCSSEvidence(doc, snapshot.Body, byteToLine, r, res, filePath, snapshot.ID, h.logger, h.cfg.ScoreOpts)
 		}
 	}
 
@@ -110,11 +100,11 @@ func (heuristicsAssessor *HeuristicsAssessor) domRuleBasedScoring(snapshot *mode
 	return nil
 }
 
-func (heuristicsAssessor *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *models.Snapshot, res *ScoreResult) (*attacksurface.AttackSurface, error) {
+func (h *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *models.Snapshot, res *ScoreResult) (*attacksurface.AttackSurface, error) {
 
 	at, err := attacksurface.BuildAttackSurfaceFromHTML(snapshot.URL, snapshot.ID, snapshot.StatusCode, snapshot.Headers, snapshot.Body)
 	if err != nil {
-		heuristicsAssessor.logger.Warn("failed to build attack surface from html",
+		h.logger.Warn("failed to build attack surface from html",
 			logging.Field{Key: "err", Value: err},
 			logging.Field{Key: "snapshot_id", Value: snapshot.ID},
 			logging.Field{Key: "url", Value: snapshot.URL},
@@ -134,7 +124,7 @@ func (heuristicsAssessor *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *
 			contrib := w * val
 
 			locs := []EvidenceLocation{}
-			if heuristicsAssessor.cfg.ScoreOpts.RequestLocations {
+			if h.cfg.ScoreOpts.RequestLocations {
 				locs = buildFeatureLocations(name, at)
 			}
 
@@ -154,27 +144,25 @@ func (heuristicsAssessor *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *
 	return at, nil
 }
 
-func (heuristicsAssessor *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*ScoreResult, error) {
-	if heuristicsAssessor == nil || heuristicsAssessor.logger == nil {
+func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*ScoreResult, error) {
+	if h == nil || h.logger == nil {
 		return nil, errors.New("heuristics-assessor: nil instance or logger")
 	}
 
-	// Prepare result scaffolding
-	res := newScoreResult(snapshot, versionID, heuristicsAssessor.cfg)
+	res := newScoreResult(snapshot, versionID, h.cfg)
 
-	as, err := heuristicsAssessor.scoreUsingAttackSurface(snapshot, res)
+	as, err := h.scoreUsingAttackSurface(snapshot, res)
 	if err != nil {
-		heuristicsAssessor.logger.Warn("error during attack surface scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
+		h.logger.Warn("error during attack surface scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
 	}
 	res.AttackSurface = as
 
-	err = heuristicsAssessor.domRuleBasedScoring(snapshot, res)
+	err = h.domRuleBasedScoring(snapshot, res)
 	if err != nil {
-		heuristicsAssessor.logger.Warn("error during DOM rule-based scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
+		h.logger.Warn("error during DOM rule-based scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
 	}
 
-	// Compute score from contributions
-	heuristicsAssessor.computeScore(res)
+	h.computeScore(res)
 
 	return res, nil
 }
@@ -188,24 +176,23 @@ func (*HeuristicsAssessor) computeScore(res *ScoreResult) {
 	res.Normalized = int(res.Score * 100.0)
 }
 
-// Close releases resources (currently a no-op) and logs lifecycle.
-func (heuristicsAssessor *HeuristicsAssessor) Close() error {
-	if heuristicsAssessor == nil || heuristicsAssessor.logger == nil {
+func (h *HeuristicsAssessor) Close() error {
+	if h == nil || h.logger == nil {
 		return nil
 	}
-	heuristicsAssessor.logger.Info("heuristics-assessor: closed")
+	h.logger.Info("heuristics-assessor: closed")
 	return nil
 }
 
-func (heuristicsAssessor *HeuristicsAssessor) ensureScoreOptionDefaults() {
-	if heuristicsAssessor.cfg.ScoreOpts.MaxCSSEvidenceSamples <= 0 {
-		heuristicsAssessor.cfg.ScoreOpts.MaxCSSEvidenceSamples = DefaultMaxCSSEvidenceSamples
+func (h *HeuristicsAssessor) ensureScoreOptionDefaults() {
+	if h.cfg.ScoreOpts.MaxCSSEvidenceSamples <= 0 {
+		h.cfg.ScoreOpts.MaxCSSEvidenceSamples = defaultMaxCSSEvidenceSamples
 	}
-	if heuristicsAssessor.cfg.ScoreOpts.MaxRegexEvidenceSamples <= 0 {
-		heuristicsAssessor.cfg.ScoreOpts.MaxRegexEvidenceSamples = DefaultMaxRegexEvidenceSamples
+	if h.cfg.ScoreOpts.MaxRegexEvidenceSamples <= 0 {
+		h.cfg.ScoreOpts.MaxRegexEvidenceSamples = defaultMaxRegexEvidenceSamples
 	}
-	if heuristicsAssessor.cfg.ScoreOpts.MaxRegexMatchValueLen <= 0 {
-		heuristicsAssessor.cfg.ScoreOpts.MaxRegexMatchValueLen = DefaultMaxRegexMatchValueLen
+	if h.cfg.ScoreOpts.MaxRegexMatchValueLen <= 0 {
+		h.cfg.ScoreOpts.MaxRegexMatchValueLen = defaultMaxRegexMatchValueLen
 	}
 }
 
@@ -411,8 +398,6 @@ func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) 
 
 	switch featureName {
 
-	// ---------- Headers ----------
-
 	case "csp_missing", "csp_unsafe_inline", "csp_unsafe_eval":
 		return []EvidenceLocation{{
 			Type:       "header",
@@ -447,8 +432,6 @@ func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) 
 			HeaderName: "referrer-policy",
 			SnapshotID: as.SnapshotID,
 		}}
-
-	// ---------- Cookies ----------
 
 	case "has_session_cookie_no_httponly":
 		for _, c := range as.Cookies {
@@ -488,8 +471,6 @@ func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) 
 		}
 		return locs
 
-	// ---------- Forms & inputs ----------
-
 	case "has_file_upload", "num_file_inputs":
 		var locs []EvidenceLocation
 		for _, f := range as.Forms {
@@ -500,8 +481,8 @@ func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) 
 					locs = append(locs, EvidenceLocation{
 						Type:           "input",
 						SnapshotID:     as.SnapshotID,
-						ParentDOMIndex: &fIdx, // form index
-						DOMIndex:       &iIdx, // input index within that form
+						ParentDOMIndex: &fIdx,
+						DOMIndex:       &iIdx,
 					})
 				}
 			}
@@ -538,11 +519,7 @@ func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) 
 		}
 		return locs
 
-	// ---------- Params ----------
-
 	case "has_admin_param", "has_upload_param", "has_debug_param", "has_id_param", "num_suspicious_params":
-		// For now: just mark that suspicious params exist on this snapshot.
-		// If you want per-name, you can store that in Evidence.Value, not Location.
 		return []EvidenceLocation{{
 			Type:       "param",
 			SnapshotID: as.SnapshotID,
@@ -553,12 +530,10 @@ func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) 
 	}
 }
 
-// goqueryDocumentFromBytes parses HTML bytes into a goquery document.
 func goqueryDocumentFromBytes(b []byte) (*goquery.Document, error) {
 	return goquery.NewDocumentFromReader(bytes.NewReader(b))
 }
 
-// goqueryOuterHTML serializes the selection's first node outer HTML.
 func goqueryOuterHTML(s *goquery.Selection) string {
 	html, err := goquery.OuterHtml(s)
 	if err != nil {
@@ -567,7 +542,6 @@ func goqueryOuterHTML(s *goquery.Selection) string {
 	return html
 }
 
-// indexOf finds the first index of sub in buf, returning -1 if not found.
 func indexOf(buf, sub []byte) int {
 	if len(sub) == 0 {
 		return -1
@@ -575,9 +549,6 @@ func indexOf(buf, sub []byte) int {
 	return bytes.Index(buf, sub)
 }
 
-// normalizeScore converts a raw contribution sum to a normalized score [0.0..1.0].
-// This is a simple linear normalization with a cap at 1.0.
-// Future implementations could use sigmoid, logarithmic, or other scaling functions.
 func normalizeScore(rawScore float64) float64 {
 	if rawScore < 0 {
 		return 0.0

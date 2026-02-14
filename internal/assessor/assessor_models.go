@@ -155,12 +155,12 @@ type ScoreOptions struct {
 	// (Default: 10 Matches)
 	MaxRegexEvidenceSamples int
 
-	// MaxRegexMatchLength sets the maximum length for regex matches.
+	// MaxRegexMatchValueLen sets the maximum length for regex matches.
 	// This prevents excessive memory usage for large documents.
 	// (Default: 200 Characters)
 	MaxRegexMatchValueLen int
 
-	// MaxCSSMatches sets the maximum number of CSS selector matches to process per rule.
+	// MaxCSSEvidenceSamples sets the maximum number of CSS selector matches to process per rule.
 	// This prevents excessive processing time for large documents.
 	// (Default: 10 Matches)
 	MaxCSSEvidenceSamples int
