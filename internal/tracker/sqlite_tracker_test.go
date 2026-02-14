@@ -2,6 +2,9 @@ package tracker_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -246,7 +249,51 @@ var SecurityRules = []assessor.Rule{
 	},
 }
 
+// localSite returns an httptest.Server that serves a small static site
+// with three inter-linked HTML pages, so the spider has something to crawl
+// without hitting the real internet.
+func localSite(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	// We need the server URL for the links, so we create the server first
+	// with a placeholder handler, then update the mux.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, r)
+	}))
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body>
+			<h1>Home</h1>
+			<a href="%s/about">About</a>
+			<a href="%s/contact">Contact</a>
+		</body></html>`, srv.URL, srv.URL)
+	})
+
+	mux.HandleFunc("/about", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body>
+			<h1>About</h1>
+			<a href="%s/">Home</a>
+		</body></html>`, srv.URL)
+	})
+
+	mux.HandleFunc("/contact", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body>
+			<h1>Contact</h1>
+			<a href="%s/">Home</a>
+		</body></html>`, srv.URL)
+	})
+
+	return srv
+}
+
 func TestNewSQLiteTracker(t *testing.T) {
+	srv := localSite(t)
+	defer srv.Close()
+
 	logger := logging.NewStdoutLogger("Tracker-test")
 	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, ScoreOpts: assessor.ScoreOptions{RequestLocations: true}}
 
@@ -255,7 +302,52 @@ func TestNewSQLiteTracker(t *testing.T) {
 		t.Fatalf("Failed to create HeuristicsAssessor: %v", err)
 	}
 
-	siteDir := "/tmp/moku"
+	siteDir := t.TempDir()
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir, ProjectID: "0xbeef"}, logger, a)
+	if err != nil {
+		t.Fatalf("Failed to create SQLiteTracker: %v", err)
+	}
+	defer tr.Close()
+
+	wc, _ := webclient.NewWebClient(webclient.Config{Client: webclient.ClientNetHTTP}, logger)
+	spider := enumerator.NewSpider(1, wc, logger)
+
+	targets, err := spider.Enumerate(context.Background(), srv.URL, nil)
+	if err != nil {
+		t.Fatalf("Spider enumeration failed: %v", err)
+	}
+
+	if len(targets) == 0 {
+		t.Fatal("Spider should discover at least one page")
+	}
+
+	fcher, err := fetcher.New(fetcher.Config{MaxConcurrency: 3, CommitSize: 1024, ScoreTimeout: 15 * time.Second}, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), logger)
+	if err != nil {
+		t.Fatalf("Failed to create fetcher: %v", err)
+	}
+
+	fcher.Fetch(context.Background(), targets, nil)
+}
+
+// TestNewSQLiteTracker_LiveSite runs the full pipeline against the live
+// dsu.edu.pk site. Skipped when -short is passed.
+//
+//	go test -run TestNewSQLiteTracker_LiveSite ./internal/tracker/
+//	go test -short ./...   ← this will skip it
+func TestNewSQLiteTracker_LiveSite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live-site test in -short mode")
+	}
+
+	logger := logging.NewStdoutLogger("Tracker-test")
+	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, ScoreOpts: assessor.ScoreOptions{RequestLocations: true}}
+
+	a, err := assessor.NewHeuristicsAssessor(cfg, nil, logger)
+	if err != nil {
+		t.Fatalf("Failed to create HeuristicsAssessor: %v", err)
+	}
+
+	siteDir := t.TempDir()
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir, ProjectID: "0xbeef"}, logger, a)
 	if err != nil {
 		t.Fatalf("Failed to create SQLiteTracker: %v", err)
@@ -268,6 +360,10 @@ func TestNewSQLiteTracker(t *testing.T) {
 	targets, err := spider.Enumerate(context.Background(), "https://dsu.edu.pk", nil)
 	if err != nil {
 		t.Fatalf("Spider enumeration failed: %v", err)
+	}
+
+	if len(targets) == 0 {
+		t.Fatal("Spider should discover at least one page from dsu.edu.pk")
 	}
 
 	fcher, err := fetcher.New(fetcher.Config{MaxConcurrency: 3, CommitSize: 1024, ScoreTimeout: 15 * time.Second}, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), logger)
