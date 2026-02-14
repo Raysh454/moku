@@ -30,26 +30,26 @@ func New(assessor assessor.Assessor, db *sql.DB, logger logging.Logger) *SQLiteS
 	}
 }
 
-func (sa *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, cr *models.CommitResult, scoreTimeout time.Duration) error {
-	if sa.assessor == nil {
+func (scoreTracker *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, commitResult *models.CommitResult, scoreTimeout time.Duration) error {
+	if scoreTracker.assessor == nil {
 		return nil
 	}
 
 	scoreCtx, cancel := context.WithTimeout(ctx, scoreTimeout)
 	defer cancel()
 
-	for _, s := range cr.Snapshots {
-		scoreRes, err := sa.assessor.ScoreSnapshot(scoreCtx, s, cr.Version.ID)
+	for _, snapshot := range commitResult.Snapshots {
+		scoreResult, err := scoreTracker.assessor.ScoreSnapshot(scoreCtx, snapshot, commitResult.Version.ID)
 		if err != nil {
-			if sa.logger != nil {
-				sa.logger.Warn("scoring failed", logging.Field{Key: "version_id", Value: cr.Version.ID}, logging.Field{Key: "error", Value: err})
+			if scoreTracker.logger != nil {
+				scoreTracker.logger.Warn("scoring failed", logging.Field{Key: "version_id", Value: commitResult.Version.ID}, logging.Field{Key: "error", Value: err})
 			}
 			continue
 		}
 
-		if err := sa.attributeScore(ctx, scoreRes, s.ID, cr.Version.ID, s.URL); err != nil {
-			if sa.logger != nil {
-				sa.logger.Warn("attributeScore failed", logging.Field{Key: "version_id", Value: cr.Version.ID}, logging.Field{Key: "error", Value: err})
+		if err := scoreTracker.attributeScore(ctx, scoreResult, snapshot.ID, commitResult.Version.ID, snapshot.URL); err != nil {
+			if scoreTracker.logger != nil {
+				scoreTracker.logger.Warn("attributeScore failed", logging.Field{Key: "version_id", Value: commitResult.Version.ID}, logging.Field{Key: "error", Value: err})
 			}
 		}
 	}
@@ -57,47 +57,47 @@ func (sa *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, cr *models.
 	return nil
 }
 
-func (sa *SQLiteScoreTracker) attributeScore(ctx context.Context, scoreRes *assessor.ScoreResult, snapshotID, versionID, url string) error {
-	scoreJSON, err := json.Marshal(scoreRes)
+func (scoreTracker *SQLiteScoreTracker) attributeScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
+	scoreJSON, err := json.Marshal(scoreResult)
 	if err != nil {
-		if sa.logger != nil {
-			sa.logger.Warn("failed to marshal score result", logging.Field{Key: "err", Value: err})
+		if scoreTracker.logger != nil {
+			scoreTracker.logger.Warn("failed to marshal score result", logging.Field{Key: "err", Value: err})
 		}
 		scoreJSON = []byte("{}")
 	}
 
-	matchedRulesJSON, err := json.Marshal(scoreRes.MatchedRules)
+	matchedRulesJSON, err := json.Marshal(scoreResult.MatchedRules)
 	if err != nil {
-		if sa.logger != nil {
-			sa.logger.Warn("failed to marshal matched rules", logging.Field{Key: "err", Value: err})
+		if scoreTracker.logger != nil {
+			scoreTracker.logger.Warn("failed to marshal matched rules", logging.Field{Key: "err", Value: err})
 		}
 		matchedRulesJSON = []byte("{}")
 	}
 
-	metaJSON, err := json.Marshal(scoreRes.Meta)
+	metaJSON, err := json.Marshal(scoreResult.Meta)
 	if err != nil {
-		if sa.logger != nil {
-			sa.logger.Warn("failed to marshal meta", logging.Field{Key: "err", Value: err})
+		if scoreTracker.logger != nil {
+			scoreTracker.logger.Warn("failed to marshal meta", logging.Field{Key: "err", Value: err})
 		}
 		metaJSON = []byte("{}")
 	}
 
-	rawFeaturesJSON, err := json.Marshal(scoreRes.RawFeatures)
+	rawFeaturesJSON, err := json.Marshal(scoreResult.RawFeatures)
 	if err != nil {
-		if sa.logger != nil {
-			sa.logger.Warn("failed to marshal raw features", logging.Field{Key: "err", Value: err})
+		if scoreTracker.logger != nil {
+			scoreTracker.logger.Warn("failed to marshal raw features", logging.Field{Key: "err", Value: err})
 		}
 		rawFeaturesJSON = []byte("{}")
 	}
 
-	tx, err := sa.db.BeginTx(ctx, nil)
+	tx, err := scoreTracker.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() {
 		if rb := tx.Rollback(); rb != nil && rb != sql.ErrTxDone {
-			if sa.logger != nil {
-				sa.logger.Warn("rollback failed", logging.Field{Key: "err", Value: rb})
+			if scoreTracker.logger != nil {
+				scoreTracker.logger.Warn("rollback failed", logging.Field{Key: "err", Value: rb})
 			}
 		}
 	}()
@@ -107,12 +107,11 @@ func (sa *SQLiteScoreTracker) attributeScore(ctx context.Context, scoreRes *asse
 		INSERT OR REPLACE INTO score_results
 		  (id, snapshot_id, version_id, url, score, normalized, confidence, scoring_version, created_at, score_json, matched_rules, meta, raw_features)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, scoreID, snapshotID, versionID, url, scoreRes.Score, scoreRes.Normalized, scoreRes.Confidence, scoreRes.Version, time.Now().Unix(), string(scoreJSON), string(matchedRulesJSON), string(metaJSON), string(rawFeaturesJSON)); err != nil {
+	`, scoreID, snapshotID, versionID, url, scoreResult.Score, scoreResult.Normalized, scoreResult.Confidence, scoreResult.Version, time.Now().Unix(), string(scoreJSON), string(matchedRulesJSON), string(metaJSON), string(rawFeaturesJSON)); err != nil {
 		return fmt.Errorf("insert score_results: %w", err)
 	}
 
-	// Insert evidence items and locations
-	if err = sa.insertEvidenceItems(ctx, tx, scoreID, scoreRes.Evidence); err != nil {
+	if err = scoreTracker.insertEvidenceItems(ctx, tx, scoreID, scoreResult.Evidence); err != nil {
 		return fmt.Errorf("insert evidence items: %w", err)
 	}
 
@@ -123,7 +122,7 @@ func (sa *SQLiteScoreTracker) attributeScore(ctx context.Context, scoreRes *asse
 	return nil
 }
 
-func (sa *SQLiteScoreTracker) insertEvidenceItems(ctx context.Context, tx *sql.Tx, scoreID string, items []assessor.EvidenceItem) error {
+func (scoreTracker *SQLiteScoreTracker) insertEvidenceItems(ctx context.Context, tx *sql.Tx, scoreID string, items []assessor.EvidenceItem) error {
 	for _, item := range items {
 		evidenceID := uuid.New().String()
 		if _, err := tx.ExecContext(ctx, `
@@ -140,8 +139,7 @@ func (sa *SQLiteScoreTracker) insertEvidenceItems(ctx context.Context, tx *sql.T
 			return fmt.Errorf("insert evidence item: %w", err)
 		}
 
-		// Insert locations
-		if err := sa.insertEvidenceLocations(ctx, tx, evidenceID, item.Locations); err != nil {
+		if err := scoreTracker.insertEvidenceLocations(ctx, tx, evidenceID, item.Locations); err != nil {
 			return fmt.Errorf("insert evidence locations: %w", err)
 		}
 	}
@@ -149,9 +147,8 @@ func (sa *SQLiteScoreTracker) insertEvidenceItems(ctx context.Context, tx *sql.T
 	return nil
 }
 
-func (sa *SQLiteScoreTracker) insertEvidenceLocations(ctx context.Context, tx *sql.Tx, evidenceID string, locations []assessor.EvidenceLocation) error {
-	// helper to convert *int to nullable int64
-	toI64 := func(p *int) any {
+func (scoreTracker *SQLiteScoreTracker) insertEvidenceLocations(ctx context.Context, tx *sql.Tx, evidenceID string, locations []assessor.EvidenceLocation) error {
+	toNullableInt64 := func(p *int) any {
 		if p == nil {
 			return nil
 		}
@@ -165,7 +162,7 @@ func (sa *SQLiteScoreTracker) insertEvidenceLocations(ctx context.Context, tx *s
 			   parent_dom_index, dom_index, byte_start, byte_end, line_start, line_end, line, column, header_name, cookie_name, parameter_name, note)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, evidenceID, loc.SnapshotID, loc.Type, loc.Selector, loc.XPath, loc.RegexPattern, loc.FilePath,
-			toI64(loc.ParentDOMIndex), toI64(loc.DOMIndex), toI64(loc.ByteStart), toI64(loc.ByteEnd), toI64(loc.LineStart), toI64(loc.LineEnd),
+			toNullableInt64(loc.ParentDOMIndex), toNullableInt64(loc.DOMIndex), toNullableInt64(loc.ByteStart), toNullableInt64(loc.ByteEnd), toNullableInt64(loc.LineStart), toNullableInt64(loc.LineEnd),
 			loc.Line, loc.Column, loc.HeaderName, loc.CookieName, loc.ParamName, loc.Note); err != nil {
 			return fmt.Errorf("insert evidence location: %w", err)
 		}
@@ -201,10 +198,10 @@ func GetScoreResultForVersion(ctx context.Context, db *sql.DB, versionID string)
 }
 
 // GetScoreResultFromSnapshotID retrieves the ScoreResult associated with a specific snapshot ID.
-func (s *SQLiteScoreTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
+func (scoreTracker *SQLiteScoreTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
 	var scoreJSON string
 
-	err := s.db.QueryRowContext(ctx, `
+	err := scoreTracker.db.QueryRowContext(ctx, `
 		SELECT score_json
 		FROM score_results
 		WHERE snapshot_id = ?
@@ -226,8 +223,8 @@ func (s *SQLiteScoreTracker) GetScoreResultFromSnapshotID(ctx context.Context, s
 }
 
 // GetScoreResultsFromVersionID retrieves all ScoreResults associated with a specific version ID.
-func (s *SQLiteScoreTracker) GetScoreResultsFromVersionID(ctx context.Context, versionID string) ([]*assessor.ScoreResult, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (scoreTracker *SQLiteScoreTracker) GetScoreResultsFromVersionID(ctx context.Context, versionID string) ([]*assessor.ScoreResult, error) {
+	rows, err := scoreTracker.db.QueryContext(ctx, `
 		SELECT score_json
 		FROM score_results
 		WHERE version_id = ?
@@ -245,12 +242,12 @@ func (s *SQLiteScoreTracker) GetScoreResultsFromVersionID(ctx context.Context, v
 			return nil, fmt.Errorf("scan score_json: %w", err)
 		}
 
-		var sr assessor.ScoreResult
-		if err := json.Unmarshal([]byte(scoreJSON), &sr); err != nil {
+		var scoreResult assessor.ScoreResult
+		if err := json.Unmarshal([]byte(scoreJSON), &scoreResult); err != nil {
 			return nil, fmt.Errorf("unmarshal score result: %w", err)
 		}
 
-		results = append(results, &sr)
+		results = append(results, &scoreResult)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate score_results: %w", err)
@@ -261,17 +258,17 @@ func (s *SQLiteScoreTracker) GetScoreResultsFromVersionID(ctx context.Context, v
 
 // GetSecurityDiff retrieves a detailed SecurityDiff between two snapshots.
 // Enforces that both snapshots refer to the same URL/file (if both exist).
-func (s *SQLiteScoreTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error) {
+func (scoreTracker *SQLiteScoreTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error) {
 	if headSnapshotID == "" || baseSnapshotID == "" {
 		return nil, errors.New("headSnapshotID/baseSnapshotID is required")
 	}
 
-	baseScore, err := s.GetScoreResultFromSnapshotID(ctx, baseSnapshotID)
+	baseScore, err := scoreTracker.GetScoreResultFromSnapshotID(ctx, baseSnapshotID)
 	if err != nil {
 		return nil, fmt.Errorf("get base score result: %w", err)
 	}
 
-	headScore, err := s.GetScoreResultFromSnapshotID(ctx, headSnapshotID)
+	headScore, err := scoreTracker.GetScoreResultFromSnapshotID(ctx, headSnapshotID)
 	if err != nil {
 		return nil, fmt.Errorf("get head score result: %w", err)
 	}
@@ -308,38 +305,38 @@ func (s *SQLiteScoreTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID
 }
 
 // GetSecurityDiffOverview computes a security-focused diff overview between two versions.
-func (s *SQLiteScoreTracker) GetSecurityDiffOverview(ctx context.Context, baseID, headID string) (*assessor.SecurityDiffOverview, error) {
+func (scoreTracker *SQLiteScoreTracker) GetSecurityDiffOverview(ctx context.Context, baseID, headID string) (*assessor.SecurityDiffOverview, error) {
 	if headID == "" || baseID == "" {
 		return nil, errors.New("headID/baseID is required")
 	}
 
 	// Get all score results for head version.
-	headScores, err := s.GetScoreResultsFromVersionID(ctx, headID)
+	headScores, err := scoreTracker.GetScoreResultsFromVersionID(ctx, headID)
 	if err != nil {
 		return nil, fmt.Errorf("get head scores: %w", err)
 	}
 
 	// Get all score results for base version.
-	baseScores, err := s.GetScoreResultsFromVersionID(ctx, baseID)
+	baseScores, err := scoreTracker.GetScoreResultsFromVersionID(ctx, baseID)
 	if err != nil {
 		return nil, fmt.Errorf("get base scores: %w", err)
 	}
 
 	// Index base and head by URL for easy matching.
 	baseByURL := make(map[string]*assessor.ScoreResult)
-	for _, sr := range baseScores {
-		if sr == nil {
+	for _, scoreResult := range baseScores {
+		if scoreResult == nil {
 			continue
 		}
-		baseByURL[sr.AttackSurface.URL] = sr
+		baseByURL[scoreResult.AttackSurface.URL] = scoreResult
 	}
 
 	headByURL := make(map[string]*assessor.ScoreResult)
-	for _, sr := range headScores {
-		if sr == nil {
+	for _, scoreResult := range headScores {
+		if scoreResult == nil {
 			continue
 		}
-		headByURL[sr.AttackSurface.URL] = sr
+		headByURL[scoreResult.AttackSurface.URL] = scoreResult
 	}
 
 	// Build a set of all URLs present in base or head.
@@ -366,15 +363,15 @@ func (s *SQLiteScoreTracker) GetSecurityDiffOverview(ctx context.Context, baseID
 		}
 
 		// AttackSurfaces (if stored inside ScoreResult).
-		var baseAS, headAS *attacksurface.AttackSurface
+		var baseAttackSurface, headAttackSurface *attacksurface.AttackSurface
 		if baseScore != nil {
-			baseAS = baseScore.AttackSurface
+			baseAttackSurface = baseScore.AttackSurface
 		}
 		if headScore != nil {
-			headAS = headScore.AttackSurface
+			headAttackSurface = headScore.AttackSurface
 		}
 
-		sd, err := assessor.NewSecurityDiff(
+		securityDiff, err := assessor.NewSecurityDiff(
 			url,
 			baseID,
 			headID,
@@ -382,20 +379,20 @@ func (s *SQLiteScoreTracker) GetSecurityDiffOverview(ctx context.Context, baseID
 			headSnapshotID,
 			baseScore,
 			headScore,
-			baseAS,
-			headAS,
+			baseAttackSurface,
+			headAttackSurface,
 		)
 
 		if err != nil {
-			if s.logger != nil {
-				s.logger.Warn("failed to build security diff for url",
+			if scoreTracker.logger != nil {
+				scoreTracker.logger.Warn("failed to build security diff for url",
 					logging.Field{Key: "url", Value: url},
 					logging.Field{Key: "err", Value: err},
 				)
 			}
 			continue
 		}
-		diffs = append(diffs, sd)
+		diffs = append(diffs, securityDiff)
 	}
 
 	return assessor.NewSecurityDiffOverview(diffs), nil
