@@ -22,6 +22,10 @@ type dummyAssessor struct {
 	res *assessor.ScoreResult
 }
 
+type blockingAssessor struct {
+	sleep time.Duration
+}
+
 func (d *dummyAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
 	if snapshot == nil {
 		return d.ScoreHTML(ctx, nil, "", "", "")
@@ -74,6 +78,17 @@ func (d *dummyAssessor) ExtractEvidence(ctx context.Context, html []byte, opts a
 	return out, nil
 }
 func (d *dummyAssessor) Close() error { return nil }
+
+func (b *blockingAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
+	select {
+	case <-time.After(b.sleep):
+		return &assessor.ScoreResult{Score: 0.1, Normalized: 10, Confidence: 1, Version: "v-test"}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingAssessor) Close() error { return nil }
 
 // openTestDB creates an in-memory sqlite DB and creates the minimal tables used by the tests.
 func openTestDB(t *testing.T) *sql.DB {
@@ -182,6 +197,24 @@ func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testi
 	}
 	if cnt := countRows(t, db, `SELECT COUNT(1) FROM evidence_items WHERE score_result_id = ?`, scoreID); cnt < 1 {
 		t.Fatalf("expected >=1 evidence item, got %d", cnt)
+	}
+}
+
+func TestScoreAndAttributeVersion_RespectsProvidedTimeoutDuration(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	assr := &blockingAssessor{sleep: 25 * time.Millisecond}
+	logger := logging.Logger(nil)
+
+	versionID := uuid.New().String()
+
+	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, 20*time.Millisecond, versionID, "", "", "", []byte(`<html><body>slow</body></html>`)); err != nil {
+		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
+	}
+
+	if cnt := countRows(t, db, `SELECT COUNT(1) FROM score_results WHERE version_id = ?`, versionID); cnt != 0 {
+		t.Fatalf("expected 0 score_results rows when scoring times out, got %d", cnt)
 	}
 }
 

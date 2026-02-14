@@ -35,8 +35,9 @@ func (sa *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, cr *models.
 		return nil
 	}
 
-	scoreCtx, cancel := context.WithTimeout(ctx, scoreTimeout*time.Second)
+	scoreCtx, cancel := context.WithTimeout(ctx, scoreTimeout)
 	defer cancel()
+
 
 	for _, s := range cr.Snapshots {
 		scoreRes, err := sa.assessor.ScoreSnapshot(scoreCtx, s, cr.Version.ID)

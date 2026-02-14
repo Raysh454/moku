@@ -176,6 +176,89 @@ func (o *Orchestrator) getCancel(jobID string) context.CancelFunc {
 	return o.jobCancels[jobID]
 }
 
+func (o *Orchestrator) newJob(jobType, project, site string) *Job {
+	return &Job{
+		ID:        uuid.New().String(),
+		Type:      jobType,
+		Project:   project,
+		Website:   site,
+		Status:    JobPending,
+		StartedAt: time.Now().UTC(),
+		Events:    make(chan JobEvent, 16),
+	}
+}
+
+func (o *Orchestrator) finishJob(jobID string) {
+	o.jobsMu.Lock()
+	if j, ok := o.jobs[jobID]; ok {
+		j.EndedAt = time.Now().UTC()
+	}
+
+	// Cleanup old jobs while we hold the lock
+	o.cleanupFinishedJobsLocked()
+
+	// Capture events chan before unlocking
+	var events chan JobEvent
+	if j, ok := o.jobs[jobID]; ok && j != nil {
+		events = j.Events
+	}
+	o.jobsMu.Unlock()
+
+	o.deleteCancel(jobID)
+
+	if events != nil {
+		close(events)
+	}
+}
+
+func (o *Orchestrator) setJobStatus(jobID string, status JobStatus, err error) {
+	o.jobsMu.Lock()
+	if j, ok := o.jobs[jobID]; ok {
+		j.Status = status
+		if err != nil {
+			j.Error = err.Error()
+		}
+	}
+	o.jobsMu.Unlock()
+
+	ev := JobEvent{
+		JobID:  jobID,
+		Type:   JobEventStatus,
+		Status: status,
+	}
+	if err != nil {
+		ev.Error = err.Error()
+	}
+	o.emitJobEvent(jobID, ev)
+}
+
+func (o *Orchestrator) setJobResult(jobID string, overview *assessor.SecurityDiffOverview, urls []string) {
+	o.jobsMu.Lock()
+	if j, ok := o.jobs[jobID]; ok {
+		j.Status = JobDone
+		j.SecurityOverview = overview
+		j.EnumeratedURLs = urls
+	}
+	o.jobsMu.Unlock()
+
+	o.emitJobEvent(jobID, JobEvent{
+		JobID:  jobID,
+		Type:   JobEventResult,
+		Status: JobDone,
+	})
+}
+
+func (o *Orchestrator) progressCallback(jobID string) utils.ProgressCallback {
+	return func(processed, total int) {
+		o.emitJobEvent(jobID, JobEvent{
+			JobID:     jobID,
+			Type:      JobEventProgress,
+			Processed: processed,
+			Total:     total,
+		})
+	}
+}
+
 func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status string, limit int) (*Job, error) {
 	o.logger.Info("orchestrator: Starting fetch job", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 	o.closedMu.Lock()
@@ -186,18 +269,8 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 	}
 	o.ensureJobMaps()
 
-	jobID := uuid.New().String()
-	now := time.Now().UTC()
-
-	job := &Job{
-		ID:        jobID,
-		Type:      "fetch",
-		Project:   project,
-		Website:   site,
-		Status:    JobPending,
-		StartedAt: now,
-		Events:    make(chan JobEvent, 16),
-	}
+	job := o.newJob("fetch", project, site)
+	jobID := job.ID
 
 	o.setJob(job)
 
@@ -212,109 +285,29 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 	})
 
 	go func() {
-		defer func() {
-			o.jobsMu.Lock()
-			if j, ok := o.jobs[jobID]; ok {
-				j.EndedAt = time.Now().UTC()
-			}
-
-			// Cleanup old jobs while we hold the lock
-			o.cleanupFinishedJobsLocked()
-
-			// Capture events chan before unlocking
-			var events chan JobEvent
-			if j, ok := o.jobs[jobID]; ok && j != nil {
-				events = j.Events
-			}
-			o.jobsMu.Unlock()
-
-			o.deleteCancel(jobID)
-
-			if events != nil {
-				close(events)
-			}
-		}()
+		defer o.finishJob(jobID)
 		// Mark running
-		o.jobsMu.Lock()
-		if j, ok := o.jobs[jobID]; ok {
-			j.Status = JobRunning
-		}
-		o.jobsMu.Unlock()
-		o.emitJobEvent(jobID, JobEvent{
-			JobID:  jobID,
-			Type:   JobEventStatus,
-			Status: JobRunning,
-		})
+		o.setJobStatus(jobID, JobRunning, nil)
 
-		cb := func(processed, total int) {
-			o.emitJobEvent(jobID, JobEvent{
-				JobID:     jobID,
-				Type:      JobEventProgress,
-				Processed: processed,
-				Total:     total,
-			})
-		}
+		cb := o.progressCallback(jobID)
 		o.logger.Info("Starting fetch job", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "website", Value: site}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 		overview, err := o.FetchWebsiteEndpoints(jobCtx, project, site, status, limit, cb)
 		if err != nil {
 			o.logger.Error("Orchestrator (StartFetchJob): Fetch job failed", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "error", Value: err.Error()})
 			select {
 			case <-jobCtx.Done():
-				o.jobsMu.Lock()
-				if j, ok := o.jobs[jobID]; ok {
-					j.Status = JobCanceled
-					j.Error = jobCtx.Err().Error()
-				}
-				o.jobsMu.Unlock()
-				o.emitJobEvent(jobID, JobEvent{
-					JobID:  jobID,
-					Type:   JobEventStatus,
-					Status: JobCanceled,
-					Error:  jobCtx.Err().Error(),
-				})
+				o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
 			default:
-				o.jobsMu.Lock()
-				if j, ok := o.jobs[jobID]; ok {
-					j.Status = JobFailed
-					j.Error = err.Error()
-				}
-				o.jobsMu.Unlock()
-				o.emitJobEvent(jobID, JobEvent{
-					JobID:  jobID,
-					Type:   JobEventStatus,
-					Status: JobFailed,
-					Error:  err.Error(),
-				})
+				o.setJobStatus(jobID, JobFailed, err)
 			}
 			return
 		}
 
 		select {
 		case <-jobCtx.Done():
-			o.jobsMu.Lock()
-			if j, ok := o.jobs[jobID]; ok {
-				j.Status = JobCanceled
-				j.Error = jobCtx.Err().Error()
-			}
-			o.jobsMu.Unlock()
-			o.emitJobEvent(jobID, JobEvent{
-				JobID:  jobID,
-				Type:   JobEventStatus,
-				Status: JobCanceled,
-				Error:  jobCtx.Err().Error(),
-			})
+			o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
 		default:
-			o.jobsMu.Lock()
-			if j, ok := o.jobs[jobID]; ok {
-				j.Status = JobDone
-				j.SecurityOverview = overview
-			}
-			o.jobsMu.Unlock()
-			o.emitJobEvent(jobID, JobEvent{
-				JobID:  jobID,
-				Type:   JobEventResult,
-				Status: JobDone,
-			})
+			o.setJobResult(jobID, overview, nil)
 		}
 	}()
 
@@ -330,18 +323,8 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 	}
 	o.ensureJobMaps()
 
-	jobID := uuid.New().String()
-	now := time.Now().UTC()
-
-	job := &Job{
-		ID:        jobID,
-		Type:      "enumerate",
-		Project:   project,
-		Website:   site,
-		Status:    JobPending,
-		StartedAt: now,
-		Events:    make(chan JobEvent, 16),
-	}
+	job := o.newJob("enumerate", project, site)
+	jobID := job.ID
 
 	o.setJob(job)
 
@@ -355,106 +338,26 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 	})
 
 	go func() {
-		defer func() {
-			o.jobsMu.Lock()
-			if j, ok := o.jobs[jobID]; ok {
-				j.EndedAt = time.Now().UTC()
-			}
+		defer o.finishJob(jobID)
+		o.setJobStatus(jobID, JobRunning, nil)
 
-			// Cleanup old jobs while we hold the lock
-			o.cleanupFinishedJobsLocked()
-
-			// Capture events chan before unlocking
-			var events chan JobEvent
-			if j, ok := o.jobs[jobID]; ok && j != nil {
-				events = j.Events
-			}
-			o.jobsMu.Unlock()
-
-			o.deleteCancel(jobID)
-
-			if events != nil {
-				close(events)
-			}
-		}()
-		o.jobsMu.Lock()
-		if j, ok := o.jobs[jobID]; ok {
-			j.Status = JobRunning
-		}
-		o.jobsMu.Unlock()
-		o.emitJobEvent(jobID, JobEvent{
-			JobID:  jobID,
-			Type:   JobEventStatus,
-			Status: JobRunning,
-		})
-
-		cb := func(processed, total int) {
-			o.emitJobEvent(jobID, JobEvent{
-				JobID:     jobID,
-				Type:      JobEventProgress,
-				Processed: processed,
-				Total:     total,
-			})
-		}
+		cb := o.progressCallback(jobID)
 		urls, err := o.EnumerateWebsite(jobCtx, project, site, maxDepth, cb)
 		if err != nil {
 			select {
 			case <-jobCtx.Done():
-				o.jobsMu.Lock()
-				if j, ok := o.jobs[jobID]; ok {
-					j.Status = JobCanceled
-					j.Error = jobCtx.Err().Error()
-				}
-				o.jobsMu.Unlock()
-				o.emitJobEvent(jobID, JobEvent{
-					JobID:  jobID,
-					Type:   JobEventStatus,
-					Status: JobCanceled,
-					Error:  jobCtx.Err().Error(),
-				})
+				o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
 			default:
-				o.jobsMu.Lock()
-				if j, ok := o.jobs[jobID]; ok {
-					j.Status = JobFailed
-					j.Error = err.Error()
-				}
-				o.jobsMu.Unlock()
-				o.emitJobEvent(jobID, JobEvent{
-					JobID:  jobID,
-					Type:   JobEventStatus,
-					Status: JobFailed,
-					Error:  err.Error(),
-				})
+				o.setJobStatus(jobID, JobFailed, err)
 			}
 			return
 		}
 
 		select {
 		case <-jobCtx.Done():
-			o.jobsMu.Lock()
-			if j, ok := o.jobs[jobID]; ok {
-				j.Status = JobCanceled
-				j.Error = jobCtx.Err().Error()
-			}
-			o.jobsMu.Unlock()
-			o.emitJobEvent(jobID, JobEvent{
-				JobID:  jobID,
-				Type:   JobEventStatus,
-				Status: JobCanceled,
-				Error:  jobCtx.Err().Error(),
-			})
+			o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
 		default:
-			o.jobsMu.Lock()
-			if j, ok := o.jobs[jobID]; ok {
-				j.Status = JobDone
-				j.EnumeratedURLs = urls
-			}
-			o.jobsMu.Unlock()
-			o.emitJobEvent(jobID, JobEvent{
-				JobID:  jobID,
-				Type:   JobEventResult,
-				Status: JobDone,
-			})
+			o.setJobResult(jobID, nil, urls)
 		}
 	}()
 
