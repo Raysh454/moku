@@ -50,7 +50,7 @@ func DefaultConfig() *Config {
 		FetcherCfg: fetcher.Config{
 			MaxConcurrency: 4,
 			CommitSize:     1024,
-			ScoreTimeout:   30,
+			ScoreTimeout:   30 * time.Second,
 		},
 		WebClientCfg: webclient.Config{
 			Client: webclient.ClientNetHTTP,

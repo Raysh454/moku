@@ -32,9 +32,10 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		return nil, fmt.Errorf("new assessor: %w", err)
 	}
 
-	cfg.trackerCfg.StoragePath = web.StoragePath
-	cfg.trackerCfg.ProjectID = web.ProjectID
-	tr, err := tracker.NewSQLiteTracker(&cfg.trackerCfg, logger, a)
+	trackerCfg := cfg.trackerCfg
+	trackerCfg.StoragePath = web.StoragePath
+	trackerCfg.ProjectID = web.ProjectID
+	tr, err := tracker.NewSQLiteTracker(&trackerCfg, logger, a)
 	if err != nil {
 		return nil, fmt.Errorf("new tracker: %w", err)
 	}
