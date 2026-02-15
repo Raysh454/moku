@@ -1573,6 +1573,7 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string",
+                    "default": "*",
                     "example": "*"
                 }
             }

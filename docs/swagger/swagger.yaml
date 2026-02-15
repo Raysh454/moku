@@ -683,6 +683,7 @@ definitions:
         example: 100
         type: integer
       status:
+        default: '*'
         example: '*'
         type: string
     type: object

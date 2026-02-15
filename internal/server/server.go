@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -376,7 +377,7 @@ func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
-	status := r.URL.Query().Get("status")
+	status := normalizeEndpointStatus(r.URL.Query().Get("status"))
 	limitStr := r.URL.Query().Get("limit")
 
 	limit := 0
@@ -451,6 +452,7 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	//  Use defaults if not provided
+	body.Status = normalizeEndpointStatus(body.Status)
 	if body.Status == "" {
 		body.Status = "new"
 	}
@@ -559,7 +561,7 @@ func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 
-	status := r.URL.Query().Get("status")
+	status := normalizeEndpointStatus(r.URL.Query().Get("status"))
 	if status == "" {
 		status = "new"
 	}
@@ -597,6 +599,14 @@ func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func normalizeEndpointStatus(status string) string {
+	trimmed := strings.TrimSpace(status)
+	if strings.EqualFold(trimmed, "all") {
+		return "*"
+	}
+	return trimmed
 }
 
 // handleEnumerateWS godoc
