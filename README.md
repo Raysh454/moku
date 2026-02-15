@@ -83,6 +83,8 @@ The long-term vision for moku is a production-quality, extensible platform for w
 
 ## Quickstart (developer)
 
+For a full guided walkthrough of running the complete demo stack (API + demo server + isolated React GUI), see [DEMO.md](DEMO.md).
+
 Prerequisites
 - Go toolchain (1.18+ recommended)
 - Git
