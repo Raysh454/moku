@@ -131,7 +131,7 @@ Request body (JSON):
 Response `201 Created` (JSON):
 ```json
 {
-  "added": ["https://example.com/path1", "https://example.com/path2"]
+  "added": 2
 }
 ```
 

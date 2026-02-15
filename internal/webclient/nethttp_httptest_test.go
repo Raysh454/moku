@@ -189,7 +189,6 @@ func TestNetHTTPClient_Do_ConnectionRefused_ReturnsError(t *testing.T) {
 func TestNetHTTPClient_Do_ContextCanceled_ReturnsError(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second)
 		w.WriteHeader(200)
 	}))
 	defer ts.Close()
