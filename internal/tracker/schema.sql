@@ -18,7 +18,7 @@ INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2');
 --  adding: fetched_at, shows when content was last fetched, is updated if content is not changed and no new snapshot needs to be created
 --  adding: content_hash, sha256(status_code + headers + body), to detect changed content, only create new snapshot if changed
 -- but this all seems useless as we currently do not have a way to detect meaningful changes deterministically.
--- Headers and page data change constantly, so we would have a lot of snapshots eitherways
+-- Headers and page data change constantly, so we would have a lot of snapshots anyways.
 
 CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,
