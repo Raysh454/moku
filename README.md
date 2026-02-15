@@ -98,6 +98,18 @@ go test ./...
 ```
 Note: The repository contains scaffolding tests (external-package style). Many scaffolds intentionally return `not implemented` or neutral results — tests assert that behavior. Some components (chromedp backend) are intentionally non-functional in the current dev branch and tests reflect that.
 
+### Demo end-to-end test
+
+The full demo flow (demo server + API server + enumerate/fetch + version bump + diff/security verification) is covered by an integration-style test that runs with normal test commands.
+
+Run it with:
+
+```bash
+go test -count=1 ./internal/server -run TestDemoE2E_HappyPath -v
+```
+
+This test starts the real `cmd/demoserver` binary and the API server automatically, executes the complete happy-path sequence, and verifies deterministic demo behavior.
+
 ## API documentation (Swagger)
 
 The HTTP server exposes interactive API documentation powered by Swagger/UI. Regenerate the spec whenever you change handlers or request/response models.
