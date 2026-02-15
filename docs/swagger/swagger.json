@@ -1562,6 +1562,7 @@
                 },
                 "status": {
                     "type": "string",
+                    "default": "*",
                     "example": "*"
                 }
             }
