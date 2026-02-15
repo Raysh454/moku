@@ -204,7 +204,7 @@ func (ix *Index) ListEndpoints(ctx context.Context, status string, limit int) ([
 	if limit <= 0 {
 		limit = -1
 	}
-	if status == "*" {
+	if status == "*" || status == "all" {
 		status = "%"
 	}
 	q := `SELECT id, raw_url, canonical_url, host, path, first_discovered_at, last_discovered_at, last_fetched_version, last_fetched_at, status, discovery_source, meta FROM endpoints`

@@ -530,59 +530,6 @@ export default function App() {
           )}
         </section>
 
-        <section className="card wide">
-          <h2>6) Demo controls</h2>
-          <div className="row">
-            <button disabled={busy} onClick={() => void resetDemo()}>
-              Reset all to v1
-            </button>
-            <button disabled={busy} onClick={() => void bumpDemo()}>
-              Bump all versions
-            </button>
-            <button disabled={busy} onClick={() => void refreshDemoVersions()}>
-              Reload versions
-            </button>
-          </div>
-
-          <div className="tableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>path</th>
-                  <th>description</th>
-                  <th>current</th>
-                  <th>available</th>
-                  <th>set</th>
-                </tr>
-              </thead>
-              <tbody>
-                {demoVersions.map((entry) => (
-                  <tr key={entry.path}>
-                    <td>{entry.path}</td>
-                    <td>{entry.description}</td>
-                    <td>v{entry.current_version}</td>
-                    <td>{entry.available_versions.map((version) => `v${version}`).join(', ')}</td>
-                    <td>
-                      <div className="chips">
-                        {entry.available_versions.map((version) => (
-                          <button
-                            key={`${entry.path}-${version}`}
-                            disabled={busy}
-                            className={`chipBtn ${version === entry.current_version ? 'activeChip' : ''}`}
-                            onClick={() => void setDemoPathVersion(entry.path, version)}
-                          >
-                            v{version}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
         <section className="card">
           <h2>Activity log</h2>
           <div className="logList">
