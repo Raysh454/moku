@@ -57,6 +57,14 @@ type Job struct {
 	EnumeratedURLs   []string                       `json:"enumerated_urls,omitempty"`
 }
 
+func cloneJob(job *Job) *Job {
+	if job == nil {
+		return nil
+	}
+	copy := *job
+	return &copy
+}
+
 type Orchestrator struct {
 	cfg      *Config
 	registry *registry.Registry
@@ -276,6 +284,7 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 		Type:   JobEventStatus,
 		Status: JobPending,
 	})
+	jobSnapshot := cloneJob(job)
 
 	go func() {
 		defer o.finishJob(jobID)
@@ -303,7 +312,7 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 		}
 	}()
 
-	return job, nil
+	return jobSnapshot, nil
 }
 
 func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, maxDepth int) (*Job, error) {
@@ -328,6 +337,7 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 		Type:   JobEventStatus,
 		Status: JobPending,
 	})
+	jobSnapshot := cloneJob(job)
 
 	go func() {
 		defer o.finishJob(jobID)
@@ -353,7 +363,7 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 		}
 	}()
 
-	return job, nil
+	return jobSnapshot, nil
 }
 
 func (o *Orchestrator) CancelJob(jobID string) {
@@ -370,7 +380,7 @@ func (o *Orchestrator) GetJob(jobID string) *Job {
 	if !ok {
 		return nil
 	}
-	return j
+	return cloneJob(j)
 }
 
 func (o *Orchestrator) ListJobs() []*Job {
@@ -380,7 +390,7 @@ func (o *Orchestrator) ListJobs() []*Job {
 	jobs := make([]*Job, 0, len(o.jobs))
 	for _, j := range o.jobs {
 		if j != nil {
-			jobs = append(jobs, j)
+			jobs = append(jobs, cloneJob(j))
 		}
 	}
 	return jobs
