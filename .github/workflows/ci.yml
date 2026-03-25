@@ -87,6 +87,7 @@ jobs:
         with:
           # Use a recent golangci-lint release built with modern Go
           version: v1.64.8
+          install-mode: goinstall
           args: --timeout=3m
 
       - name: Run tests (race detector) and collect coverage
