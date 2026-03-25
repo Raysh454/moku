@@ -86,7 +86,7 @@ jobs:
         uses: golangci/golangci-lint-action@v4
         with:
           # Use a recent golangci-lint release built with modern Go
-          version: v1.64.8
+          version: latest
           args: --timeout=3m
 
       - name: Run tests (race detector) and collect coverage
