@@ -83,7 +83,7 @@ jobs:
         run: go vet ./...
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v6
         with:
           # Use a recent golangci-lint release built with modern Go
           version: v1.64.8
