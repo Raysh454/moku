@@ -207,27 +207,194 @@ This is more efficient than individual commits when fetching multiple pages, as 
 - Remove default ports (80 for http, 443 for https)
 - Normalize path (remove `./`, resolve `../`)
 
+## Transaction-like Commit API
+
+### Motivation
+
+The standard `CommitBatch()` method creates **one version per call**. When fetching a large number of pages (e.g., 2500 URLs), the fetcher must split them into batches due to memory constraints and progress reporting needs. This results in **multiple versions for a single logical fetch operation**:
+
+```
+Fetch 2500 URLs (CommitSize = 1024)
+├─ CommitBatch([URL 1-1024])    → Version V1 @ 10:00:01
+├─ CommitBatch([URL 1025-2048]) → Version V2 @ 10:00:03
+└─ CommitBatch([URL 2049-2500]) → Version V3 @ 10:00:05
+```
+
+**Problems**:
+- 3 separate commits appear in timeline for one operation
+- V2 appears "after" V1 chronologically even though they're from the same fetch
+- Querying "all snapshots from this fetch" requires knowing all 3 version IDs
+- No semantic grouping of related batches
+
+### Solution: Multi-Batch Commits
+
+The transaction-like API allows accumulating snapshots across multiple batches while maintaining a **single version ID**:
+
+```go
+// Begin a pending commit (generate version ID upfront)
+pc, err := tracker.BeginCommit(ctx, "Fetch 2500 pages", "fetcher")
+defer tracker.CancelCommit(ctx, pc) // Cleanup on error
+
+// Add snapshots in batches (no new version created)
+err = tracker.AddSnapshots(ctx, pc, batch1) // 1024 snapshots
+err = tracker.AddSnapshots(ctx, pc, batch2) // 1024 snapshots  
+err = tracker.AddSnapshots(ctx, pc, batch3) // 452 snapshots
+
+// Finalize (compute diffs, commit transaction, update HEAD)
+result, err := tracker.FinalizeCommit(ctx, pc) // ONE version with 2500 snapshots
+```
+
+**Result**: ONE version in the timeline, regardless of batch count.
+
+### API Methods
+
+#### `BeginCommit(ctx, message, author) (*PendingCommit, error)`
+
+Starts a new multi-batch commit transaction:
+- Generates a version UUID upfront
+- Reads current HEAD for parent
+- Begins a database transaction
+- Inserts version row (snapshots added later)
+- Returns a `PendingCommit` handle
+
+The caller **must** eventually call `FinalizeCommit` or `CancelCommit`.
+
+#### `AddSnapshots(ctx, pc, snapshots) error`
+
+Adds a batch of snapshots to the pending commit:
+- Stores blobs in blobstore
+- Normalizes headers
+- Inserts snapshot rows (all reference `pc.VersionID`)
+- Keeps transaction open (does NOT commit)
+- Can be called multiple times for the same `PendingCommit`
+
+#### `FinalizeCommit(ctx, pc) (*CommitResult, error)`
+
+Completes the pending commit:
+- Computes diffs between parent and new version
+- Inserts diff rows
+- Writes working-tree convenience files for all snapshots
+- **Commits the transaction** (all-or-nothing)
+- Updates HEAD to new version
+- Returns `CommitResult` with all snapshots
+
+After `FinalizeCommit` succeeds, the `PendingCommit` is no longer valid.
+
+#### `CancelCommit(ctx, pc) error`
+
+Rolls back a pending commit and cleans up resources:
+- Rolls back the database transaction
+- Clears transaction state in `PendingCommit`
+- Safe to call multiple times or on already-finalized commits
+- Best practice: `defer tracker.CancelCommit(ctx, pc)` immediately after `BeginCommit`
+
+### Usage Example
+
+**Fetcher integration**:
+```go
+func (f *Fetcher) Fetch(ctx context.Context, urls []string) {
+    // Begin pending commit for entire fetch
+    pc, err := f.tracker.BeginCommit(ctx, 
+        fmt.Sprintf("Fetch %d pages", len(urls)), "fetcher")
+    if err != nil {
+        return err
+    }
+    defer f.tracker.CancelCommit(ctx, pc) // Cleanup on error
+    
+    // Batch and add snapshots incrementally
+    batch := []*Snapshot{}
+    for snap := range fetchChannel {
+        batch = append(batch, snap)
+        if len(batch) >= CommitSize {
+            if err := f.tracker.AddSnapshots(ctx, pc, batch); err != nil {
+                return err // CancelCommit called by defer
+            }
+            batch = batch[:0]
+        }
+    }
+    
+    // Add remaining snapshots
+    if len(batch) > 0 {
+        f.tracker.AddSnapshots(ctx, pc, batch)
+    }
+    
+    // Finalize (creates one version for all snapshots)
+    cr, err := f.tracker.FinalizeCommit(ctx, pc)
+    if err != nil {
+        return err
+    }
+    
+    // Score the entire version
+    f.tracker.ScoreAndAttributeVersion(ctx, cr, timeout)
+}
+```
+
+### When to Use Each API
+
+**Use `Commit()` or `CommitBatch()` when**:
+- Single batch is the complete atomic unit
+- Simple, one-shot commits
+- Backward compatibility with existing code
+
+**Use transaction API (`BeginCommit` / `AddSnapshots` / `FinalizeCommit`) when**:
+- Multiple batches should share one version ID
+- Streaming snapshots from an ongoing operation
+- Need transaction-level atomicity across batches
+- Want semantic grouping of related snapshots
+
+### Error Handling
+
+**Transaction safety**:
+- All snapshots are committed atomically (all-or-nothing)
+- If `AddSnapshots` fails, call `CancelCommit` to rollback
+- If `FinalizeCommit` fails, transaction is automatically rolled back
+- Use `defer CancelCommit(ctx, pc)` pattern for guaranteed cleanup
+
+**Orphaned blobs**:
+- Blobs written during `AddSnapshots` may be orphaned if commit is cancelled
+- Future garbage collection mechanism will clean up unreferenced blobs
+- Currently logged as informational message
+
+### Storage Efficiency
+
+**Blob deduplication** (already implemented):
+- Identical HTML content reuses the same blob (same SHA-256 hash)
+- Works for both single commits and transaction API
+- Only metadata duplicates across versions, not content
+
+**Example**:
+```
+Committing identical content 3 times:
+- Snapshot 1: blob_id = "abc123..." (stored once)
+- Snapshot 2: blob_id = "abc123..." (reuses existing)
+- Snapshot 3: blob_id = "abc123..." (reuses existing)
+→ One 50KB blob stored, three 200-byte snapshot records
+```
+
 ## Implementation Status
 
 ### Current Implementation
 
 **Completed**:
 - SQLite-backed tracker (SQLiteTracker) with commit, batch commit, list, diff, checkout, close
+- **Transaction-like commit API** (BeginCommit, AddSnapshots, FinalizeCommit, CancelCommit)
 - Blob storage using content-addressed files (`internal/tracker/blobstore`)
 - Normalized header storage and redaction logic
 - Combined diff JSON persisted in `diffs`
 - Scoring and attribution via `internal/tracker/score` and SQLiteTracker.ScoreAndAttributeVersion
-- Tests covering commit/get/list/diff/checkout and header normalization
+- Tests covering commit/get/list/diff/checkout, header normalization, and transaction API
+- Fetcher integration using transaction API for single-version bulk fetches
 
 **Deprecated/Removed**:
 - In-memory tracker (NewInMemoryTracker) and related tests
 - FSStore helpers replaced by blobstore package
 
 **Planned / Next steps**:
-1. Enhance diff algorithm and DOM-aware mapping
-2. GC of unreachable blobs and old diffs
-3. Pagination and filtering for List
-4. Performance tuning for large pages
+1. Garbage collection of orphaned blobs from cancelled commits
+2. Enhance diff algorithm and DOM-aware mapping
+3. Transaction timeout handling and auto-commit
+4. Pagination and filtering for List
+5. Performance tuning for large pages
 
 ## Testing Strategy
 

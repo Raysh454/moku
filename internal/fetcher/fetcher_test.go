@@ -53,8 +53,11 @@ func (d *DummyWebClient) Close() error { return nil }
 
 // Dummy Tracker
 type DummyTracker struct {
-	mu      sync.Mutex
-	Batches [][]*models.Snapshot
+	mu             sync.Mutex
+	Batches        [][]*models.Snapshot
+	PendingCommit  *models.PendingCommit
+	AllSnapshots   []*models.Snapshot // Track all snapshots across batches
+	FinalizedCount int                // Track how many times FinalizeCommit was called
 }
 
 func (t *DummyTracker) Commit(ctx context.Context, snap *models.Snapshot, message, author string) (*models.CommitResult, error) {
@@ -69,6 +72,67 @@ func (t *DummyTracker) CommitBatch(ctx context.Context, snaps []*models.Snapshot
 	t.Batches = append(t.Batches, copySnaps)
 
 	return &models.CommitResult{Snapshots: copySnaps}, nil
+}
+
+func (t *DummyTracker) BeginCommit(ctx context.Context, message, author string) (*models.PendingCommit, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.PendingCommit = &models.PendingCommit{
+		VersionID: "dummy-version-id",
+		Message:   message,
+		Author:    author,
+		Timestamp: time.Now(),
+	}
+	// Use a non-nil marker to indicate transaction is active
+	t.PendingCommit.SetTransaction(&sql.Tx{})
+	t.AllSnapshots = []*models.Snapshot{} // Reset for new commit
+
+	return t.PendingCommit, nil
+}
+
+func (t *DummyTracker) AddSnapshots(ctx context.Context, pc *models.PendingCommit, snapshots []*models.Snapshot) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if pc.GetTransaction() == nil {
+		return errors.New("no active transaction")
+	}
+
+	// Record the batch
+	copySnaps := append([]*models.Snapshot(nil), snapshots...)
+	t.Batches = append(t.Batches, copySnaps)
+	t.AllSnapshots = append(t.AllSnapshots, copySnaps...)
+
+	return nil
+}
+
+func (t *DummyTracker) FinalizeCommit(ctx context.Context, pc *models.PendingCommit) (*models.CommitResult, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if pc.GetTransaction() == nil {
+		return nil, errors.New("no active transaction")
+	}
+
+	// Mark transaction as complete
+	pc.SetTransaction(nil)
+	t.FinalizedCount++
+
+	return &models.CommitResult{
+		Version: models.Version{
+			ID:      pc.VersionID,
+			Message: pc.Message,
+		},
+		Snapshots: t.AllSnapshots,
+	}, nil
+}
+
+func (t *DummyTracker) CancelCommit(ctx context.Context, pc *models.PendingCommit) error {
+	if pc != nil {
+		pc.SetTransaction(nil)
+	}
+	return nil
 }
 
 func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, _ time.Duration) error {
