@@ -1,6 +1,7 @@
 package models
 
 import (
+	"database/sql"
 	"time"
 )
 
@@ -108,4 +109,77 @@ type CommitResult struct {
 
 	// Snapshots committed in this version.
 	Snapshots []*Snapshot
+}
+
+// PendingCommit represents an in-progress multi-batch commit.
+// It allows accumulating snapshots across multiple AddSnapshots() calls
+// while maintaining a single version ID and transaction.
+//
+// Usage:
+//
+//	pc, err := tracker.BeginCommit(ctx, "Fetch 2500 pages", "fetcher")
+//	err = tracker.AddSnapshots(ctx, pc, batch1) // 1024 snapshots
+//	err = tracker.AddSnapshots(ctx, pc, batch2) // 1024 snapshots
+//	err = tracker.AddSnapshots(ctx, pc, batch3) // 452 snapshots
+//	result, err := tracker.FinalizeCommit(ctx, pc) // One version with 2500 snapshots
+type PendingCommit struct {
+	// VersionID is the UUID assigned to this commit.
+	VersionID string `json:"version_id"`
+
+	// ParentID is the parent version (empty for initial commit).
+	ParentID string `json:"parent_id,omitempty"`
+
+	// Message is the commit message.
+	Message string `json:"message"`
+
+	// Author is the commit author (optional).
+	Author string `json:"author,omitempty"`
+
+	// Timestamp is when the commit was started.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Internal state (not serialized to JSON)
+	txPtr         *sql.Tx  // Active database transaction
+	blobIDs       []string // Track blob IDs for potential rollback
+	snapshotCount int      // Number of snapshots added so far
+}
+
+// GetTransaction returns the active transaction (internal use only).
+func (pc *PendingCommit) GetTransaction() *sql.Tx {
+	return pc.txPtr
+}
+
+// SetTransaction sets the active transaction (internal use only).
+func (pc *PendingCommit) SetTransaction(tx *sql.Tx) {
+	pc.txPtr = tx
+}
+
+// GetBlobIDs returns tracked blob IDs (internal use only).
+func (pc *PendingCommit) GetBlobIDs() []string {
+	return pc.blobIDs
+}
+
+// SetBlobIDs sets tracked blob IDs (internal use only).
+func (pc *PendingCommit) SetBlobIDs(ids []string) {
+	pc.blobIDs = ids
+}
+
+// AddBlobID adds a blob ID to track (internal use only).
+func (pc *PendingCommit) AddBlobID(id string) {
+	pc.blobIDs = append(pc.blobIDs, id)
+}
+
+// GetSnapshotCount returns the number of snapshots added (internal use only).
+func (pc *PendingCommit) GetSnapshotCount() int {
+	return pc.snapshotCount
+}
+
+// SetSnapshotCount sets the snapshot count (internal use only).
+func (pc *PendingCommit) SetSnapshotCount(count int) {
+	pc.snapshotCount = count
+}
+
+// IncrementSnapshotCount increments the snapshot count (internal use only).
+func (pc *PendingCommit) IncrementSnapshotCount() {
+	pc.snapshotCount++
 }

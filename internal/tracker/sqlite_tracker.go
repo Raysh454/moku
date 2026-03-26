@@ -998,6 +998,250 @@ func (*SQLiteTracker) createCommitResult(batchSnapshots []snapshotData, versionI
 	return cr
 }
 
+// BeginCommit starts a new multi-batch commit transaction.
+// It generates a version ID upfront and begins a database transaction.
+// The caller must eventually call FinalizeCommit or CancelCommit.
+func (t *SQLiteTracker) BeginCommit(ctx context.Context, message, author string) (*models.PendingCommit, error) {
+	if message == "" {
+		return nil, errors.New("commit message cannot be empty")
+	}
+
+	versionID := uuid.New().String()
+	parentID, _ := t.ReadHEAD()
+	timestamp := time.Now()
+
+	t.logger.Info("Beginning pending commit",
+		logging.Field{Key: "version_id", Value: versionID},
+		logging.Field{Key: "parent_id", Value: parentID})
+
+	tx, err := t.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	if err := t.insertVersion(ctx, tx, versionID, parentID, message, author, timestamp.Unix()); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil && rbErr != sql.ErrTxDone {
+			t.logger.Warn("Failed to rollback transaction", logging.Field{Key: "error", Value: rbErr.Error()})
+		}
+		return nil, fmt.Errorf("failed to insert version: %w", err)
+	}
+
+	pc := &models.PendingCommit{
+		VersionID: versionID,
+		ParentID:  parentID,
+		Message:   message,
+		Author:    author,
+		Timestamp: timestamp,
+	}
+
+	// Use reflection-safe access to set private fields
+	// In Go, we can't set unexported fields from outside the package,
+	// so we need to keep these in the same package or use getter/setter pattern
+	// For now, we'll access directly since models is in tracker package tree
+	pc.SetTransaction(tx)
+	pc.SetBlobIDs([]string{})
+	pc.SetSnapshotCount(0)
+
+	return pc, nil
+}
+
+// AddSnapshots adds a batch of snapshots to a pending commit.
+// All snapshots will reference the same version ID from BeginCommit.
+// This can be called multiple times for a single PendingCommit.
+func (t *SQLiteTracker) AddSnapshots(ctx context.Context, pc *models.PendingCommit, snapshots []*models.Snapshot) error {
+	if pc == nil {
+		return errors.New("nil PendingCommit")
+	}
+	if len(snapshots) == 0 {
+		return nil // No error for empty batch
+	}
+
+	tx := pc.GetTransaction()
+	if tx == nil {
+		return errors.New("PendingCommit has no active transaction (already finalized or cancelled)")
+	}
+
+	t.logger.Info("Adding snapshots to pending commit",
+		logging.Field{Key: "version_id", Value: pc.VersionID},
+		logging.Field{Key: "count", Value: len(snapshots)})
+
+	for _, snap := range snapshots {
+		if snap == nil {
+			continue
+		}
+
+		// Store blob
+		blobID, err := t.store.Put(snap.Body)
+		if err != nil {
+			return fmt.Errorf("failed to store snapshot body: %w", err)
+		}
+		pc.AddBlobID(blobID)
+
+		// Parse URL and get file path
+		urlTools, err := utils.NewURLTools(snap.URL)
+		if err != nil {
+			return fmt.Errorf("failed to parse snapshot URL: %w", err)
+		}
+		filePath := urlTools.GetPath()
+
+		// Normalize headers
+		normalizedHeaders := normalizeHeaders(snap.Headers, t.config.RedactSensitiveHeaders)
+		headersJSONBytes, err := json.Marshal(normalizedHeaders)
+		if err != nil {
+			return fmt.Errorf("failed to marshal headers: %w", err)
+		}
+
+		// Insert snapshot row
+		snapshotID := uuid.New().String()
+		sd := snapshotData{
+			snapshot:    snap,
+			snapshotID:  snapshotID,
+			versionID:   pc.VersionID,
+			blobID:      blobID,
+			filePath:    filePath,
+			headersJSON: string(headersJSONBytes),
+		}
+
+		if err := t.insertSnapshot(ctx, tx, sd); err != nil {
+			return fmt.Errorf("failed to insert snapshot: %w", err)
+		}
+
+		pc.IncrementSnapshotCount()
+	}
+
+	t.logger.Info("Added snapshots to pending commit",
+		logging.Field{Key: "version_id", Value: pc.VersionID},
+		logging.Field{Key: "total_snapshots", Value: pc.GetSnapshotCount()})
+
+	return nil
+}
+
+// FinalizeCommit completes a pending commit by computing diffs, committing
+// the transaction, and updating HEAD.
+func (t *SQLiteTracker) FinalizeCommit(ctx context.Context, pc *models.PendingCommit) (*models.CommitResult, error) {
+	if pc == nil {
+		return nil, errors.New("nil PendingCommit")
+	}
+
+	tx := pc.GetTransaction()
+	if tx == nil {
+		return nil, errors.New("PendingCommit has no active transaction (already finalized or cancelled)")
+	}
+
+	t.logger.Info("Finalizing pending commit",
+		logging.Field{Key: "version_id", Value: pc.VersionID},
+		logging.Field{Key: "total_snapshots", Value: pc.GetSnapshotCount()})
+
+	// Compute and store diff if there's a parent
+	var diffID, diffJSON string
+	if pc.ParentID != "" {
+		if err := t.computeAndStoreDiff(ctx, tx, pc.ParentID, pc.VersionID); err != nil {
+			t.logger.Warn("Failed to compute/store combined diff", logging.Field{Key: "error", Value: err.Error()})
+		} else {
+			// Try to retrieve the diff we just stored
+			row := tx.QueryRowContext(ctx, `
+				SELECT id, diff_json FROM diffs 
+				WHERE base_version_id = ? AND head_version_id = ?
+			`, nullableString(pc.ParentID), pc.VersionID)
+
+			if err := row.Scan(&diffID, &diffJSON); err != nil && err != sql.ErrNoRows {
+				t.logger.Warn("Failed to retrieve diff after storing", logging.Field{Key: "error", Value: err.Error()})
+			}
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Clear transaction reference (commit successful, no longer valid)
+	pc.SetTransaction(nil)
+
+	// Retrieve all snapshots for this version to build CommitResult
+	snapshots, err := t.GetSnapshots(ctx, pc.VersionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve snapshots after commit: %w", err)
+	}
+
+	// Write working-tree convenience files for all snapshots
+	for _, snap := range snapshots {
+		urlTools, err := utils.NewURLTools(snap.URL)
+		if err != nil {
+			t.logger.Warn("Failed to parse URL for working tree", logging.Field{Key: "url", Value: snap.URL})
+			continue
+		}
+		filePath := urlTools.GetPath()
+
+		if err := t.writeWorkingTreeFiles(filePath, snap.StatusCode, snap.Body, snap.Headers); err != nil {
+			t.logger.Warn("Failed to write working tree files",
+				logging.Field{Key: "file_path", Value: filePath},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+
+	// Update HEAD
+	if err := t.writeHEAD(pc.VersionID); err != nil {
+		return nil, fmt.Errorf("failed to update HEAD: %w", err)
+	}
+
+	t.logger.Info("Finalized pending commit",
+		logging.Field{Key: "version_id", Value: pc.VersionID},
+		logging.Field{Key: "snapshots", Value: len(snapshots)})
+
+	// Build and return CommitResult
+	cr := &models.CommitResult{
+		Version: models.Version{
+			ID:        pc.VersionID,
+			Parent:    pc.ParentID,
+			Message:   pc.Message,
+			Author:    pc.Author,
+			Timestamp: pc.Timestamp,
+		},
+		ParentVersionID: pc.ParentID,
+		DiffID:          diffID,
+		DiffJSON:        diffJSON,
+		Snapshots:       snapshots,
+	}
+
+	return cr, nil
+}
+
+// CancelCommit rolls back a pending commit and cleans up resources.
+// It's safe to call multiple times or on an already-finalized commit.
+func (t *SQLiteTracker) CancelCommit(ctx context.Context, pc *models.PendingCommit) error {
+	if pc == nil {
+		return nil // No-op for nil
+	}
+
+	tx := pc.GetTransaction()
+	if tx == nil {
+		return nil // Already finalized or cancelled
+	}
+
+	t.logger.Info("Cancelling pending commit",
+		logging.Field{Key: "version_id", Value: pc.VersionID})
+
+	// Rollback the transaction
+	if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+		t.logger.Warn("Failed to rollback transaction", logging.Field{Key: "error", Value: err.Error()})
+		// Continue with cleanup even if rollback fails
+	}
+
+	// Clear transaction reference
+	pc.SetTransaction(nil)
+
+	// Note: Blobs are already written to disk, but they'll be orphaned
+	// A future garbage collection mechanism could clean these up
+	// For now, we just log the blob IDs
+	if len(pc.GetBlobIDs()) > 0 {
+		t.logger.Info("Pending commit cancelled - orphaned blobs may exist",
+			logging.Field{Key: "blob_count", Value: len(pc.GetBlobIDs())})
+	}
+
+	return nil
+}
+
 func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, body []byte, headers map[string][]string) error {
 	dirPath := filepath.Join(t.config.StoragePath, filePath)
 

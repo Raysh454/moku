@@ -6,6 +6,7 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"time"
 
@@ -100,8 +101,10 @@ func (d *DummyWebClient) Close() error { return nil }
 
 // DummyTracker implements tracker.Tracker with in-memory recording.
 type DummyTracker struct {
-	mu      sync.Mutex
-	Batches [][]*models.Snapshot
+	mu            sync.Mutex
+	Batches       [][]*models.Snapshot
+	AllSnapshots  []*models.Snapshot
+	PendingCommit *models.PendingCommit
 }
 
 func (t *DummyTracker) Commit(_ context.Context, snap *models.Snapshot, _, _ string) (*models.CommitResult, error) {
@@ -114,6 +117,58 @@ func (t *DummyTracker) CommitBatch(_ context.Context, snaps []*models.Snapshot, 
 	cp := append([]*models.Snapshot(nil), snaps...)
 	t.Batches = append(t.Batches, cp)
 	return &models.CommitResult{Snapshots: cp}, nil
+}
+
+func (t *DummyTracker) BeginCommit(_ context.Context, message, author string) (*models.PendingCommit, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	pc := &models.PendingCommit{
+		VersionID: "dummy-version-id",
+		Message:   message,
+		Author:    author,
+		Timestamp: time.Now(),
+	}
+	// Marker tx so Add/Finalize can validate lifecycle in tests.
+	pc.SetTransaction(&sql.Tx{})
+	t.PendingCommit = pc
+	t.AllSnapshots = nil
+	return pc, nil
+}
+
+func (t *DummyTracker) AddSnapshots(_ context.Context, pc *models.PendingCommit, snaps []*models.Snapshot) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if pc == nil || pc.GetTransaction() == nil {
+		return errors.New("no active pending commit")
+	}
+	cp := append([]*models.Snapshot(nil), snaps...)
+	t.Batches = append(t.Batches, cp)
+	t.AllSnapshots = append(t.AllSnapshots, cp...)
+	return nil
+}
+
+func (t *DummyTracker) FinalizeCommit(_ context.Context, pc *models.PendingCommit) (*models.CommitResult, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if pc == nil || pc.GetTransaction() == nil {
+		return nil, errors.New("no active pending commit")
+	}
+	pc.SetTransaction(nil)
+	return &models.CommitResult{
+		Version: models.Version{
+			ID:      pc.VersionID,
+			Message: pc.Message,
+			Author:  pc.Author,
+		},
+		Snapshots: append([]*models.Snapshot(nil), t.AllSnapshots...),
+	}, nil
+}
+
+func (t *DummyTracker) CancelCommit(_ context.Context, pc *models.PendingCommit) error {
+	if pc != nil {
+		pc.SetTransaction(nil)
+	}
+	return nil
 }
 
 func (t *DummyTracker) ScoreAndAttributeVersion(context.Context, *models.CommitResult, time.Duration) error {

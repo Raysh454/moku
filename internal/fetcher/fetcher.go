@@ -82,60 +82,112 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.Progres
 		}
 	}
 
-	// Commit snapshots goroutine
+	// Commit snapshots goroutine using transaction-like API
 	go func() {
 		defer close(batcherDone)
-		batch := make([]*models.Snapshot, 0, f.config.CommitSize)
-		flush := func() {
-			if len(batch) > 0 {
-				cr, err := f.tracker.CommitBatch(ctx, batch, "some kind of message", "^_^")
-				if err != nil {
-					if f.logger != nil {
-						f.logger.Error("error while committing snapshot batch",
-							logging.Field{Key: "error", Value: err})
-					}
-					batch = batch[:0]
-					return
-				}
-				err = f.tracker.ScoreAndAttributeVersion(ctx, cr, f.config.ScoreTimeout)
-				if err != nil {
-					if f.logger != nil {
-						f.logger.Error("error while scoring and attributing version to committed snapshots",
-							logging.Field{Key: "error", Value: err})
-					}
-					batch = batch[:0]
-					return
-				}
-				urls := make([]string, 0, len(batch))
-				for _, snap := range batch {
-					urls = append(urls, snap.URL)
-				}
-				if f.indexer != nil {
-					err = f.indexer.MarkFetchedBatch(ctx, urls, cr.Version.ID, time.Now())
-					if err != nil {
-						if f.logger != nil {
-							f.logger.Error("error while marking endpoints as fetched in indexer",
-								logging.Field{Key: "error", Value: err})
-						}
-					}
-				}
-				batch = batch[:0]
+
+		// Begin a pending commit for the entire fetch operation
+		pc, err := f.tracker.BeginCommit(ctx, fmt.Sprintf("Fetch %d pages", total), "fetcher")
+		if err != nil {
+			if f.logger != nil {
+				f.logger.Error("error while beginning commit",
+					logging.Field{Key: "error", Value: err})
 			}
+			return
 		}
 
+		// Ensure cleanup on error
+		defer func() {
+			if pc.GetTransaction() != nil {
+				// Transaction still active means we didn't finalize successfully
+				if err := f.tracker.CancelCommit(ctx, pc); err != nil && f.logger != nil {
+					f.logger.Warn("error while cancelling commit", logging.Field{Key: "error", Value: err})
+				}
+			}
+		}()
+
+		batch := make([]*models.Snapshot, 0, f.config.CommitSize)
+		allUrls := make([]string, 0, total) // Track all URLs for final indexer update
+
+		addBatch := func() error {
+			if len(batch) == 0 {
+				return nil
+			}
+
+			// Add snapshots to pending commit (doesn't create new version)
+			if err := f.tracker.AddSnapshots(ctx, pc, batch); err != nil {
+				if f.logger != nil {
+					f.logger.Error("error while adding snapshots to pending commit",
+						logging.Field{Key: "error", Value: err})
+				}
+				return err
+			}
+
+			// Track URLs for later indexer update
+			for _, snap := range batch {
+				allUrls = append(allUrls, snap.URL)
+			}
+
+			batch = batch[:0]
+			return nil
+		}
+
+		// Process snapshots from channel
 		for {
 			select {
 			case <-ctx.Done():
-				flush()
+				if err := addBatch(); err != nil && f.logger != nil {
+					f.logger.Warn("error while adding final batch on cancellation",
+						logging.Field{Key: "error", Value: err})
+				}
 				return
 			case snap, ok := <-snapCh:
 				if !ok {
-					flush()
+					// Channel closed - finalize the commit
+					if err := addBatch(); err != nil {
+						return
+					}
+
+					// Finalize the pending commit (creates one version for all snapshots)
+					cr, err := f.tracker.FinalizeCommit(ctx, pc)
+					if err != nil {
+						if f.logger != nil {
+							f.logger.Error("error while finalizing commit",
+								logging.Field{Key: "error", Value: err})
+						}
+						return
+					}
+
+					// Score the entire version
+					err = f.tracker.ScoreAndAttributeVersion(ctx, cr, f.config.ScoreTimeout)
+					if err != nil && f.logger != nil {
+						f.logger.Error("error while scoring version",
+							logging.Field{Key: "error", Value: err})
+					}
+
+					// Mark all URLs as fetched in indexer (single version for all)
+					if f.indexer != nil && len(allUrls) > 0 {
+						err = f.indexer.MarkFetchedBatch(ctx, allUrls, cr.Version.ID, time.Now())
+						if err != nil && f.logger != nil {
+							f.logger.Error("error while marking endpoints as fetched",
+								logging.Field{Key: "error", Value: err})
+						}
+					}
+
+					if f.logger != nil {
+						f.logger.Info("Fetch complete - created single version",
+							logging.Field{Key: "version_id", Value: cr.Version.ID},
+							logging.Field{Key: "snapshots", Value: len(cr.Snapshots)})
+					}
+
 					return
 				}
+
 				batch = append(batch, snap)
 				if len(batch) == f.config.CommitSize {
-					flush()
+					if err := addBatch(); err != nil {
+						return
+					}
 				}
 			}
 		}
