@@ -138,6 +138,21 @@ type ScoreResult struct {
 	Timestamp time.Time `json:"timestamp"`
 
 	AttackSurface *attacksurface.AttackSurface `json:"attack_surface,omitempty"`
+
+	// CategoryScores breaks down the score by security category.
+	CategoryScores []CategoryScoreEntry `json:"category_scores,omitempty"`
+
+	// FiredInteractions lists interaction rules that fired during scoring.
+	FiredInteractions []FiredInteraction `json:"fired_interactions,omitempty"`
+}
+
+type CategoryScoreEntry struct {
+	Category   Category `json:"category"`
+	RawContrib float64  `json:"raw_contrib"`
+	MaxContrib float64  `json:"max_contrib"`
+	Score      float64  `json:"score"`
+	Weight     float64  `json:"weight"`
+	Weighted   float64  `json:"weighted"`
 }
 
 // ScoreOptions control scoring behavior and the shape of returned evidence.
@@ -190,6 +205,9 @@ type ScoreDiff struct {
 	// RuleDeltas: rule/feature id -> (headContrib - baseContrib)
 	// In your current design, rule id == feature name for AttackSurface features.
 	RuleDeltas map[string]float64 `json:"rule_deltas"`
+
+	// CategoryDeltas: category -> (head sub-score - base sub-score).
+	CategoryDeltas map[Category]float64 `json:"category_deltas,omitempty"`
 }
 
 // Tells us exactly what changed and why between two security snapshots.
