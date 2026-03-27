@@ -17,9 +17,11 @@ import (
 )
 
 type HeuristicsAssessor struct {
-	cfg    *Config
-	logger logging.Logger
-	rules  []Rule
+	cfg            *Config
+	logger         logging.Logger
+	rules          []Rule
+	scoringCfg     *ScoringConfig
+	categoryScorer *CategoryScorer
 }
 
 const (
@@ -53,10 +55,33 @@ func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (As
 		}
 	}
 
+	scoringCfg := DefaultScoringConfig()
+	scoringCfg.InteractionRules = DefaultInteractionRules()
+
+	if cfg.ScoringConfigPath != "" {
+		overrides, loadErr := LoadScoringConfig(cfg.ScoringConfigPath)
+		if loadErr != nil {
+			l.Warn("failed to load scoring config, using defaults",
+				logging.Field{Key: "path", Value: cfg.ScoringConfigPath},
+				logging.Field{Key: "err", Value: loadErr},
+			)
+		} else {
+			scoringCfg = MergeScoringConfig(scoringCfg, overrides)
+		}
+	}
+
+	categoryScorer := NewCategoryScorer(
+		scoringCfg.FeatureCategories,
+		scoringCfg.FeatureWeights,
+		scoringCfg.FeatureCaps,
+	)
+
 	inst := &HeuristicsAssessor{
-		cfg:    cfg,
-		logger: l,
-		rules:  rules,
+		cfg:            cfg,
+		logger:         l,
+		rules:          rules,
+		scoringCfg:     scoringCfg,
+		categoryScorer: categoryScorer,
 	}
 
 	l.Info("heuristics assessor constructed", logging.Field{Key: "scoring_version", Value: cfg.ScoringVersion})
@@ -122,7 +147,7 @@ func (h *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *models.Snapshot, 
 		res.RawFeatures = feats
 
 		for name, val := range feats {
-			w, ok := attacksurface.FeatureWeights[name]
+			w, ok := h.scoringCfg.FeatureWeights[name]
 			if !ok || val == 0 {
 				continue
 			}
@@ -167,18 +192,41 @@ func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models
 		h.logger.Warn("error during DOM rule-based scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
 	}
 
-	h.computeScore(res)
+	h.computeScore(res, len(snapshot.Body), snapshot.StatusCode)
 
 	return res, nil
 }
 
-func (*HeuristicsAssessor) computeScore(res *ScoreResult) {
-	var totalContrib float64
-	for _, contrib := range res.ContribByRule {
-		totalContrib += contrib
+func (h *HeuristicsAssessor) computeScore(res *ScoreResult, bodyLen int, statusCode int) {
+	fired := EvaluateInteractions(h.scoringCfg.InteractionRules, res.RawFeatures, res.ContribByRule)
+	res.FiredInteractions = fired
+	for _, f := range fired {
+		res.ContribByRule[f.Rule.ID] += f.Boost
 	}
-	res.Score = normalizeScore(totalContrib)
+
+	catScores := h.categoryScorer.ScoreAll(res.ContribByRule)
+
+	res.CategoryScores = make([]CategoryScoreEntry, 0, len(catScores))
+	for cat, score := range catScores {
+		w := h.scoringCfg.CategoryWeights[cat]
+		res.CategoryScores = append(res.CategoryScores, CategoryScoreEntry{
+			Category:   cat,
+			RawContrib: h.categoryScorer.RawContrib(cat, res.ContribByRule),
+			MaxContrib: h.categoryScorer.MaxContrib(cat),
+			Score:      score,
+			Weight:     w,
+			Weighted:   score * w,
+		})
+	}
+
+	composite := h.categoryScorer.CompositeScore(catScores, h.scoringCfg.CategoryWeights)
+	res.Score = adjustScore(composite, h.scoringCfg.ScoreExponent)
 	res.Normalized = int(res.Score * 100.0)
+
+	confidence := ComputeConfidence(res.RawFeatures, res.ContribByRule, bodyLen, statusCode)
+	if confidence > h.cfg.DefaultConfidence {
+		res.Confidence = confidence
+	}
 }
 
 func (h *HeuristicsAssessor) Close() error {
@@ -554,10 +602,15 @@ func indexOf(buf, sub []byte) int {
 	return bytes.Index(buf, sub)
 }
 
-func normalizeScore(rawScore float64) float64 {
-	if rawScore <= 0 {
+func adjustScore(composite float64, exponent float64) float64 {
+	if composite <= 0 {
 		return 0.0
 	}
-	k := 3.0
-	return 1.0 - math.Exp(-k*rawScore)
+	if composite >= 1.0 {
+		return 1.0
+	}
+	if exponent == 1.0 || exponent <= 0 {
+		return composite
+	}
+	return math.Pow(composite, exponent)
 }
