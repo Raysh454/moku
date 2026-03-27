@@ -288,7 +288,7 @@ func TestStartEnumerateJob_Completes(t *testing.T) {
 	injectFakeComponents(t, o, "proj", "site", "https://example.com")
 
 	ctx := context.Background()
-	job, err := o.StartEnumerateJob(ctx, "proj", "site", 1)
+	job, err := o.StartEnumerateJob(ctx, "proj", "site", nil, 1)
 	if err != nil {
 		t.Fatalf("StartEnumerateJob: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestStartEnumerateJob_RejectsWhenClosed(t *testing.T) {
 	o := newTestOrchestrator(t)
 	o.Close()
 
-	_, err := o.StartEnumerateJob(context.Background(), "proj", "site", 1)
+	_, err := o.StartEnumerateJob(context.Background(), "proj", "site", nil, 1)
 	if err == nil {
 		t.Fatal("expected error from closed orchestrator")
 	}

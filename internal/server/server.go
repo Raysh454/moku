@@ -472,11 +472,13 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 
 // handleStartEnumerateJob godoc
 // @Summary Start an enumeration job
-// @Description Launches a crawl that discovers new endpoints up to a default depth of 4.
+// @Description Launches URL discovery using one or more enumeration methods (spider, sitemap, robots). Defaults to spider with depth 4.
 // @Tags Jobs
+// @Accept json
 // @Produce json
 // @Param project path string true "Project slug"
 // @Param site path string true "Website slug"
+// @Param body body StartEnumerateJobRequest false "Enumeration options"
 // @Success 202 {object} app.Job
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/jobs/enumerate [post]
@@ -484,9 +486,14 @@ func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request)
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 
-	maxDepth := 4
+	var body StartEnumerateJobRequest
+	_ = json.NewDecoder(r.Body).Decode(&body)
 
-	job, err := s.orchestrator.StartEnumerateJob(context.Background(), project, site, maxDepth)
+	if body.MaxDepth <= 0 {
+		body.MaxDepth = 4
+	}
+
+	job, err := s.orchestrator.StartEnumerateJob(context.Background(), project, site, body.Methods, body.MaxDepth)
 	if err != nil {
 		s.logger.Warn("starting enumerate job", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -615,6 +622,8 @@ func normalizeEndpointStatus(status string) string {
 // @Tags Jobs
 // @Param project path string true "Project slug"
 // @Param site path string true "Website slug"
+// @Param methods query string false "Comma-separated enumeration methods (spider,sitemap,robots)" default(spider)
+// @Param max_depth query int false "Maximum spider crawl depth" default(4)
 // @Success 101 {string} string "WebSocket Upgrade"
 // @Failure 400 {object} ErrorResponse
 // @Router /ws/projects/{project}/websites/{site}/enumerate [get]
@@ -623,6 +632,16 @@ func (s *Server) handleEnumerateWS(w http.ResponseWriter, r *http.Request) {
 	site := chi.URLParam(r, "site")
 
 	maxDepth := 4
+	if ds := r.URL.Query().Get("max_depth"); ds != "" {
+		if v, err := strconv.Atoi(ds); err == nil && v > 0 {
+			maxDepth = v
+		}
+	}
+
+	var methods []string
+	if ms := r.URL.Query().Get("methods"); ms != "" {
+		methods = strings.Split(ms, ",")
+	}
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -633,7 +652,7 @@ func (s *Server) handleEnumerateWS(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	job, err := s.orchestrator.StartEnumerateJob(ctx, project, site, maxDepth)
+	job, err := s.orchestrator.StartEnumerateJob(ctx, project, site, methods, maxDepth)
 	if err != nil {
 		_ = conn.WriteJSON(map[string]string{"error": err.Error()})
 		s.logger.Warn("starting enumerate job", logging.Field{Key: "error", Value: err.Error()})
