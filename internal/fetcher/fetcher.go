@@ -65,10 +65,32 @@ func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int, 
 	return nil
 }
 
-// Gets and stores all given HTTP urls to file system
+// Fetch retrieves all given HTTP URLs and stores snapshots to the tracker.
+//
+// Implementation uses a worker pool pattern:
+//   - Spawns exactly MaxConcurrency worker goroutines (fixed pool size)
+//   - URLs are fed through a buffered channel (urlQueue) to workers
+//   - Workers fetch pages and send snapshots to a separate batcher goroutine
+//   - The batcher goroutine collects snapshots and commits them in batches
+//
+// This approach ensures a fixed number of goroutines regardless of URL count,
+// minimizing memory overhead and scheduler pressure compared to spawning
+// one goroutine per URL.
+//
+// Flow:
+//  1. Start MaxConcurrency workers listening on urlQueue
+//  2. Start batcher goroutine listening on snapCh
+//  3. Feed URLs to urlQueue (workers process concurrently)
+//  4. Close urlQueue when all URLs are sent
+//  5. Workers exit when urlQueue is drained, close snapCh
+//  6. Batcher finalizes commit and exits
+//
+// Context cancellation is respected at multiple points for graceful shutdown.
 func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.ProgressCallback) {
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, f.config.MaxConcurrency)
+	// urlQueue is buffered to avoid blocking the main goroutine when feeding URLs.
+	// Buffer size is 2x MaxConcurrency to allow some queueing without contention.
+	urlQueue := make(chan string, f.config.MaxConcurrency*2)
 	snapCh := make(chan *models.Snapshot)
 	batcherDone := make(chan struct{})
 
@@ -193,52 +215,68 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.Progres
 		}
 	}()
 
-	// Fetch pages concurrently
-	for _, pageUrl := range pageUrls {
-		if ctx.Err() != nil {
-			break
-		}
-
-		wg.Add(1)
-
-		// TODO: Change to worker pool pattern instead of spawning goroutine per URL
-		go func(pageUrl string) {
-			defer wg.Done()
-
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			defer emitProgress()
-
-			response, err := f.HTTPGet(ctx, pageUrl)
-			if err != nil {
-				if f.logger != nil {
-					f.logger.Error("error while fetching page",
-						logging.Field{Key: "url", Value: pageUrl},
-						logging.Field{Key: "error", Value: err})
+	// Worker pool: spawn exactly MaxConcurrency worker goroutines.
+	// Each worker processes URLs from urlQueue until the channel is closed.
+	for i := 0; i < f.config.MaxConcurrency; i++ {
+		wg.Go(func() {
+			// Process URLs until urlQueue is closed
+			for pageUrl := range urlQueue {
+				// Check context before processing
+				if ctx.Err() != nil {
+					return
 				}
-				if f.indexer != nil {
-					err := f.indexer.MarkFailed(ctx, pageUrl, err.Error())
-					if err != nil && f.logger != nil {
-						f.logger.Error("error while marking endpoint as failed in indexer",
+
+				emitProgress()
+
+				response, err := f.HTTPGet(ctx, pageUrl)
+				if err != nil {
+					if f.logger != nil {
+						f.logger.Error("error while fetching page",
 							logging.Field{Key: "url", Value: pageUrl},
 							logging.Field{Key: "error", Value: err})
 					}
+					if f.indexer != nil {
+						err := f.indexer.MarkFailed(ctx, pageUrl, err.Error())
+						if err != nil && f.logger != nil {
+							f.logger.Error("error while marking endpoint as failed in indexer",
+								logging.Field{Key: "url", Value: pageUrl},
+								logging.Field{Key: "error", Value: err})
+						}
+					}
+					continue
 				}
-				return
-			}
 
-			snap := utils.NewSnapshotFromResponse(response)
-			select {
-			case <-ctx.Done():
-				return
-			case snapCh <- snap:
+				snap := utils.NewSnapshotFromResponse(response)
+				select {
+				case <-ctx.Done():
+					return
+				case snapCh <- snap:
+				}
 			}
-		}(pageUrl)
+		})
 	}
 
+	// Feed URLs to the worker pool via urlQueue.
+	// Workers will process URLs concurrently as they become available.
+	for _, pageUrl := range pageUrls {
+		select {
+		case <-ctx.Done():
+			// Context cancelled, stop feeding URLs
+			goto cleanup
+		case urlQueue <- pageUrl:
+			// URL sent successfully
+		}
+	}
+
+cleanup:
+	// Close urlQueue to signal workers that no more URLs will be sent.
+	// Workers will exit when they finish processing remaining URLs.
+	close(urlQueue)
+	// Wait for all workers to complete
 	wg.Wait()
+	// Close snapCh to signal batcher that no more snapshots will be sent
 	close(snapCh)
+	// Wait for batcher to finish committing all snapshots
 	<-batcherDone
 }
 
