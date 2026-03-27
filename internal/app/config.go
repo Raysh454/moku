@@ -56,8 +56,9 @@ func DefaultConfig() *Config {
 			Client: webclient.ClientNetHTTP,
 		},
 		assessorCfg: assessor.Config{
-			ScoringVersion:    "v0.1.0",
+			ScoringVersion:    "v0.2.0",
 			DefaultConfidence: 0.5,
+			Rules:             assessor.DefaultRules(),
 			ScoreOpts: assessor.ScoreOptions{
 				RequestLocations: true,
 			},

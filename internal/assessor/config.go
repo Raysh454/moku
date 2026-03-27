@@ -8,5 +8,9 @@ type Config struct {
 	// DefaultConfidence used for no-evidence results.
 	DefaultConfidence float64 `json:"default_confidence"`
 
+	// Rules is the default set of DOM heuristic rules.
+	// When NewHeuristicsAssessor receives nil rules, it falls back to this field.
+	Rules []Rule `json:"-"`
+
 	ScoreOpts ScoreOptions
 }
