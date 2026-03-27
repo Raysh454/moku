@@ -30,6 +30,12 @@ type StartFetchJobRequest struct {
 	Limit  int    `json:"limit" example:"100"`
 }
 
+// StartEnumerateJobRequest optionally configures enumeration methods and depth.
+type StartEnumerateJobRequest struct {
+	Methods  []string `json:"methods" example:"spider,sitemap,robots"`
+	MaxDepth int      `json:"max_depth" example:"4"`
+}
+
 // ErrorResponse is a uniform error payload returned by the API.
 type ErrorResponse struct {
 	Error string `json:"error" example:"not found"`

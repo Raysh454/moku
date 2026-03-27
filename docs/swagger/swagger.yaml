@@ -677,6 +677,20 @@ definitions:
         example: not found
         type: string
     type: object
+  server.StartEnumerateJobRequest:
+    properties:
+      max_depth:
+        example: 4
+        type: integer
+      methods:
+        example:
+        - spider
+        - sitemap
+        - robots
+        items:
+          type: string
+        type: array
+    type: object
   server.StartFetchJobRequest:
     properties:
       limit:
@@ -970,8 +984,10 @@ paths:
       - Endpoints
   /projects/{project}/websites/{site}/jobs/enumerate:
     post:
-      description: Launches a crawl that discovers new endpoints up to a default depth
-        of 4.
+      consumes:
+      - application/json
+      description: Launches URL discovery using one or more enumeration methods (spider,
+        sitemap, robots). Defaults to spider with depth 4.
       parameters:
       - description: Project slug
         in: path
@@ -983,6 +999,11 @@ paths:
         name: site
         required: true
         type: string
+      - description: Enumeration options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/server.StartEnumerateJobRequest'
       produces:
       - application/json
       responses:
@@ -1046,6 +1067,16 @@ paths:
         name: site
         required: true
         type: string
+      - default: spider
+        description: Comma-separated enumeration methods (spider,sitemap,robots)
+        in: query
+        name: methods
+        type: string
+      - default: 4
+        description: Maximum spider crawl depth
+        in: query
+        name: max_depth
+        type: integer
       responses:
         "101":
           description: WebSocket Upgrade

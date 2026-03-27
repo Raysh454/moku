@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/enumerator"
@@ -14,6 +16,7 @@ import (
 	"github.com/raysh454/moku/internal/registry"
 	"github.com/raysh454/moku/internal/tracker/models"
 	"github.com/raysh454/moku/internal/utils"
+	"github.com/raysh454/moku/internal/webclient"
 )
 
 type JobEventType string
@@ -315,7 +318,7 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 	return jobSnapshot, nil
 }
 
-func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, maxDepth int) (*Job, error) {
+func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, methods []string, maxDepth int) (*Job, error) {
 	o.closedMu.Lock()
 	closed := o.closed
 	o.closedMu.Unlock()
@@ -344,7 +347,7 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 		o.setJobStatus(jobID, JobRunning, nil)
 
 		cb := o.progressCallback(jobID)
-		urls, err := o.EnumerateWebsite(jobCtx, project, site, maxDepth, cb)
+		urls, err := o.EnumerateWebsite(jobCtx, project, site, methods, maxDepth, cb)
 		if err != nil {
 			select {
 			case <-jobCtx.Done():
@@ -447,7 +450,7 @@ func (o *Orchestrator) AddWebsiteEndpoints(ctx context.Context, projectIdentifie
 	return comps.Index.AddEndpoints(ctx, rawURLs, source)
 }
 
-func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, maxDepth int, cb utils.ProgressCallback) ([]string, error) {
+func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, methods []string, maxDepth int, cb utils.ProgressCallback) ([]string, error) {
 	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
 	if err != nil {
 		return nil, err
@@ -457,17 +460,44 @@ func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, 
 		return nil, err
 	}
 
-	spider := enumerator.NewSpider(maxDepth, comps.WebClient, o.logger)
-	targets, err := spider.Enumerate(ctx, web.Origin, cb)
+	methods = normalizeEnumMethods(methods)
+	enum := o.buildEnumerator(methods, maxDepth, comps.WebClient)
+	targets, err := enum.Enumerate(ctx, web.Origin, cb)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = comps.Index.AddEndpoints(ctx, targets, "spider-enumerator")
+	source := strings.Join(methods, "+") + "-enumerator"
+	_, err = comps.Index.AddEndpoints(ctx, targets, source)
 	if err != nil {
 		return nil, err
 	}
 	return targets, nil
+}
+
+func normalizeEnumMethods(methods []string) []string {
+	if len(methods) == 0 {
+		return []string{"spider"}
+	}
+	return methods
+}
+
+func (o *Orchestrator) buildEnumerator(methods []string, maxDepth int, wc webclient.WebClient) enumerator.Enumerator {
+	var enumerators []enumerator.Enumerator
+	for _, m := range methods {
+		switch m {
+		case "spider":
+			enumerators = append(enumerators, enumerator.NewSpider(maxDepth, wc, o.logger))
+		case "sitemap":
+			enumerators = append(enumerators, enumerator.NewSitemap(wc, o.logger))
+		case "robots":
+			enumerators = append(enumerators, enumerator.NewRobots(wc, o.logger))
+		}
+	}
+	if len(enumerators) == 1 {
+		return enumerators[0]
+	}
+	return enumerator.NewComposite(enumerators, o.logger)
 }
 
 func (o *Orchestrator) ListWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int) ([]indexer.Endpoint, error) {

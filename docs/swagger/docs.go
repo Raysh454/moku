@@ -433,7 +433,10 @@ const docTemplate = `{
         },
         "/projects/{project}/websites/{site}/jobs/enumerate": {
             "post": {
-                "description": "Launches a crawl that discovers new endpoints up to a default depth of 4.",
+                "description": "Launches URL discovery using one or more enumeration methods (spider, sitemap, robots). Defaults to spider with depth 4.",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -455,6 +458,14 @@ const docTemplate = `{
                         "name": "site",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Enumeration options",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/server.StartEnumerateJobRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -547,6 +558,20 @@ const docTemplate = `{
                         "name": "site",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "spider",
+                        "description": "Comma-separated enumeration methods (spider,sitemap,robots)",
+                        "name": "methods",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 4,
+                        "description": "Maximum spider crawl depth",
+                        "name": "max_depth",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1561,6 +1586,26 @@ const docTemplate = `{
                 "error": {
                     "type": "string",
                     "example": "not found"
+                }
+            }
+        },
+        "server.StartEnumerateJobRequest": {
+            "type": "object",
+            "properties": {
+                "max_depth": {
+                    "type": "integer",
+                    "example": 4
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "spider",
+                        "sitemap",
+                        "robots"
+                    ]
                 }
             }
         },
