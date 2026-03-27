@@ -38,6 +38,10 @@ func NewHeuristicsAssessor(cfg *Config, rules []Rule, logger logging.Logger) (As
 
 	l := logger.With(logging.Field{Key: "component", Value: "heuristics-assessor"})
 
+	if rules == nil {
+		rules = cfg.Rules
+	}
+
 	for i := range rules {
 		if rules[i].Regex != "" {
 			compiled, err := regexp.Compile(rules[i].Regex)
@@ -254,7 +258,7 @@ func appendRegexEvidence(html []byte, byteToLine func(int) int, rule Rule, res *
 		return
 	}
 
-	contribution := 0.0
+	contribution := rule.Weight
 	res.Evidence = append(res.Evidence, EvidenceItem{
 		Key:         rule.Key,
 		RuleID:      rule.ID,
@@ -374,7 +378,7 @@ func appendCSSEvidence(doc *goquery.Document, html []byte, byteToLine func(int) 
 		return
 	}
 
-	contribution := 0.0
+	contribution := rule.Weight
 	res.Evidence = append(res.Evidence, EvidenceItem{
 		Key:         rule.Key,
 		RuleID:      rule.ID,
