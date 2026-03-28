@@ -66,14 +66,6 @@ func (scoreTracker *SQLiteScoreTracker) attributeScore(ctx context.Context, scor
 		scoreJSON = []byte("{}")
 	}
 
-	matchedRulesJSON, err := json.Marshal(scoreResult.MatchedRules)
-	if err != nil {
-		if scoreTracker.logger != nil {
-			scoreTracker.logger.Warn("failed to marshal matched rules", logging.Field{Key: "err", Value: err})
-		}
-		matchedRulesJSON = []byte("{}")
-	}
-
 	metaJSON, err := json.Marshal(scoreResult.Meta)
 	if err != nil {
 		if scoreTracker.logger != nil {
@@ -107,7 +99,7 @@ func (scoreTracker *SQLiteScoreTracker) attributeScore(ctx context.Context, scor
 		INSERT OR REPLACE INTO score_results
 		  (id, snapshot_id, version_id, url, score, normalized, confidence, scoring_version, created_at, score_json, matched_rules, meta, raw_features)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, scoreID, snapshotID, versionID, url, scoreResult.Score, scoreResult.Normalized, scoreResult.Confidence, scoreResult.Version, time.Now().Unix(), string(scoreJSON), string(matchedRulesJSON), string(metaJSON), string(rawFeaturesJSON)); err != nil {
+	`, scoreID, snapshotID, versionID, url, scoreResult.Score, scoreResult.Normalized, scoreResult.Confidence, scoreResult.Version, time.Now().Unix(), string(scoreJSON), "[]", string(metaJSON), string(rawFeaturesJSON)); err != nil {
 		return fmt.Errorf("insert score_results: %w", err)
 	}
 
@@ -161,7 +153,7 @@ func (scoreTracker *SQLiteScoreTracker) insertEvidenceLocations(ctx context.Cont
 			  (evidence_item_id, snapshot_id, location_type, css_selector, xpath, regex_pattern, file_path,
 			   parent_dom_index, dom_index, byte_start, byte_end, line_start, line_end, line, column, header_name, cookie_name, parameter_name, note)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, evidenceID, loc.SnapshotID, loc.Type, loc.Selector, loc.XPath, loc.RegexPattern, loc.FilePath,
+		`, evidenceID, loc.SnapshotID, loc.Type, nil, loc.XPath, nil, loc.FilePath,
 			toNullableInt64(loc.ParentDOMIndex), toNullableInt64(loc.DOMIndex), toNullableInt64(loc.ByteStart), toNullableInt64(loc.ByteEnd), toNullableInt64(loc.LineStart), toNullableInt64(loc.LineEnd),
 			loc.Line, loc.Column, loc.HeaderName, loc.CookieName, loc.ParamName, loc.Note); err != nil {
 			return fmt.Errorf("insert evidence location: %w", err)

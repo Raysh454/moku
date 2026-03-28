@@ -27,7 +27,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		cfg = DefaultConfig()
 	}
 
-	a, err := assessor.NewHeuristicsAssessor(&cfg.assessorCfg, nil, logger)
+	a, err := assessor.NewHeuristicsAssessor(&cfg.assessorCfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("new assessor: %w", err)
 	}

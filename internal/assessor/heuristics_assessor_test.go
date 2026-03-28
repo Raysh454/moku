@@ -18,7 +18,7 @@ func TestNewHeuristicsAssessor_Construct(t *testing.T) {
 	}
 	logger := logging.NewStdoutLogger("assessor-test")
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, []assessor.Rule{}, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
 	if err != nil {
 		t.Fatalf("NewHeuristicsAssessor returned error: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 	}
 	logger := logging.NewStdoutLogger("assessor-test")
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, []assessor.Rule{}, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
 	if err != nil {
 		t.Fatalf("NewHeuristicsAssessor returned error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestHeuristicsAssessor_Close(t *testing.T) {
 	}
 	logger := logging.NewStdoutLogger("assessor-test")
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, []assessor.Rule{}, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
 	if err != nil {
 		t.Fatalf("NewHeuristicsAssessor returned error: %v", err)
 	}

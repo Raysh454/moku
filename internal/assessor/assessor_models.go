@@ -1,7 +1,6 @@
 package assessor
 
 import (
-	"regexp"
 	"time"
 
 	"github.com/raysh454/moku/internal/assessor/attacksurface"
@@ -20,18 +19,12 @@ type Snapshot struct {
 // Assessor implementations should populate one or more locations per EvidenceItem when
 // RequestLocations is enabled in ScoreOptions.
 type EvidenceLocation struct {
-	// Type describes what kind of location this is (e.g., "css", "xpath", "header", "cookie").
+	// Type describes what kind of location this is (e.g., "header", "cookie", "input", "form").
 	// Used by the UI to determine how to interpret and highlight the location.
 	Type string `json:"type,omitempty"`
 
-	// Preferred: CSS selector that identifies the element.
-	Selector string `json:"selector,omitempty"`
-
 	// XPath expression (optional alternative to CSS selector).
 	XPath string `json:"xpath,omitempty"`
-
-	// Regex pattern that matched (if applicable).
-	RegexPattern string `json:"regex,omitempty"`
 
 	// Optional file path relative to the site working tree.
 	FilePath string `json:"file_path,omitempty"`
@@ -115,14 +108,11 @@ type ScoreResult struct {
 	Confidence float64 `json:"confidence"`
 
 	// Version identifies the scoring algorithm / heuristics version used.
-	// This should map to the assessor's ruleset version (for auditability).
+	// This should map to the assessor's attack surface features version (for auditability).
 	Version string `json:"version"`
 
 	// Evidence is the list of contributing evidence items.
 	Evidence []EvidenceItem `json:"evidence,omitempty"`
-
-	// MatchedRules lists rules that matched during evaluation.
-	MatchedRules []Rule `json:"matched_rules,omitempty"`
 
 	// Meta contains any additional metadata about the scoring process.
 	Meta map[string]any `json:"meta,omitempty"`
@@ -143,39 +133,12 @@ type ScoreResult struct {
 // ScoreOptions control scoring behavior and the shape of returned evidence.
 type ScoreOptions struct {
 	// RequestLocations asks the assessor to populate EvidenceItem.Locations
-	// for matching evidence items when possible. If false the assessor may
-	// skip expensive DOM location extraction.
+	// for attack surface features when possible. If false the assessor may
+	// skip location extraction for performance.
 	RequestLocations bool
 
 	// (Optional) MaxEvidence controls how many evidence items to return.
 	MaxEvidence int
-
-	// MaxRegexEvidenceSamples sets the maximum number of regex matches to process per rule.
-	// This prevents excessive processing time for large documents.
-	// (Default: 10 Matches)
-	MaxRegexEvidenceSamples int
-
-	// MaxRegexMatchValueLen sets the maximum length for regex matches.
-	// This prevents excessive memory usage for large documents.
-	// (Default: 200 Characters)
-	MaxRegexMatchValueLen int
-
-	// MaxCSSEvidenceSamples sets the maximum number of CSS selector matches to process per rule.
-	// This prevents excessive processing time for large documents.
-	// (Default: 10 Matches)
-	MaxCSSEvidenceSamples int
-}
-
-// Rule defines a single heuristic check the assessor will run.
-// Either Selector (CSS) or Regex (PCRE) can be used (both may be set).
-type Rule struct {
-	ID       string  // unique rule id (eg. "forms:autocomplete-off")
-	Key      string  // short key presented in UI (eg. "autocomplete-off")
-	Severity string  // "low"|"medium"|"high"|"critical"
-	Weight   float64 // numeric weight used to build score
-	Selector string  // optional CSS selector to match nodes
-	Regex    string  // optional regex pattern (compiled at constructor)
-	compiled *regexp.Regexp
 }
 
 // ScoreDiff explains how the score changed between two snapshots.

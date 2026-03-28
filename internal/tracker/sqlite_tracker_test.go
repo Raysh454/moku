@@ -298,7 +298,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 	logger := logging.NewStdoutLogger("Tracker-test")
 	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, ScoreOpts: assessor.ScoreOptions{RequestLocations: true}}
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, nil, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
 	if err != nil {
 		t.Fatalf("Failed to create HeuristicsAssessor: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestNewSQLiteTracker_LiveSite(t *testing.T) {
 	logger := logging.NewStdoutLogger("Tracker-test")
 	cfg := &assessor.Config{ScoringVersion: "v0.1.0", DefaultConfidence: 0.5, ScoreOpts: assessor.ScoreOptions{RequestLocations: true}}
 
-	a, err := assessor.NewHeuristicsAssessor(cfg, nil, logger)
+	a, err := assessor.NewHeuristicsAssessor(cfg, logger)
 	if err != nil {
 		t.Fatalf("Failed to create HeuristicsAssessor: %v", err)
 	}

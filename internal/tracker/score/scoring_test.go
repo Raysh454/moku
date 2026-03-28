@@ -169,7 +169,7 @@ func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testi
 				RuleID:   "forms:login",
 				Severity: "high",
 				Locations: []assessor.EvidenceLocation{
-					{Selector: "form#login", LineStart: intPtr(10), LineEnd: intPtr(12)},
+					{Type: "form", LineStart: intPtr(10), LineEnd: intPtr(12)},
 				},
 			},
 		},
@@ -248,7 +248,7 @@ func TestScoreAndAttributeVersion_WithDiff_AttributesLocations(t *testing.T) {
 				RuleID:   "forms:login",
 				Severity: "high",
 				Locations: []assessor.EvidenceLocation{
-					{Selector: "form#login", LineStart: intPtr(2), LineEnd: intPtr(4)},
+					{Type: "form", LineStart: intPtr(2), LineEnd: intPtr(4)},
 				},
 			},
 		},
@@ -305,8 +305,8 @@ func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) 
 				RuleID:   "patterns:repeat",
 				Severity: "medium",
 				Locations: []assessor.EvidenceLocation{
-					{Selector: ".a"},
-					{Selector: ".b"},
+					{Type: "form"},
+					{Type: "form"},
 				},
 			},
 		},
