@@ -13,8 +13,4 @@ type Config struct {
 	Rules []Rule `json:"-"`
 
 	ScoreOpts ScoreOptions
-
-	// ScoringConfigPath is an optional path to a YAML/JSON file with weight overrides.
-	// When empty, compiled-in defaults are used.
-	ScoringConfigPath string `json:"scoring_config_path"`
 }

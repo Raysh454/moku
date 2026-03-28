@@ -63,41 +63,5 @@ func DiffScores(base, head *ScoreResult) *ScoreDiff {
 		}
 	}
 
-	diff.CategoryDeltas = computeCategoryDeltas(base.CategoryScores, head.CategoryScores)
-
 	return diff
-}
-
-func computeCategoryDeltas(baseScores, headScores []CategoryScoreEntry) map[Category]float64 {
-	if len(baseScores) == 0 && len(headScores) == 0 {
-		return nil
-	}
-
-	baseMap := make(map[Category]float64, len(baseScores))
-	for _, cs := range baseScores {
-		baseMap[cs.Category] = cs.Score
-	}
-
-	headMap := make(map[Category]float64, len(headScores))
-	for _, cs := range headScores {
-		headMap[cs.Category] = cs.Score
-	}
-
-	deltas := make(map[Category]float64)
-	for cat, hv := range headMap {
-		bv := baseMap[cat]
-		if delta := hv - bv; delta != 0 {
-			deltas[cat] = delta
-		}
-	}
-	for cat, bv := range baseMap {
-		if _, ok := headMap[cat]; !ok && bv != 0 {
-			deltas[cat] = -bv
-		}
-	}
-
-	if len(deltas) == 0 {
-		return nil
-	}
-	return deltas
 }
