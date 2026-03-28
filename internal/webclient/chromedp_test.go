@@ -176,8 +176,8 @@ func TestChromedpClient_Do_ReturnsHTMLBody(t *testing.T) {
 	if !strings.Contains(string(resp.Body), "Hello Chromedp") {
 		t.Errorf("expected body to contain 'Hello Chromedp', got %q", string(resp.Body))
 	}
-	if resp.Request != (&webclient.Request{Method: "GET", URL: ts.URL}) {
-		// Just verify it's set, not pointer equality
+	if resp.Request == nil {
+		t.Fatal("expected non-nil Request on Response")
 	}
 }
 
