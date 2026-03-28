@@ -794,54 +794,16 @@
                     "description": "Dom Index is the 0-based index of the element in document.getElementsByTagName(\"*\").",
                     "type": "integer"
                 },
-                "regex": {
-                    "description": "Regex pattern that matched (if applicable).",
-                    "type": "string"
-                },
-                "selector": {
-                    "description": "Preferred: CSS selector that identifies the element.",
-                    "type": "string"
-                },
                 "snapshot_id": {
                     "type": "string"
                 },
                 "type": {
-                    "description": "Type describes what kind of location this is (e.g., \"css\", \"xpath\", \"header\", \"cookie\").\nUsed by the UI to determine how to interpret and highlight the location.",
+                    "description": "Type describes what kind of location this is (e.g., \"header\", \"cookie\", \"input\", \"form\").\nUsed by the UI to determine how to interpret and highlight the location.",
                     "type": "string"
                 },
                 "xpath": {
                     "description": "XPath expression (optional alternative to CSS selector).",
                     "type": "string"
-                }
-            }
-        },
-        "assessor.Rule": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "description": "unique rule id (eg. \"forms:autocomplete-off\")",
-                    "type": "string"
-                },
-                "key": {
-                    "description": "short key presented in UI (eg. \"autocomplete-off\")",
-                    "type": "string"
-                },
-                "regex": {
-                    "description": "optional regex pattern (compiled at constructor)",
-                    "type": "string"
-                },
-                "selector": {
-                    "description": "optional CSS selector to match nodes",
-                    "type": "string"
-                },
-                "severity": {
-                    "description": "\"low\"|\"medium\"|\"high\"|\"critical\"",
-                    "type": "string"
-                },
-                "weight": {
-                    "description": "numeric weight used to build score",
-                    "type": "number",
-                    "format": "float64"
                 }
             }
         },
@@ -868,13 +830,6 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/assessor.EvidenceItem"
-                    }
-                },
-                "matched_rules": {
-                    "description": "MatchedRules lists rules that matched during evaluation.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/assessor.Rule"
                     }
                 },
                 "meta": {
@@ -907,7 +862,7 @@
                     "type": "string"
                 },
                 "version": {
-                    "description": "Version identifies the scoring algorithm / heuristics version used.\nThis should map to the assessor's ruleset version (for auditability).",
+                    "description": "Version identifies the scoring algorithm / heuristics version used.\nThis should map to the assessor's attack surface features version (for auditability).",
                     "type": "string"
                 },
                 "version_id": {
