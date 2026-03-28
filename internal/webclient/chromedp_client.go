@@ -14,117 +14,172 @@ import (
 	"github.com/raysh454/moku/internal/logging"
 )
 
-// ChromeDPClient is a chromedp-backed implementation of the WebClient interface.
-// It currently supports GET semantics only
 type ChromeDPClient struct {
 	baseCtx     context.Context
 	cancel      context.CancelFunc
-	allocCancel context.CancelFunc
-
-	mu     sync.Mutex
-	closed bool
-
-	wg sync.WaitGroup
-
-	idleAfter time.Duration
-	logger    logging.Logger
+	mu          sync.Mutex
+	closed      bool
+	wg          sync.WaitGroup
+	idleTimeout time.Duration
+	logger      logging.Logger
 }
 
 func NewChromedpClient(cfg Config, logger logging.Logger) (WebClient, error) {
-	// Create component-scoped logger
 	componentLogger := logger.With(logging.Field{Key: "backend", Value: "chromedp"})
 
-	// Note: chromedp backend is not fully implemented in dev branch
-	componentLogger.Warn("chromedp webclient is not fully implemented in dev branch")
-
-	idleAfter := 2 * time.Second
-
-	// If no allocator options were provided, use the simpler NewContext directly.
-	// This avoids a code path in NewExecAllocator that has proven brittle in some test environments.
 	ctx, cancel := chromedp.NewContext(context.Background())
 
 	if err := chromedp.Run(ctx); err != nil {
 		cancel()
-		componentLogger.Warn("failed to start chromedp client", logging.Field{Key: "error", Value: err.Error()})
-		return nil, fmt.Errorf("starting chromedp client: %w", err)
+		return nil, fmt.Errorf("starting chromedp: %w", err)
 	}
 
-	componentLogger.Info("created chromedp webclient",
-		logging.Field{Key: "idle_after", Value: idleAfter.String()})
+	componentLogger.Info("created chromedp webclient")
 
 	return &ChromeDPClient{
-		baseCtx:   ctx,
-		cancel:    cancel,
-		idleAfter: idleAfter,
-		logger:    componentLogger,
+		baseCtx:     ctx,
+		cancel:      cancel,
+		idleTimeout: 2 * time.Second,
+		logger:      componentLogger,
 	}, nil
 }
 
-func (cdc *ChromeDPClient) Close() error {
+func (cdc *ChromeDPClient) Do(ctx context.Context, req *Request) (*Response, error) {
+	if req == nil {
+		return nil, fmt.Errorf("nil request")
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(req.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+	if method != http.MethodGet {
+		return nil, fmt.Errorf("chromedp client: method %q not supported", method)
+	}
+
 	cdc.mu.Lock()
 	if cdc.closed {
 		cdc.mu.Unlock()
-		return nil
+		return nil, fmt.Errorf("chromedp client closed")
 	}
-
-	cdc.closed = true
+	cdc.wg.Add(1)
 	cdc.mu.Unlock()
+	defer cdc.wg.Done()
 
-	cdc.logger.Info("closing chromedp webclient")
+	cdc.logger.Debug("chromedp request",
+		logging.Field{Key: "method", Value: method},
+		logging.Field{Key: "url", Value: req.URL})
 
-	if cdc.cancel != nil {
-		cdc.cancel()
+	tabCtx, tabCancel := chromedp.NewContext(cdc.baseCtx)
+	defer tabCancel()
+
+	taskCtx, taskCancel := context.WithTimeout(tabCtx, 60*time.Second)
+	defer taskCancel()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			taskCancel()
+		case <-taskCtx.Done():
+		}
+	}()
+
+	if err := chromedp.Run(taskCtx, network.Enable()); err != nil {
+		return nil, fmt.Errorf("enable network: %w", err)
 	}
 
-	cdc.wg.Wait()
+	var mainResp *network.Response
+	var mainRespMu sync.Mutex
+	chromedp.ListenTarget(tabCtx, func(ev any) {
+		if e, ok := ev.(*network.EventResponseReceived); ok && e.Type == network.ResourceTypeDocument {
+			mainRespMu.Lock()
+			mainResp = e.Response
+			mainRespMu.Unlock()
+		}
+	})
 
-	if cdc.allocCancel != nil {
-		cdc.allocCancel()
+	if err := cdc.setHeaders(taskCtx, req.Headers); err != nil {
+		return nil, err
 	}
 
-	return nil
+	idleCh := cdc.waitForNetworkIdle(tabCtx)
+
+	if err := chromedp.Run(taskCtx, chromedp.Navigate(req.URL)); err != nil {
+		return nil, fmt.Errorf("navigating to %s: %w", req.URL, err)
+	}
+
+	select {
+	case <-idleCh:
+	case <-taskCtx.Done():
+		return nil, fmt.Errorf("waiting for network idle: %w", taskCtx.Err())
+	}
+
+	var html string
+	if err := chromedp.Run(taskCtx, chromedp.OuterHTML("html", &html)); err != nil {
+		return nil, fmt.Errorf("extracting html: %w", err)
+	}
+
+	mainRespMu.Lock()
+	defer mainRespMu.Unlock()
+
+	var statusCode int
+	responseHeaders := http.Header{}
+	if mainResp != nil {
+		statusCode = int(mainResp.Status)
+		responseHeaders = cdc.assembleHeaders(&mainResp.Headers)
+	}
+
+	return &Response{
+		Request:    req,
+		StatusCode: statusCode,
+		Headers:    responseHeaders,
+		Body:       []byte(html),
+		FetchedAt:  time.Now(),
+	}, nil
 }
 
-func (cdc *ChromeDPClient) waitNetworkIdle(ctx context.Context) chan struct{} {
-	idleChan := make(chan struct{})
+func (cdc *ChromeDPClient) Get(ctx context.Context, url string) (*Response, error) {
+	return cdc.Do(ctx, &Request{
+		Method: "GET",
+		URL:    url,
+	})
+}
+
+func (cdc *ChromeDPClient) waitForNetworkIdle(ctx context.Context) <-chan struct{} {
+	idleCh := make(chan struct{})
 	var activeReqs int32
 	var timer *time.Timer
-	var timerMutex sync.Mutex
+	var timerMu sync.Mutex
 	var once sync.Once
 
-	startTimer := func() {
-		timerMutex.Lock()
-		defer timerMutex.Unlock()
-
+	resetTimer := func() {
+		timerMu.Lock()
+		defer timerMu.Unlock()
 		if timer != nil {
 			timer.Stop()
 		}
-
-		timer = time.AfterFunc(cdc.idleAfter, func() {
+		timer = time.AfterFunc(cdc.idleTimeout, func() {
 			if atomic.LoadInt32(&activeReqs) == 0 {
-				once.Do(func() {
-					close(idleChan)
-				})
+				once.Do(func() { close(idleCh) })
 			}
 		})
 	}
 
-	chromedp.ListenTarget(ctx,
-		func(ev any) {
-			switch ev.(type) {
-			case *network.EventRequestWillBeSent:
-				atomic.AddInt32(&activeReqs, 1)
-			case *network.EventLoadingFinished, *network.EventLoadingFailed:
-				if atomic.AddInt32(&activeReqs, -1) == 0 {
-					startTimer()
-				}
+	chromedp.ListenTarget(ctx, func(ev any) {
+		switch ev.(type) {
+		case *network.EventRequestWillBeSent:
+			atomic.AddInt32(&activeReqs, 1)
+		case *network.EventLoadingFinished, *network.EventLoadingFailed:
+			if atomic.AddInt32(&activeReqs, -1) == 0 {
+				resetTimer()
 			}
-		})
+		}
+	})
 
-	return idleChan
+	return idleCh
 }
 
-func (cdc *ChromeDPClient) SetHeaders(taskCtx context.Context, headers http.Header) error {
+func (cdc *ChromeDPClient) setHeaders(taskCtx context.Context, headers http.Header) error {
 	if headers == nil {
 		return nil
 	}
@@ -140,150 +195,38 @@ func (cdc *ChromeDPClient) SetHeaders(taskCtx context.Context, headers http.Head
 	return nil
 }
 
-// attachMainResponseListener attaches a listener to the provided target context that captures
-// the main document response (if any) into mainRespPtr. The listener is scoped to the target ctx.
-func (cdc *ChromeDPClient) attachMainResponseListener(targetCtx context.Context, mainRespPtr **network.Response, mu *sync.Mutex) {
-	chromedp.ListenTarget(targetCtx, func(ev any) {
-		switch e := ev.(type) {
-		case *network.EventResponseReceived:
-			if e.Type == network.ResourceTypeDocument {
-				mu.Lock()
-				*mainRespPtr = e.Response
-				mu.Unlock()
-			}
-		}
-	})
-}
-
-// AssembleHeaders converts chromedp network headers to http.Header
-func (cdc *ChromeDPClient) AssembleHeaders(src *network.Headers, dest *http.Header) {
-	if src == nil || dest == nil {
-		return
+func (cdc *ChromeDPClient) assembleHeaders(src *network.Headers) http.Header {
+	h := http.Header{}
+	if src == nil {
+		return h
 	}
 
 	for k, v := range *src {
-		switch vv := v.(type) {
+		switch val := v.(type) {
 		case string:
-			dest.Add(k, vv)
+			h.Add(k, val)
 		case []string:
-			for _, sv := range vv {
-				dest.Add(k, sv)
+			for _, sv := range val {
+				h.Add(k, sv)
 			}
 		default:
-			dest.Add(k, fmt.Sprintf("%v", vv))
+			h.Add(k, fmt.Sprintf("%v", val))
 		}
 	}
+	return h
 }
 
-// Make a request using headless chrome (chromedp).
-// Currently only supports GET
-func (cdc *ChromeDPClient) Do(ctx context.Context, req *Request) (*Response, error) {
-	if req == nil {
-		return nil, fmt.Errorf("nil request")
-	}
-
-	method := strings.ToUpper(strings.TrimSpace(req.Method))
-	if method == "" {
-		method = http.MethodGet
-	}
-	if method != http.MethodGet {
-		cdc.logger.Warn("chromedp client only supports GET",
-			logging.Field{Key: "method", Value: method})
-		return nil, fmt.Errorf("chromedp client: method %q not supported", method)
-	}
-
-	cdc.logger.Debug("chromedp request",
-		logging.Field{Key: "method", Value: method},
-		logging.Field{Key: "url", Value: req.URL})
-
+func (cdc *ChromeDPClient) Close() error {
 	cdc.mu.Lock()
 	if cdc.closed {
 		cdc.mu.Unlock()
-		return nil, fmt.Errorf("chromedp client closed")
+		return nil
 	}
-	cdc.wg.Add(1)
+	cdc.closed = true
 	cdc.mu.Unlock()
-	defer cdc.wg.Done()
 
-	rctx, rcancel := chromedp.NewContext(cdc.baseCtx)
-	defer rcancel()
-
-	taskCtx, taskCancel := context.WithTimeout(rctx, 60*time.Second)
-	defer taskCancel()
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			taskCancel()
-		case <-taskCtx.Done():
-		}
-	}()
-
-	if err := chromedp.Run(taskCtx, network.Enable()); err != nil {
-		return nil, fmt.Errorf("enable network: %w", err)
-	}
-
-	if err := cdc.SetHeaders(taskCtx, req.Headers); err != nil {
-		return nil, err
-	}
-
-	waitIdleChan := cdc.waitNetworkIdle(rctx)
-
-	var mainRespMu sync.Mutex
-	var mainResp *network.Response
-	cdc.attachMainResponseListener(rctx, &mainResp, &mainRespMu)
-
-	err := chromedp.Run(taskCtx,
-		chromedp.Navigate(req.URL),
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("error navigating to %s: %w", req.URL, err)
-	}
-
-	select {
-	case <-waitIdleChan:
-	case <-taskCtx.Done():
-		return nil, fmt.Errorf("waiting for network idle: %w", taskCtx.Err())
-	}
-
-	var html string
-
-	err = chromedp.Run(taskCtx,
-		chromedp.OuterHTML("html", &html),
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("error fetching html: %w", err)
-	}
-
-	// Assemble headers from mainResp
-	mainRespMu.Lock()
-	responseHeaders := http.Header{}
-	var statusCode int
-
-	if mainResp != nil {
-		statusCode = int(mainResp.Status)
-		cdc.AssembleHeaders(&mainResp.Headers, &responseHeaders)
-		mainRespMu.Unlock()
-
-	}
-
-	return &Response{
-		Request:    req,
-		StatusCode: statusCode,
-		Headers:    responseHeaders,
-		Body:       []byte(html),
-		FetchedAt:  time.Now(),
-	}, nil
-
-}
-
-// Get is a convenience method for simple GET requests
-func (cdc *ChromeDPClient) Get(ctx context.Context, url string) (*Response, error) {
-	req := &Request{
-		Method: "GET",
-		URL:    url,
-	}
-	return cdc.Do(ctx, req)
+	cdc.logger.Info("closing chromedp webclient")
+	cdc.wg.Wait()
+	cdc.cancel()
+	return nil
 }
