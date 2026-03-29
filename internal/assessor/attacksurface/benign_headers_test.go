@@ -6,15 +6,6 @@ import (
 	"github.com/raysh454/moku/internal/assessor/attacksurface"
 )
 
-func hasChangeKind(changes []attacksurface.AttackSurfaceChange, kind string) bool {
-	for _, c := range changes {
-		if c.Kind == kind {
-			return true
-		}
-	}
-	return false
-}
-
 func headerChangesOnly(changes []attacksurface.AttackSurfaceChange) []attacksurface.AttackSurfaceChange {
 	var out []attacksurface.AttackSurfaceChange
 	for _, c := range changes {
