@@ -42,10 +42,11 @@ func DefaultConfig() *Config {
 		StorageRoot:      "~/.config/moku",
 		JobRetentionTime: 60 * time.Minute,
 		trackerCfg: tracker.Config{
-			RedactSensitiveHeaders: false,
-			StoragePath:            "",    // Needs to be set! (Website Directory)
-			ProjectID:              "",    // Needs to be set! (Project Identifier for website)
-			ForceProjectID:         false, // Needs to be set! (Whether to overwrite existing project ID)
+			RedactSensitiveHeaders:  false,
+			StoragePath:             "",    // Needs to be set! (Website Directory)
+			ProjectID:               "",    // Needs to be set! (Project Identifier for website)
+			ForceProjectID:          false, // Needs to be set! (Whether to overwrite existing project ID)
+			ShowBenignHeaderChanges: false,
 		},
 		FetcherCfg: fetcher.Config{
 			MaxConcurrency: 4,

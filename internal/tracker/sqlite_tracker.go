@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/assessor/attacksurface"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/blobstore"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -402,6 +403,13 @@ func (t *SQLiteTracker) DiffSnapshots(ctx context.Context, baseSnapshotID, headS
 			continue
 		}
 		if fileDiff.FilePath == urlTools.GetPath() {
+			if !t.config.ShowBenignHeaderChanges {
+				for changedHeader := range fileDiff.HeadersDiff.Changed {
+					if attacksurface.IsBenignHeader(changedHeader) {
+						delete(fileDiff.HeadersDiff.Changed, changedHeader)
+					}
+				}
+			}
 			return &fileDiff, nil
 		}
 	}
