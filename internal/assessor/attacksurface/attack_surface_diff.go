@@ -345,7 +345,7 @@ func diffHeaders(base, head *AttackSurface) []AttackSurfaceChange {
 
 	for key := range head.Headers {
 		if !baseHeaderKeys[key] {
-			if isBenignHeader(key) {
+			if IsBenignHeader(key) {
 				continue
 			}
 			changes = append(changes, AttackSurfaceChange{
@@ -369,7 +369,7 @@ func diffHeaders(base, head *AttackSurface) []AttackSurfaceChange {
 
 	for key := range base.Headers {
 		if !headHeaderKeys[key] {
-			if isBenignHeader(key) {
+			if IsBenignHeader(key) {
 				continue
 			}
 			changes = append(changes, AttackSurfaceChange{

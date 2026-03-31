@@ -58,7 +58,7 @@ var benignHeaderPrefixes = []string{
 	"x-goog-",
 }
 
-func isBenignHeader(name string) bool {
+func IsBenignHeader(name string) bool {
 	lower := strings.ToLower(name)
 	if slices.Contains(benignHeadersExact, lower) {
 		return true

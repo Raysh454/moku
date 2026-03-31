@@ -15,4 +15,7 @@ type Config struct {
 
 	// ForceProjectID forces setting the ProjectID even if one already exists.
 	ForceProjectID bool `json:"force_project_id,omitempty"`
+
+	// Show benign header changes
+	ShowBenignHeaderChanges bool `json:"show_benign_header_changes,omitempty"`
 }
