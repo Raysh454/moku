@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, config, createJobSocket, demoApi } from './api/client'
 import type { DemoPageVersion, Endpoint, EndpointDetails, Job, JobEvent, Project, Version, Website } from './api/types'
+import RenderedDiffViews, { type RenderedViewMode } from './components/RenderedDiffViews'
 
 type Activity = {
   at: string
@@ -51,6 +52,7 @@ export default function App() {
   const [selectedHeadVersion, setSelectedHeadVersion] = useState('')
   const [comparisonDetails, setComparisonDetails] = useState<EndpointDetails | null>(null)
   const [comparisonLayout, setComparisonLayout] = useState<'side-by-side' | 'unified' | 'split'>('side-by-side')
+  const [renderedViewMode, setRenderedViewMode] = useState<RenderedViewMode>('preview')
 
   // Comparison page independent state
   const [comparisonProjects, setComparisonProjects] = useState<Project[]>([])
@@ -59,6 +61,9 @@ export default function App() {
   const [comparisonProject, setComparisonProject] = useState('')
   const [comparisonWebsite, setComparisonWebsite] = useState('')
   const [comparisonEndpoint, setComparisonEndpoint] = useState('')
+
+  // Base snapshot state for comparison
+  const [baseSnapshot, setBaseSnapshot] = useState<EndpointDetails | null>(null)
 
   const logActivity = (title: string, detail?: string) => {
     setActivities((prev) => [{ at: now(), title, detail }, ...prev].slice(0, 60))
@@ -155,9 +160,17 @@ export default function App() {
 
   const loadComparisonDetails = async (url: string, baseVersionId: string, headVersionId: string) => {
     if (!comparisonProject || !comparisonWebsite || !url || !baseVersionId || !headVersionId) return
+    // Load head version details with diff
     const data = await api.getEndpointDetails(comparisonProject, comparisonWebsite, url, baseVersionId, headVersionId)
     setComparisonDetails(data)
     pushRaw('comparisonDetails', data)
+    // Also load base version snapshot for side-by-side rendered view
+    try {
+      const baseData = await api.getEndpointDetails(comparisonProject, comparisonWebsite, url, baseVersionId, baseVersionId)
+      setBaseSnapshot(baseData)
+    } catch {
+      setBaseSnapshot(null)
+    }
   }
 
   // Comparison page data loaders
@@ -897,6 +910,21 @@ export default function App() {
                 )}
               </section>
 
+              <section className="card wide">
+                <h3>Rendered Views</h3>
+                <p style={{ color: '#9ca3af', fontSize: '13px', marginBottom: '12px' }}>
+                  Interactive HTML visualization with security highlights
+                </p>
+                <RenderedDiffViews
+                  baseSnapshot={baseSnapshot?.snapshot}
+                  headSnapshot={comparisonDetails.snapshot}
+                  securityDiff={comparisonDetails.security_diff}
+                  diff={comparisonDetails.diff}
+                  viewMode={renderedViewMode}
+                  onViewModeChange={setRenderedViewMode}
+                />
+              </section>
+
               <section className="card">
                 <h3>Header Diff</h3>
                 {comparisonDetails.diff?.headers_diff ? (
@@ -962,7 +990,7 @@ export default function App() {
                           <pre>
                             {comparisonDetails.diff.body_diff.chunks.map((chunk, idx) => (
                               <div key={idx} className={`chunk chunk-${chunk.type}`}>
-                                {chunk.type === 'equal' || chunk.type === 'delete' ? chunk.content : ''}
+                                {chunk.type === 'removed' ? chunk.content : ''}
                               </div>
                             ))}
                           </pre>
@@ -972,7 +1000,7 @@ export default function App() {
                           <pre>
                             {comparisonDetails.diff.body_diff.chunks.map((chunk, idx) => (
                               <div key={idx} className={`chunk chunk-${chunk.type}`}>
-                                {chunk.type === 'equal' || chunk.type === 'insert' ? chunk.content : ''}
+                                {chunk.type === 'added' ? chunk.content : ''}
                               </div>
                             ))}
                           </pre>
@@ -985,9 +1013,8 @@ export default function App() {
                         <pre>
                           {comparisonDetails.diff.body_diff.chunks.map((chunk, idx) => (
                             <div key={idx} className={`chunk chunk-${chunk.type}`}>
-                              {chunk.type === 'delete' && '- '}
-                              {chunk.type === 'insert' && '+ '}
-                              {chunk.type === 'equal' && '  '}
+                              {chunk.type === 'removed' && '- '}
+                              {chunk.type === 'added' && '+ '}
                               {chunk.content}
                             </div>
                           ))}
@@ -1027,7 +1054,7 @@ export default function App() {
                         <div className="splitBase">
                           <pre>
                             {comparisonDetails.diff.body_diff.chunks
-                              .filter(chunk => chunk.type === 'equal' || chunk.type === 'delete')
+                              .filter(chunk => chunk.type === 'removed')
                               .map((chunk, idx) => (
                                 <div key={idx}>{chunk.content}</div>
                               ))}
@@ -1036,7 +1063,7 @@ export default function App() {
                         <div className="splitHead" style={{ display: 'none' }}>
                           <pre>
                             {comparisonDetails.diff.body_diff.chunks
-                              .filter(chunk => chunk.type === 'equal' || chunk.type === 'insert')
+                              .filter(chunk => chunk.type === 'added')
                               .map((chunk, idx) => (
                                 <div key={idx}>{chunk.content}</div>
                               ))}
