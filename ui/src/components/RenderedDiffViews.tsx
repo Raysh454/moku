@@ -120,17 +120,59 @@ export default function RenderedDiffViews({
   const textChanges = useMemo((): TextChange[] => {
     if (!_diff?.body_diff?.chunks) return []
     
+    const chunks = _diff.body_diff.chunks
     const changes: TextChange[] = []
-    for (const chunk of _diff.body_diff.chunks) {
+    const processedIndexes = new Set<number>()
+    
+    // First pass: detect changes (removed + added pairs)
+    for (let i = 0; i < chunks.length - 1; i++) {
+      if (processedIndexes.has(i) || processedIndexes.has(i + 1)) continue
+      
+      const current = chunks[i]
+      const next = chunks[i + 1]
+      
+      // Look for removed followed by added at similar positions
+      if (current.type === 'removed' && next.type === 'added') {
+        // Check if the positions indicate they're replacements
+        // Allow some flexibility in position matching
+        const positionDiff = Math.abs((current.base_start || 0) - (next.base_start || 0))
+        
+        // Consider it a change if positions are close (within 20 characters)
+        if (positionDiff <= 20) {
+          const removedText = (current.content || '').replace(/<[^>]*>/g, '').trim()
+          const addedText = (next.content || '').replace(/<[^>]*>/g, '').trim()
+          
+          // Only treat as change if both have meaningful text content
+          if (removedText.length >= 1 && addedText.length >= 1) {
+            changes.push({
+              type: 'modified',
+              content: `${removedText} → ${addedText}`,
+              position: next.head_start || next.base_start || 0, // Use position where new text appears
+              length: addedText.length
+            })
+            processedIndexes.add(i)
+            processedIndexes.add(i + 1)
+            continue
+          }
+        }
+      }
+    }
+    
+    // Second pass: handle remaining standalone adds/removes
+    for (let i = 0; i < chunks.length; i++) {
+      if (processedIndexes.has(i)) continue
+      
+      const chunk = chunks[i]
       if (!chunk.content) continue
       
-      if (chunk.type === 'added' || chunk.type === 'removed' || chunk.type === 'modified') {
-        // Only include text content, not HTML tags
+      if (chunk.type === 'added' || chunk.type === 'removed') {
         const textContent = chunk.content.replace(/<[^>]*>/g, '').trim()
         if (textContent.length >= 3) { // Skip very short snippets
           changes.push({
             type: chunk.type as 'added' | 'removed' | 'modified',
-            content: textContent
+            content: textContent,
+            position: chunk.type === 'added' ? (chunk.head_start || 0) : (chunk.base_start || 0),
+            length: textContent.length
           })
         }
       }

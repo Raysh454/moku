@@ -14,6 +14,8 @@ export type HighlightedElement = {
 export type TextChange = {
   type: 'added' | 'removed' | 'modified'
   content: string
+  position?: number  // Character position in the HTML where this change occurs
+  length?: number    // Length of the changed text
 }
 
 type RenderedFrameProps = {
@@ -316,42 +318,132 @@ const highlightStyles = `
   }
   
   /* Hidden state for text highlights */
-  .moku-text-hidden .moku-text-change {
+  .moku-text-hidden .moku-text-added,
+  .moku-text-hidden .moku-text-removed,
+  .moku-text-hidden .moku-text-changed,
+  .moku-text-hidden .moku-text-neutral {
     background-color: transparent !important;
     border-bottom: none !important;
     text-decoration: none !important;
   }
 `
 
-// Function to inject text change highlights into HTML
+// Function to inject text change highlights into HTML with position awareness
 function injectTextHighlights(html: string, textChanges: TextChange[]): string {
   if (!textChanges || textChanges.length === 0) return html
   
   let modifiedHtml = html
   
-  // Process each text change
-  for (const change of textChanges) {
+  // Sort changes by position to process them in order
+  const sortedChanges = [...textChanges].sort((a, b) => (a.position || 0) - (b.position || 0))
+  
+  // Track cumulative offset from previous insertions (spans add characters)
+  let cumulativeOffset = 0
+  
+  // Process each text change with position awareness
+  for (const change of sortedChanges) {
     if (!change.content || change.content.length < 3) continue // Skip very short changes
     
-    // Escape special regex characters in content
-    const escapedContent = change.content.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    let contentToHighlight: string
+    let className: string
     
-    // Only highlight if content appears in HTML (outside of tags)
-    // This is a simplified approach - matches text content, not inside attributes
+    // For modified changes, extract the new content (after →)
+    if (change.type === 'modified' && change.content.includes(' → ')) {
+      const parts = change.content.split(' → ')
+      contentToHighlight = parts[1] // highlight the new text
+      className = 'moku-text-changed'
+    } else {
+      contentToHighlight = change.content
+      className = change.type === 'added' ? 'moku-text-added' : 
+                  change.type === 'removed' ? 'moku-text-removed' : 
+                  change.type === 'modified' ? 'moku-text-changed' :
+                  'moku-text-neutral'
+    }
+    
+    // Skip if content is too short or contains only whitespace
+    const trimmedContent = contentToHighlight.trim()
+    if (trimmedContent.length < 2) continue
+    
+    // Handle HTML entities and normalize whitespace for matching
+    const normalizedContent = trimmedContent
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ') // Normalize multiple spaces to single space
+    
+    // Escape special regex characters in content
+    const escapedContent = normalizedContent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    
+    // Use position-aware highlighting if position is available
+    if (change.position !== undefined && change.position >= 0) {
+      const adjustedPosition = change.position + cumulativeOffset
+      const windowSize = 200 // Search within ±200 characters of target position
+      const windowStart = Math.max(0, adjustedPosition - windowSize)
+      const windowEnd = Math.min(modifiedHtml.length, adjustedPosition + windowSize + (change.length || normalizedContent.length))
+      
+      // Extract window of HTML around the target position
+      const beforeWindow = modifiedHtml.slice(0, windowStart)
+      const window = modifiedHtml.slice(windowStart, windowEnd)
+      const afterWindow = modifiedHtml.slice(windowEnd)
+      
+      // Create more flexible pattern that handles HTML entities and spacing variations
+      const flexiblePattern = escapedContent
+        .replace(/\s+/g, '\\s+') // Allow flexible whitespace
+        .replace(/&/g, '(?:&amp;|&)') // Handle HTML entities
+        .replace(/</g, '(?:&lt;|<)')
+        .replace(/>/g, '(?:&gt;|>)')
+        .replace(/"/g, '(?:&quot;|")')
+        .replace(/'/g, "(?:&#39;|')")
+      
+      // Create position-aware pattern that only matches within text content (not in tags)
+      const textPattern = new RegExp(
+        `(>)([^<]*?)(${flexiblePattern})([^<]*?)(<)`,
+        'i' // Case insensitive, no 'g' flag - only match first occurrence
+      )
+      
+      // Try to highlight within the window
+      const highlightedWindow = window.replace(
+        textPattern,
+        `$1$2<span class="${className}">$3</span>$4$5`
+      )
+      
+      // If we successfully made a replacement (window changed)
+      if (highlightedWindow !== window) {
+        modifiedHtml = beforeWindow + highlightedWindow + afterWindow
+        // Update cumulative offset for the added span tags
+        const spanTagLength = `<span class="${className}"></span>`.length
+        cumulativeOffset += spanTagLength
+        continue
+      }
+    }
+    
+    // Fallback: Use non-positional matching (first occurrence only) if position-based failed
+    // But still use the flexible pattern for better matching
+    const flexiblePattern = escapedContent
+      .replace(/\s+/g, '\\s+')
+      .replace(/&/g, '(?:&amp;|&)')
+      .replace(/</g, '(?:&lt;|<)')
+      .replace(/>/g, '(?:&gt;|>)')
+      .replace(/"/g, '(?:&quot;|")')
+      .replace(/'/g, "(?:&#39;|')")
+    
     const textPattern = new RegExp(
-      `(>)([^<]*?)(${escapedContent})([^<]*?)(<)`,
-      'g'
+      `(>)([^<]*?)(${flexiblePattern})([^<]*?)(<)`,
+      'i' // Case insensitive, no 'g' flag - only match first occurrence
     )
     
-    const className = change.type === 'added' ? 'moku-text-added' : 
-                      change.type === 'removed' ? 'moku-text-removed' : 
-                      change.type === 'modified' ? 'moku-text-changed' :
-                      'moku-text-neutral'
-    
+    const originalLength = modifiedHtml.length
     modifiedHtml = modifiedHtml.replace(
       textPattern,
-      `$1$2<span class="moku-text-change ${className}">$3</span>$4$5`
+      `$1$2<span class="${className}">$3</span>$4$5`
     )
+    
+    // Update offset if replacement was made
+    if (modifiedHtml.length > originalLength) {
+      cumulativeOffset += modifiedHtml.length - originalLength
+    }
   }
   
   return modifiedHtml
