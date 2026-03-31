@@ -565,6 +565,24 @@ definitions:
         description: VersionID is the version this snapshot belongs to.
         type: string
     type: object
+  models.Version:
+    properties:
+      author:
+        description: Author is optional metadata about who committed.
+        type: string
+      id:
+        description: ID is the version identifier (string).
+        type: string
+      message:
+        description: Message is the commit message.
+        type: string
+      parent:
+        description: Parent is the parent version ID (empty if none).
+        type: string
+      timestamp:
+        description: Timestamp is the commit time.
+        type: string
+    type: object
   registry.Project:
     properties:
       created_at:
@@ -914,7 +932,7 @@ paths:
   /projects/{project}/websites/{site}/endpoints/details:
     get:
       description: Returns snapshot, scoring, diff, and security info for a canonical
-        URL.
+        URL. Optionally compare specific versions.
       parameters:
       - description: Project slug
         in: path
@@ -930,6 +948,14 @@ paths:
         in: query
         name: url
         required: true
+        type: string
+      - description: Base version ID for comparison
+        in: query
+        name: base_version_id
+        type: string
+      - description: Head version ID for comparison
+        in: query
+        name: head_version_id
         type: string
       produces:
       - application/json
@@ -1020,6 +1046,46 @@ paths:
       summary: Start a fetch job
       tags:
       - Jobs
+  /projects/{project}/websites/{site}/versions:
+    get:
+      description: Returns a list of versions (commits) for the website, ordered by
+        most recent first.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - default: 100
+        description: Maximum number of versions to return
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Version'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: List versions for a website
+      tags:
+      - Versions
   /ws/projects/{project}/websites/{site}/enumerate:
     get:
       description: Upgrades the connection and streams enumeration progress events.

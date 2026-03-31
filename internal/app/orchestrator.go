@@ -513,6 +513,19 @@ func (o *Orchestrator) ListWebsiteEndpoints(ctx context.Context, projectIdentifi
 	return comps.Index.ListEndpoints(ctx, status, limit)
 }
 
+func (o *Orchestrator) ListVersions(ctx context.Context, projectIdentifier, websiteSlug string, limit int) ([]*models.Version, error) {
+	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
+	if err != nil {
+		return nil, err
+	}
+	comps, err := o.siteComponentsFor(ctx, web)
+	if err != nil {
+		return nil, err
+	}
+	o.logger.Info("Listing versions", logging.Field{Key: "website_id", Value: web.ID}, logging.Field{Key: "limit", Value: limit})
+	return comps.Tracker.ListVersions(ctx, limit)
+}
+
 func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int, cb utils.ProgressCallback) (*assessor.SecurityDiffOverview, error) {
 	if status == "" {
 		status = "*"
@@ -569,7 +582,7 @@ type EndpointDetails struct {
 	Diff         *models.CombinedFileDiff `json:"diff,omitempty"`
 }
 
-func (o *Orchestrator) GetEndpointDetails(ctx context.Context, projectIdentifier, websiteSlug, canonicalURL string) (*EndpointDetails, error) {
+func (o *Orchestrator) GetEndpointDetails(ctx context.Context, projectIdentifier, websiteSlug, canonicalURL, baseVersionID, headVersionID string) (*EndpointDetails, error) {
 	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
 	if err != nil {
 		return nil, err
@@ -579,9 +592,40 @@ func (o *Orchestrator) GetEndpointDetails(ctx context.Context, projectIdentifier
 		return nil, err
 	}
 
-	snap, err := comps.Tracker.GetSnapshotByURL(ctx, canonicalURL)
-	if err != nil {
-		return nil, err
+	var snap, pSnap *models.Snapshot
+
+	// If version IDs are provided, use them for comparison
+	if baseVersionID != "" && headVersionID != "" {
+		o.logger.Info("Fetching endpoint details with version comparison",
+			logging.Field{Key: "url", Value: canonicalURL},
+			logging.Field{Key: "base_version_id", Value: baseVersionID},
+			logging.Field{Key: "head_version_id", Value: headVersionID})
+
+		// Get head snapshot
+		snap, err = comps.Tracker.GetSnapshotByURLAndVersionID(ctx, canonicalURL, headVersionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get head snapshot for version %s: %w", headVersionID, err)
+		}
+		if snap == nil {
+			return nil, fmt.Errorf("no snapshot found for URL %s at version %s", canonicalURL, headVersionID)
+		}
+
+		// Get base snapshot
+		pSnap, err = comps.Tracker.GetSnapshotByURLAndVersionID(ctx, canonicalURL, baseVersionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get base snapshot for version %s: %w", baseVersionID, err)
+		}
+		if pSnap == nil {
+			return nil, fmt.Errorf("no snapshot found for URL %s at version %s", canonicalURL, baseVersionID)
+		}
+	} else if baseVersionID != "" || headVersionID != "" {
+		return nil, fmt.Errorf("both base_version_id and head_version_id must be provided together")
+	} else {
+		// Default behavior: get latest snapshot
+		snap, err = comps.Tracker.GetSnapshotByURL(ctx, canonicalURL)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	scoreResult, err := comps.Tracker.GetScoreResultFromSnapshotID(ctx, snap.ID)
@@ -594,35 +638,57 @@ func (o *Orchestrator) GetEndpointDetails(ctx context.Context, projectIdentifier
 		secDiff *assessor.SecurityDiff
 	)
 
-	parentVersionID, err := comps.Tracker.GetParentVersionID(ctx, snap.VersionID)
-	if err != nil {
-		o.logger.Warn("Failed to get parent version ID for version, skipping diffs",
-			logging.Field{Key: "version_id", Value: snap.VersionID},
-			logging.Field{Key: "error", Value: err.Error()})
-	} else if parentVersionID != "" {
-		pSnap, err := comps.Tracker.GetSnapshotByURLAndVersionID(ctx, canonicalURL, parentVersionID)
-		if err != nil {
-			o.logger.Warn("Failed to get parent snapshot for URL, skipping diffs",
-				logging.Field{Key: "url", Value: canonicalURL},
-				logging.Field{Key: "parent_version_id", Value: parentVersionID},
+	// If we already have both snapshots from version IDs, use them
+	if pSnap != nil {
+		if d, err := comps.Tracker.DiffSnapshots(ctx, pSnap.ID, snap.ID); err != nil {
+			o.logger.Warn("Failed to compute diff between snapshots, skipping diff",
+				logging.Field{Key: "base_snapshot_id", Value: pSnap.ID},
+				logging.Field{Key: "head_snapshot_id", Value: snap.ID},
 				logging.Field{Key: "error", Value: err.Error()})
-		} else if pSnap != nil {
-			if d, err := comps.Tracker.DiffSnapshots(ctx, pSnap.ID, snap.ID); err != nil {
-				o.logger.Warn("Failed to compute diff between snapshots, skipping diff",
-					logging.Field{Key: "base_snapshot_id", Value: pSnap.ID},
-					logging.Field{Key: "head_snapshot_id", Value: snap.ID},
-					logging.Field{Key: "error", Value: err.Error()})
-			} else {
-				diff = d
-			}
+		} else {
+			diff = d
+		}
 
-			if sd, err := comps.Tracker.GetSecurityDiff(ctx, pSnap.ID, snap.ID); err != nil {
-				o.logger.Warn("Failed to compute security diff between snapshots, skipping security diff",
-					logging.Field{Key: "base_snapshot_id", Value: pSnap.ID},
-					logging.Field{Key: "head_snapshot_id", Value: snap.ID},
+		if sd, err := comps.Tracker.GetSecurityDiff(ctx, pSnap.ID, snap.ID); err != nil {
+			o.logger.Warn("Failed to compute security diff between snapshots, skipping security diff",
+				logging.Field{Key: "base_snapshot_id", Value: pSnap.ID},
+				logging.Field{Key: "head_snapshot_id", Value: snap.ID},
+				logging.Field{Key: "error", Value: err.Error()})
+		} else {
+			secDiff = sd
+		}
+	} else {
+		// Default behavior: get parent version and compute diff
+		parentVersionID, err := comps.Tracker.GetParentVersionID(ctx, snap.VersionID)
+		if err != nil {
+			o.logger.Warn("Failed to get parent version ID for version, skipping diffs",
+				logging.Field{Key: "version_id", Value: snap.VersionID},
+				logging.Field{Key: "error", Value: err.Error()})
+		} else if parentVersionID != "" {
+			pSnap, err := comps.Tracker.GetSnapshotByURLAndVersionID(ctx, canonicalURL, parentVersionID)
+			if err != nil {
+				o.logger.Warn("Failed to get parent snapshot for URL, skipping diffs",
+					logging.Field{Key: "url", Value: canonicalURL},
+					logging.Field{Key: "parent_version_id", Value: parentVersionID},
 					logging.Field{Key: "error", Value: err.Error()})
-			} else {
-				secDiff = sd
+			} else if pSnap != nil {
+				if d, err := comps.Tracker.DiffSnapshots(ctx, pSnap.ID, snap.ID); err != nil {
+					o.logger.Warn("Failed to compute diff between snapshots, skipping diff",
+						logging.Field{Key: "base_snapshot_id", Value: pSnap.ID},
+						logging.Field{Key: "head_snapshot_id", Value: snap.ID},
+						logging.Field{Key: "error", Value: err.Error()})
+				} else {
+					diff = d
+				}
+
+				if sd, err := comps.Tracker.GetSecurityDiff(ctx, pSnap.ID, snap.ID); err != nil {
+					o.logger.Warn("Failed to compute security diff between snapshots, skipping security diff",
+						logging.Field{Key: "base_snapshot_id", Value: pSnap.ID},
+						logging.Field{Key: "head_snapshot_id", Value: snap.ID},
+						logging.Field{Key: "error", Value: err.Error()})
+				} else {
+					secDiff = sd
+				}
 			}
 		}
 	}

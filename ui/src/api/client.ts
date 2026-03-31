@@ -6,6 +6,7 @@ import type {
   JobEvent,
   Project,
   SuccessMessage,
+  Version,
   Website,
 } from './types'
 
@@ -96,10 +97,18 @@ export const api = {
       `/projects/${project}/websites/${site}/endpoints?status=${encodeURIComponent(status)}&limit=${limit}`,
     ),
 
-  getEndpointDetails: (project: string, site: string, url: string) =>
-    request<EndpointDetails>(
+  getEndpointDetails: (project: string, site: string, url: string, baseVersionId?: string, headVersionId?: string) => {
+    let path = `/projects/${project}/websites/${site}/endpoints/details?url=${encodeURIComponent(url)}`
+    if (baseVersionId && headVersionId) {
+      path += `&base_version_id=${encodeURIComponent(baseVersionId)}&head_version_id=${encodeURIComponent(headVersionId)}`
+    }
+    return request<EndpointDetails>(apiBase, path)
+  },
+
+  listVersions: (project: string, site: string, limit = 100) =>
+    requestList<Version>(
       apiBase,
-      `/projects/${project}/websites/${site}/endpoints/details?url=${encodeURIComponent(url)}`,
+      `/projects/${project}/websites/${site}/versions?limit=${limit}`,
     ),
 }
 

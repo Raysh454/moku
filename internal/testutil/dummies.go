@@ -210,11 +210,11 @@ func (t *DummyTracker) GetSnapshots(context.Context, string) ([]*models.Snapshot
 }
 
 func (t *DummyTracker) GetSnapshotByURL(context.Context, string) (*models.Snapshot, error) {
-	return nil, nil
+	return nil, errors.New("no snapshot found")
 }
 
 func (t *DummyTracker) GetSnapshotByURLAndVersionID(context.Context, string, string) (*models.Snapshot, error) {
-	return nil, nil
+	return nil, errors.New("no snapshot found")
 }
 
 func (t *DummyTracker) GetParentVersionID(context.Context, string) (string, error) { return "", nil }
@@ -328,3 +328,16 @@ func (d *DummyEnumerator) Enumerate(_ context.Context, _ string, cb utils.Progre
 type errString struct{ s string }
 
 func (e *errString) Error() string { return e.s }
+
+// ─── SpyTracker (for testing) ──────────────────────────────────────────
+
+// SpyTracker wraps DummyTracker and records method calls for verification.
+type SpyTracker struct {
+	*DummyTracker
+	GetSnapshotByURLAndVersionIDCalled bool
+}
+
+func (s *SpyTracker) GetSnapshotByURLAndVersionID(ctx context.Context, url, versionID string) (*models.Snapshot, error) {
+	s.GetSnapshotByURLAndVersionIDCalled = true
+	return s.DummyTracker.GetSnapshotByURLAndVersionID(ctx, url, versionID)
+}

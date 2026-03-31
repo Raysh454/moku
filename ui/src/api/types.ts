@@ -169,6 +169,14 @@ export type DemoPageVersion = {
   available_versions: number[]
 }
 
+export type Version = {
+  id: string
+  parent: string
+  message: string
+  author: string
+  timestamp: string
+}
+
 export type SuccessMessage = {
   success: boolean
   message?: string
