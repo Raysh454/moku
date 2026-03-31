@@ -130,6 +130,9 @@ func (s *Server) routes() {
 	r.Get("/projects/{project}/websites/{site}/endpoints", s.handleListWebsiteEndpoints)
 	r.Get("/projects/{project}/websites/{site}/endpoints/details", s.handleGetEndpointDetails)
 
+	// Versions
+	r.Get("/projects/{project}/websites/{site}/versions", s.handleListVersions)
+
 	// Jobs over REST
 	r.Post("/projects/{project}/websites/{site}/jobs/fetch", s.handleStartFetchJob)
 	r.Post("/projects/{project}/websites/{site}/jobs/enumerate", s.handleStartEnumerateJob)
@@ -399,12 +402,14 @@ func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Reque
 
 // handleGetEndpointDetails godoc
 // @Summary Get detailed endpoint information
-// @Description Returns snapshot, scoring, diff, and security info for a canonical URL.
+// @Description Returns snapshot, scoring, diff, and security info for a canonical URL. Optionally compare specific versions.
 // @Tags Endpoints
 // @Produce json
 // @Param project path string true "Project slug"
 // @Param site path string true "Website slug"
 // @Param url query string true "Canonical URL"
+// @Param base_version_id query string false "Base version ID for comparison"
+// @Param head_version_id query string false "Head version ID for comparison"
 // @Success 200 {object} app.EndpointDetails
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
@@ -419,7 +424,10 @@ func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	details, err := s.orchestrator.GetEndpointDetails(r.Context(), project, site, url)
+	baseVersionID := r.URL.Query().Get("base_version_id")
+	headVersionID := r.URL.Query().Get("head_version_id")
+
+	details, err := s.orchestrator.GetEndpointDetails(r.Context(), project, site, url, baseVersionID, headVersionID)
 	if err != nil {
 		s.logger.Warn("getting endpoint details", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -428,6 +436,40 @@ func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request
 
 	s.logger.Info("got endpoint details", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "url", Value: url})
 	writeJSON(w, http.StatusOK, details)
+}
+
+// handleListVersions godoc
+// @Summary List versions for a website
+// @Description Returns a list of versions (commits) for the website, ordered by most recent first.
+// @Tags Versions
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param limit query int false "Maximum number of versions to return" default(100)
+// @Success 200 {array} models.Version
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/versions [get]
+func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	site := chi.URLParam(r, "site")
+
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	versions, err := s.orchestrator.ListVersions(r.Context(), project, site, limit)
+	if err != nil {
+		s.logger.Warn("listing versions", logging.Field{Key: "error", Value: err.Error()})
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.logger.Info("listed versions", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "count", Value: len(versions)})
+	writeJSON(w, http.StatusOK, versions)
 }
 
 // Jobs (REST)

@@ -376,3 +376,157 @@ func TestProgressCallback_EmitsProgressEvents(t *testing.T) {
 		t.Error("timed out waiting for progress event")
 	}
 }
+
+// ─── GetEndpointDetails with version params ────────────────────────────
+
+func TestGetEndpointDetails_NoVersionParams_BackwardCompatible(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "https://example.com")
+
+	ctx := context.Background()
+
+	// Should work without version params (backward compatible)
+	_, err := o.GetEndpointDetails(ctx, "proj", "site", "https://example.com/page", "", "")
+	if err == nil {
+		// DummyTracker will return error because no snapshot exists, but no panic/crash
+		t.Log("expected error from dummy tracker, got none")
+	}
+}
+
+func TestGetEndpointDetails_OnlyBaseVersion_ReturnsError(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "https://example.com")
+
+	ctx := context.Background()
+
+	// Should return error when only baseVersionID is provided
+	_, err := o.GetEndpointDetails(ctx, "proj", "site", "https://example.com/page", "v1", "")
+	if err == nil {
+		t.Error("expected error when only base_version_id provided")
+	}
+	if err != nil && err.Error() != "both base_version_id and head_version_id must be provided together" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestGetEndpointDetails_OnlyHeadVersion_ReturnsError(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "https://example.com")
+
+	ctx := context.Background()
+
+	// Should return error when only headVersionID is provided
+	_, err := o.GetEndpointDetails(ctx, "proj", "site", "https://example.com/page", "", "v2")
+	if err == nil {
+		t.Error("expected error when only head_version_id provided")
+	}
+	if err != nil && err.Error() != "both base_version_id and head_version_id must be provided together" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestGetEndpointDetails_BothVersions_CallsTrackerCorrectly(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+
+	ctx := context.Background()
+
+	_, err := o.CreateProject(ctx, "proj", "Proj", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	web, err := o.CreateWebsite(ctx, "proj", "site", "https://example.com")
+	if err != nil {
+		t.Fatalf("CreateWebsite: %v", err)
+	}
+
+	// Create a spy tracker to track method calls
+	logger := &testutil.DummyLogger{}
+	spyTracker := &testutil.SpyTracker{DummyTracker: &testutil.DummyTracker{}}
+	idx := &testutil.DummyEndpointIndex{}
+	wc := &testutil.DummyWebClient{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, spyTracker, wc, idx, logger)
+	if err != nil {
+		t.Fatalf("new fetcher: %v", err)
+	}
+
+	comps := &SiteComponents{
+		Tracker:   spyTracker,
+		Index:     idx,
+		Fetcher:   f,
+		WebClient: wc,
+	}
+
+	o.siteCompMutex.Lock()
+	if o.siteComponentsCache == nil {
+		o.siteComponentsCache = make(map[string]*SiteComponents)
+	}
+	o.siteComponentsCache[web.ID] = comps
+	o.siteCompMutex.Unlock()
+
+	// Call with both version IDs
+	_, err = o.GetEndpointDetails(ctx, "proj", "site", "https://example.com/page", "v1", "v2")
+
+	// Should call GetSnapshotByURLAndVersionID for both versions
+	// Error is expected since spy tracker returns nil snapshots, but we verify the call was made
+	if err == nil {
+		t.Error("expected error from spy tracker (no snapshots)")
+	}
+
+	if !spyTracker.GetSnapshotByURLAndVersionIDCalled {
+		t.Error("expected GetSnapshotByURLAndVersionID to be called")
+	}
+}
+
+func TestListVersions_DelegatesToTracker(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "https://example.com")
+
+	ctx := context.Background()
+
+	// Should not panic, will return empty list from DummyTracker
+	versions, err := o.ListVersions(ctx, "proj", "site", 10)
+	if err != nil {
+		t.Fatalf("ListVersions returned error: %v", err)
+	}
+
+	// DummyTracker returns empty list
+	if len(versions) != 0 {
+		t.Errorf("expected 0 versions from DummyTracker, got %d", len(versions))
+	}
+}
+
+func TestListVersions_InvalidProject_ReturnsError(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+
+	ctx := context.Background()
+
+	_, err := o.ListVersions(ctx, "nonexistent", "site", 10)
+	if err == nil {
+		t.Error("expected error for nonexistent project")
+	}
+}
+
+func TestListVersions_InvalidWebsite_ReturnsError(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+
+	ctx := context.Background()
+
+	_, err := o.CreateProject(ctx, "proj", "Proj", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	_, err = o.ListVersions(ctx, "proj", "nonexistent", 10)
+	if err == nil {
+		t.Error("expected error for nonexistent website")
+	}
+}

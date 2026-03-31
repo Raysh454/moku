@@ -378,7 +378,7 @@ const docTemplate = `{
         },
         "/projects/{project}/websites/{site}/endpoints/details": {
             "get": {
-                "description": "Returns snapshot, scoring, diff, and security info for a canonical URL.",
+                "description": "Returns snapshot, scoring, diff, and security info for a canonical URL. Optionally compare specific versions.",
                 "produces": [
                     "application/json"
                 ],
@@ -407,6 +407,18 @@ const docTemplate = `{
                         "name": "url",
                         "in": "query",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Base version ID for comparison",
+                        "name": "base_version_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Head version ID for comparison",
+                        "name": "head_version_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -526,6 +538,64 @@ const docTemplate = `{
                         "description": "Accepted",
                         "schema": {
                             "$ref": "#/definitions/app.Job"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project}/websites/{site}/versions": {
+            "get": {
+                "description": "Returns a list of versions (commits) for the website, ordered by most recent first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Versions"
+                ],
+                "summary": "List versions for a website",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project slug",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Website slug",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Maximum number of versions to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Version"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
                         }
                     },
                     "500": {
@@ -1422,6 +1492,31 @@ const docTemplate = `{
                 },
                 "version_id": {
                     "description": "VersionID is the version this snapshot belongs to.",
+                    "type": "string"
+                }
+            }
+        },
+        "models.Version": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "description": "Author is optional metadata about who committed.",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is the version identifier (string).",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Message is the commit message.",
+                    "type": "string"
+                },
+                "parent": {
+                    "description": "Parent is the parent version ID (empty if none).",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Timestamp is the commit time.",
                     "type": "string"
                 }
             }

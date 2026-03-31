@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
@@ -350,5 +351,260 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 
 	if string(headContent) != result2.Version.ID {
 		t.Errorf("expected HEAD to be %q, got %q", result2.Version.ID, string(headContent))
+	}
+}
+
+func TestListVersions_EmptyTracker(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-test")
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	versions, err := tr.ListVersions(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListVersions returned error: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("expected 0 versions, got %d", len(versions))
+	}
+}
+
+func TestListVersions_SingleVersion(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-test")
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	snapshot := &models.Snapshot{
+		URL:  "https://example.com/page",
+		Body: []byte("<html>Version 1</html>"),
+	}
+	result, err := tr.Commit(ctx, snapshot, "Initial commit", "test@example.com")
+	if err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+
+	versions, err := tr.ListVersions(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListVersions returned error: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("expected 1 version, got %d", len(versions))
+	}
+
+	v := versions[0]
+	if v.ID != result.Version.ID {
+		t.Errorf("expected version ID %q, got %q", result.Version.ID, v.ID)
+	}
+	if v.Message != "Initial commit" {
+		t.Errorf("expected message %q, got %q", "Initial commit", v.Message)
+	}
+	if v.Author != "test@example.com" {
+		t.Errorf("expected author %q, got %q", "test@example.com", v.Author)
+	}
+	if v.Parent != "" {
+		t.Errorf("expected empty parent for first version, got %q", v.Parent)
+	}
+}
+
+func TestListVersions_MultipleVersionsOrdering(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-test")
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	// Create 5 versions with explicit timestamps
+	var versionIDs []string
+	baseTime := time.Now()
+	for i := 0; i < 5; i++ {
+		snapshot := &models.Snapshot{
+			URL:       fmt.Sprintf("https://example.com/page%d", i),
+			Body:      []byte(fmt.Sprintf("<html>Version %d</html>", i)),
+			CreatedAt: baseTime.Add(time.Duration(i) * time.Second),
+		}
+		result, err := tr.Commit(ctx, snapshot, fmt.Sprintf("Commit %d", i), "test@example.com")
+		if err != nil {
+			t.Fatalf("Commit %d returned error: %v", i, err)
+		}
+		versionIDs = append(versionIDs, result.Version.ID)
+	}
+
+	versions, err := tr.ListVersions(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListVersions returned error: %v", err)
+	}
+	if len(versions) != 5 {
+		t.Fatalf("expected 5 versions, got %d", len(versions))
+	}
+
+	// Verify reverse chronological order (newest first)
+	for i := 0; i < len(versions)-1; i++ {
+		if versions[i].Timestamp.Before(versions[i+1].Timestamp) {
+			t.Errorf("versions not in reverse chronological order at index %d", i)
+		}
+	}
+
+	// Verify newest version is first
+	if versions[0].ID != versionIDs[4] {
+		t.Errorf("expected newest version ID %q first, got %q", versionIDs[4], versions[0].ID)
+	}
+
+	// Verify oldest version is last
+	if versions[4].ID != versionIDs[0] {
+		t.Errorf("expected oldest version ID %q last, got %q", versionIDs[0], versions[4].ID)
+	}
+}
+
+func TestListVersions_LimitRespected(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-test")
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	// Create 10 versions
+	for i := 0; i < 10; i++ {
+		snapshot := &models.Snapshot{
+			URL:  fmt.Sprintf("https://example.com/page%d", i),
+			Body: []byte(fmt.Sprintf("<html>Version %d</html>", i)),
+		}
+		_, err := tr.Commit(ctx, snapshot, fmt.Sprintf("Commit %d", i), "test@example.com")
+		if err != nil {
+			t.Fatalf("Commit %d returned error: %v", i, err)
+		}
+	}
+
+	// Test limit of 3
+	versions, err := tr.ListVersions(ctx, 3)
+	if err != nil {
+		t.Fatalf("ListVersions returned error: %v", err)
+	}
+	if len(versions) != 3 {
+		t.Errorf("expected limit of 3 to be respected, got %d versions", len(versions))
+	}
+
+	// Test limit of 0 (should return all)
+	versions, err = tr.ListVersions(ctx, 0)
+	if err != nil {
+		t.Fatalf("ListVersions with limit 0 returned error: %v", err)
+	}
+	if len(versions) != 10 {
+		t.Errorf("expected all 10 versions with limit 0, got %d", len(versions))
+	}
+}
+
+func TestListVersions_ParentChains(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logger := logging.NewStdoutLogger("tracker-test")
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	if err != nil {
+		t.Fatalf("NewSQLiteTracker returned error: %v", err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+
+	// Create a chain of versions with explicit timestamps
+	var prevVersionID string
+	baseTime := time.Now()
+	for i := 0; i < 3; i++ {
+		snapshot := &models.Snapshot{
+			URL:       "https://example.com/page",
+			Body:      []byte(fmt.Sprintf("<html>Version %d</html>", i)),
+			CreatedAt: baseTime.Add(time.Duration(i) * time.Second),
+		}
+		result, err := tr.Commit(ctx, snapshot, fmt.Sprintf("Commit %d", i), "test@example.com")
+		if err != nil {
+			t.Fatalf("Commit %d returned error: %v", i, err)
+		}
+
+		if i > 0 {
+			// Verify parent is set correctly
+			if result.Version.Parent != prevVersionID {
+				t.Errorf("version %d: expected parent %q, got %q", i, prevVersionID, result.Version.Parent)
+			}
+		} else {
+			// First version should have no parent
+			if result.Version.Parent != "" {
+				t.Errorf("version 0: expected empty parent, got %q", result.Version.Parent)
+			}
+		}
+		prevVersionID = result.Version.ID
+	}
+
+	versions, err := tr.ListVersions(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListVersions returned error: %v", err)
+	}
+	if len(versions) != 3 {
+		t.Fatalf("expected 3 versions, got %d", len(versions))
+	}
+
+	// Verify parent chain (newest to oldest)
+	// versions[0] is newest, should have parent versions[1]
+	// versions[1] is middle, should have parent versions[2]
+	// versions[2] is oldest, should have no parent
+	if versions[0].Parent != versions[1].ID {
+		t.Errorf("version 0 (newest) parent mismatch: expected %q, got %q", versions[1].ID, versions[0].Parent)
+	}
+	if versions[1].Parent != versions[2].ID {
+		t.Errorf("version 1 (middle) parent mismatch: expected %q, got %q", versions[2].ID, versions[1].Parent)
+	}
+	if versions[2].Parent != "" {
+		t.Errorf("version 2 (oldest) should have no parent, got %q", versions[2].Parent)
 	}
 }
