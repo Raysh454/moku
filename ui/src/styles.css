@@ -548,3 +548,577 @@ pre {
   overflow-y: auto;
 }
 
+/* ================================
+   Rendered Diff Views Styles
+   ================================ */
+
+/* View Mode Selector */
+.viewModeSelector {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  background: #1f2937;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.viewModeBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.viewModeBtn:hover {
+  background: #1e293b;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+
+.viewModeBtn.active {
+  background: #1e40af;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.viewModeIcon {
+  font-size: 16px;
+}
+
+.viewModeLabel {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Highlight Toggle */
+.highlightToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding: 8px 14px;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.highlightToggle:hover {
+  background: #1e293b;
+  border-color: #4b5563;
+}
+
+.highlightToggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.highlightToggle .toggleLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+}
+
+.highlightToggle:has(input:checked) .toggleLabel {
+  color: #e5e7eb;
+}
+
+/* Attack Changes Panel */
+.attackChangesPanel {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.attackChangesPanel h4 {
+  margin: 0 0 10px 0;
+  color: #e5e7eb;
+  font-size: 14px;
+}
+
+.changesList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.changeItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.changeItem:hover,
+.changeItem.hovered {
+  background: #1e293b;
+  border-color: #4b5563;
+}
+
+.changeItem.active {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+}
+
+.changeKindBadge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.kind-form,
+.kind-input {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.kind-cookie {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.kind-header {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.kind-script {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.changeDetail {
+  flex: 1;
+  color: #d1d5db;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.changeLocationCount {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* View Content Container */
+.viewContent {
+  min-height: 400px;
+}
+
+/* Rendered Frame */
+.renderedFrame {
+  border: 1px solid #374151;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.renderedFrameTitle {
+  padding: 8px 12px;
+  background: #1f2937;
+  color: #e5e7eb;
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid #374151;
+}
+
+.renderedFrameIframe {
+  width: 100%;
+  height: 500px;
+  border: none;
+  background: #fff;
+}
+
+.fullWidthFrame .renderedFrameIframe {
+  height: 600px;
+}
+
+.halfWidthFrame .renderedFrameIframe {
+  height: 500px;
+}
+
+/* Side by Side Frames */
+.sideBySideFrames {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Overlay Mode */
+.overlayMode {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.overlayControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #1f2937;
+  border-radius: 6px;
+}
+
+.overlaySlider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(to right, #ef4444 0%, #3b82f6 100%);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.overlaySlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  cursor: grab;
+}
+
+.overlayValue {
+  color: #9ca3af;
+  font-size: 13px;
+  min-width: 40px;
+  text-align: right;
+}
+
+.overlayFrames {
+  position: relative;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.overlayFrameBase {
+  position: relative;
+}
+
+.overlayFrameBase .renderedFrameIframe {
+  height: 500px;
+}
+
+.overlayFrameHead {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.overlayFrameHead .renderedFrame {
+  height: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+.overlayFrameHead .renderedFrameIframe {
+  height: 100%;
+}
+
+/* DOM Tree View */
+.domTreeMode {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.domTreeControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #1f2937;
+  border-bottom: 1px solid #374151;
+}
+
+.domTreeControls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #d1d5db;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.changeSummary {
+  display: flex;
+  gap: 14px;
+}
+
+.summaryAdded { color: #10b981; font-size: 13px; }
+.summaryRemoved { color: #ef4444; font-size: 13px; }
+.summaryChanged { color: #f59e0b; font-size: 13px; }
+
+.domTreeContainer {
+  padding: 12px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.domTreeView {
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.treeNodeContainer {
+  padding: 1px 0;
+}
+
+.treeNode-added {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.treeNode-removed {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.treeNode-changed {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.treeNodeRow {
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.treeNodeRow:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.treeNodeExpander {
+  width: 16px;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.treeNodeIcon {
+  width: 14px;
+  font-weight: bold;
+}
+
+.treeNode-added .treeNodeIcon { color: #10b981; }
+.treeNode-removed .treeNodeIcon { color: #ef4444; }
+.treeNode-changed .treeNodeIcon { color: #f59e0b; }
+
+.treeNodeTag {
+  color: #60a5fa;
+}
+
+.treeNodeText {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.treeNodeChange {
+  color: #9ca3af;
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+/* Security Focus Mode */
+.securityFocusMode {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.securityElementsView {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.securitySection h4 {
+  margin: 0 0 10px 0;
+  padding: 8px 12px;
+  background: #1f2937;
+  border-radius: 6px;
+  border-left: 3px solid;
+  color: #e5e7eb;
+  font-size: 14px;
+}
+
+.securityCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.securityCard {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.cardKind {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.cardKind.kind-added {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.cardKind.kind-removed {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.cardKind.kind-changed {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.cardDetail {
+  color: #d1d5db;
+  font-size: 13px;
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.cardLocations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.locationTag {
+  padding: 2px 6px;
+  background: #1f2937;
+  border-radius: 3px;
+  color: #9ca3af;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.noSecurityChanges {
+  text-align: center;
+  color: #6b7280;
+  padding: 40px;
+}
+
+/* Timeline Mode */
+.timelineMode {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.timelineControls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 12px;
+  background: #1f2937;
+  border-radius: 8px;
+}
+
+.timelineControls button {
+  padding: 8px 16px;
+}
+
+.timelineProgress {
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.timelineCard {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.timelineChangeHeader {
+  padding: 12px 16px;
+  background: #111827;
+  border-bottom: 1px solid #374151;
+}
+
+.timelineChangeDetail {
+  padding: 16px;
+  margin: 0;
+  color: #e5e7eb;
+  font-size: 15px;
+  line-height: 1.5;
+  border-bottom: 1px solid #374151;
+}
+
+.timelineFrame .renderedFrameIframe {
+  height: 400px;
+}
+
+.noChanges {
+  text-align: center;
+  color: #6b7280;
+  padding: 60px 20px;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .sideBySideFrames {
+    grid-template-columns: 1fr;
+  }
+  
+  .viewModeSelector {
+    justify-content: center;
+  }
+  
+  .securityCards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Chunk types - ensure both work */
+.chunk-added {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.chunk-removed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+

@@ -114,6 +114,24 @@ export type ScoreResult = {
   contrib_by_rule?: Record<string, number>
 }
 
+// EvidenceLocation points to a specific part of the document for precise attribution.
+export type EvidenceLocation = {
+  type: string  // 'form' | 'input' | 'header' | 'cookie' | 'script' | 'param'
+  snapshot_id?: string
+  dom_index?: number
+  parent_dom_index?: number  // parent form index for inputs
+  header_name?: string
+  cookie_name?: string
+  param_name?: string
+}
+
+// AttackSurfaceChange represents a specific change in the attack surface between versions.
+export type AttackSurfaceChange = {
+  kind: string
+  detail: string
+  evidence_locations?: EvidenceLocation[]
+}
+
 export type SecurityDiff = {
   url: string
   base_version_id: string
@@ -126,10 +144,7 @@ export type SecurityDiff = {
   feature_deltas?: Record<string, number>
   rule_deltas?: Record<string, number>
   attack_surface_changed: boolean
-  attack_surface_changes?: Array<{
-    kind: string
-    detail: string
-  }>
+  attack_surface_changes?: AttackSurfaceChange[]
 }
 
 export type CombinedFileDiff = {
