@@ -3,7 +3,6 @@
 // The Wayback enumerator fetches historical URLs from web archive sources including:
 // - Wayback Machine (web.archive.org)
 // - Common Crawl (index.commoncrawl.org)
-// - VirusTotal (requires API key, currently not implemented)
 //
 // Example usage:
 //
@@ -40,6 +39,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/utils"
@@ -55,26 +55,22 @@ type commonCrawlItem struct {
 	URL string `json:"url"`
 }
 
-// Wayback enumerates URLs from archive sources: Wayback Machine, Common Crawl, and VirusTotal.
+// Wayback enumerates URLs from archive sources: Wayback Machine and Common Crawl.
 type Wayback struct {
 	wc                webclient.WebClient
 	logger            logging.Logger
 	waybackBaseURL    string
 	ccBaseURL         string
-	vtBaseURL         string
 	useWaybackMachine bool
 	useCommonCrawl    bool
-	useVirusTotal     bool
 }
 
 // WaybackConfig holds configuration for the Wayback enumerator.
 type WaybackConfig struct {
 	WaybackBaseURL    string // Optional, defaults to http://web.archive.org
 	CCBaseURL         string // Optional, defaults to http://index.commoncrawl.org
-	VTBaseURL         string // Optional, defaults to empty (not implemented)
 	UseWaybackMachine *bool  // Optional, defaults to true
 	UseCommonCrawl    *bool  // Optional, defaults to true
-	UseVirusTotal     *bool  // Optional, defaults to false
 }
 
 // NewWayback creates a new Wayback enumerator with default configuration.
@@ -105,12 +101,9 @@ func NewWaybackWithConfig(wc webclient.WebClient, logger logging.Logger, cfg *Wa
 		wb.ccBaseURL = "http://index.commoncrawl.org"
 	}
 
-	wb.vtBaseURL = cfg.VTBaseURL
-
 	// Source enable/disable with defaults
 	wb.useWaybackMachine = cfg.UseWaybackMachine == nil || *cfg.UseWaybackMachine
 	wb.useCommonCrawl = cfg.UseCommonCrawl == nil || *cfg.UseCommonCrawl
-	wb.useVirusTotal = cfg.UseVirusTotal != nil && *cfg.UseVirusTotal
 
 	return wb
 }
@@ -137,7 +130,6 @@ func (w *Wayback) Enumerate(ctx context.Context, target string, cb utils.Progres
 	}{
 		{"wayback", w.useWaybackMachine, w.fetchWaybackURLs},
 		{"commoncrawl", w.useCommonCrawl, w.fetchCommonCrawlURLs},
-		{"virustotal", w.useVirusTotal, w.fetchVirusTotalURLs},
 	}
 
 	// Launch goroutines only for enabled sources
@@ -205,7 +197,11 @@ func (w *Wayback) fetchWaybackURLs(ctx context.Context, domain string) ([]string
 	// Use exact domain (no wildcard) to avoid subdomains
 	url := fmt.Sprintf("%s/cdx/search/cdx?url=%s/*&output=json&collapse=urlkey", w.waybackBaseURL, domain)
 
-	resp, err := w.wc.Get(ctx, url)
+	// Create a longer timeout context specifically for Wayback (it can be slow)
+	waybackCtx, cancel := context.WithTimeout(ctx, 2*60*time.Second) // 2 minutes
+	defer cancel()
+
+	resp, err := w.wc.Get(waybackCtx, url)
 	if err != nil {
 		return nil, fmt.Errorf("wayback request failed: %w", err)
 	}
@@ -271,26 +267,10 @@ func (w *Wayback) fetchCommonCrawlURLs(ctx context.Context, domain string) ([]st
 	return urls, nil
 }
 
-// fetchVirusTotalURLs queries the VirusTotal API.
-// Note: This may require an API key and has rate limits.
-func (w *Wayback) fetchVirusTotalURLs(ctx context.Context, domain string) ([]string, error) {
-	// VirusTotal requires authentication and has rate limits.
-	// For now, return empty to avoid errors. Users can extend this
-	// by adding API key configuration.
-	w.logInfo("virustotal source skipped (requires API key)")
-	return []string{}, nil
-}
-
 func (w *Wayback) logWarn(msg, source string, err error) {
 	if w.logger != nil {
 		w.logger.Warn(msg,
 			logging.Field{Key: "source", Value: source},
 			logging.Field{Key: "error", Value: err})
-	}
-}
-
-func (w *Wayback) logInfo(msg string) {
-	if w.logger != nil {
-		w.logger.Info(msg)
 	}
 }
