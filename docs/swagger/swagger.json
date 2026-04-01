@@ -434,7 +434,7 @@
         },
         "/projects/{project}/websites/{site}/jobs/enumerate": {
             "post": {
-                "description": "Launches URL discovery using one or more enumeration methods (spider, sitemap, robots). Defaults to spider with depth 4.",
+                "description": "Launches URL discovery using configured enumerators. Each enumerator (spider, sitemap, robots, wayback) is enabled by including its config object.",
                 "consumes": [
                     "application/json"
                 ],
@@ -461,7 +461,7 @@
                         "required": true
                     },
                     {
-                        "description": "Enumeration options",
+                        "description": "Enumeration configuration",
                         "name": "body",
                         "in": "body",
                         "schema": {
@@ -598,7 +598,7 @@
         },
         "/ws/projects/{project}/websites/{site}/enumerate": {
             "get": {
-                "description": "Upgrades the connection and streams enumeration progress events.",
+                "description": "Upgrades the connection, receives EnumerationConfig as first message, and streams enumeration progress events.",
                 "tags": [
                     "Jobs"
                 ],
@@ -617,20 +617,6 @@
                         "name": "site",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "type": "string",
-                        "default": "spider",
-                        "description": "Comma-separated enumeration methods (spider,sitemap,robots)",
-                        "name": "methods",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 4,
-                        "description": "Maximum spider crawl depth",
-                        "name": "max_depth",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -703,6 +689,23 @@
         }
     },
     "definitions": {
+        "api.EnumerationConfig": {
+            "type": "object",
+            "properties": {
+                "robots": {
+                    "type": "object"
+                },
+                "sitemap": {
+                    "type": "object"
+                },
+                "spider": {
+                    "type": "object"
+                },
+                "wayback": {
+                    "type": "object"
+                }
+            }
+        },
         "app.EndpointDetails": {
             "type": "object",
             "properties": {
@@ -1631,20 +1634,8 @@
         "server.StartEnumerateJobRequest": {
             "type": "object",
             "properties": {
-                "max_depth": {
-                    "type": "integer",
-                    "example": 4
-                },
-                "methods": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "spider",
-                        "sitemap",
-                        "robots"
-                    ]
+                "config": {
+                    "$ref": "#/definitions/api.EnumerationConfig"
                 }
             }
         },

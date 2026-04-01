@@ -196,3 +196,26 @@ export type SuccessMessage = {
   success: boolean
   message?: string
 }
+
+// Enumeration configuration types
+export type SpiderConfig = {
+  max_depth?: number
+  concurrency?: number
+}
+
+export type SitemapConfig = Record<string, never>
+
+export type RobotsConfig = Record<string, never>
+
+export type WaybackConfig = {
+  use_wayback_machine?: boolean
+  use_common_crawl?: boolean
+  use_virus_total?: boolean
+}
+
+export type EnumerationConfig = {
+  spider?: SpiderConfig
+  sitemap?: SitemapConfig
+  robots?: RobotsConfig
+  wayback?: WaybackConfig
+}

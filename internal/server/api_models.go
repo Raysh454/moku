@@ -1,5 +1,7 @@
 package server
 
+import "github.com/raysh454/moku/internal/api"
+
 // CreateProjectRequest represents the payload required to create a project.
 type CreateProjectRequest struct {
 	Slug        string `json:"slug" example:"ibm"`
@@ -30,10 +32,9 @@ type StartFetchJobRequest struct {
 	Limit  int    `json:"limit" example:"100"`
 }
 
-// StartEnumerateJobRequest optionally configures enumeration methods and depth.
+// StartEnumerateJobRequest configures enumeration with per-enumerator settings.
 type StartEnumerateJobRequest struct {
-	Methods  []string `json:"methods" example:"spider,sitemap,robots"`
-	MaxDepth int      `json:"max_depth" example:"4"`
+	Config api.EnumerationConfig `json:"config"`
 }
 
 // ErrorResponse is a uniform error payload returned by the API.

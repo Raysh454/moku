@@ -1122,3 +1122,55 @@ pre {
   color: #ef4444;
 }
 
+
+
+/* Enumeration Config Panel */
+.enumConfig {
+  padding: 12px 16px;
+  background: #1e293b;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid #334155;
+}
+
+.enumConfig h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.enumConfig .row {
+  margin-bottom: 8px;
+}
+
+.enumConfig .row:last-child {
+  margin-bottom: 0;
+}
+
+.enumConfig label.checkLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 16px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.enumConfig input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  flex: none;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.enumConfig input[type="number"] {
+  width: 70px;
+  min-width: 70px;
+  flex: none;
+}
