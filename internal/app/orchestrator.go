@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/raysh454/moku/internal/api"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/enumerator"
 	"github.com/raysh454/moku/internal/indexer"
@@ -318,7 +319,7 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 	return jobSnapshot, nil
 }
 
-func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, methods []string, maxDepth int) (*Job, error) {
+func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, cfg api.EnumerationConfig) (*Job, error) {
 	o.closedMu.Lock()
 	closed := o.closed
 	o.closedMu.Unlock()
@@ -347,7 +348,7 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 		o.setJobStatus(jobID, JobRunning, nil)
 
 		cb := o.progressCallback(jobID)
-		urls, err := o.EnumerateWebsite(jobCtx, project, site, methods, maxDepth, cb)
+		urls, err := o.EnumerateWebsite(jobCtx, project, site, cfg, cb)
 		if err != nil {
 			select {
 			case <-jobCtx.Done():
@@ -450,7 +451,7 @@ func (o *Orchestrator) AddWebsiteEndpoints(ctx context.Context, projectIdentifie
 	return comps.Index.AddEndpoints(ctx, rawURLs, source)
 }
 
-func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, methods []string, maxDepth int, cb utils.ProgressCallback) ([]string, error) {
+func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, websiteSlug string, cfg api.EnumerationConfig, cb utils.ProgressCallback) ([]string, error) {
 	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
 	if err != nil {
 		return nil, err
@@ -460,14 +461,12 @@ func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, 
 		return nil, err
 	}
 
-	methods = normalizeEnumMethods(methods)
-	enum := o.buildEnumerator(methods, maxDepth, comps.WebClient)
+	enum, source := o.buildEnumerator(cfg, comps.WebClient)
 	targets, err := enum.Enumerate(ctx, web.Origin, cb)
 	if err != nil {
 		return nil, err
 	}
 
-	source := strings.Join(methods, "+") + "-enumerator"
 	_, err = comps.Index.AddEndpoints(ctx, targets, source)
 	if err != nil {
 		return nil, err
@@ -475,29 +474,50 @@ func (o *Orchestrator) EnumerateWebsite(ctx context.Context, projectIdentifier, 
 	return targets, nil
 }
 
-func normalizeEnumMethods(methods []string) []string {
-	if len(methods) == 0 {
-		return []string{"spider"}
-	}
-	return methods
-}
-
-func (o *Orchestrator) buildEnumerator(methods []string, maxDepth int, wc webclient.WebClient) enumerator.Enumerator {
+func (o *Orchestrator) buildEnumerator(cfg api.EnumerationConfig, wc webclient.WebClient) (enumerator.Enumerator, string) {
 	var enumerators []enumerator.Enumerator
-	for _, m := range methods {
-		switch m {
-		case "spider":
-			enumerators = append(enumerators, enumerator.NewSpider(maxDepth, wc, o.logger))
-		case "sitemap":
-			enumerators = append(enumerators, enumerator.NewSitemap(wc, o.logger))
-		case "robots":
-			enumerators = append(enumerators, enumerator.NewRobots(wc, o.logger))
+	var methods []string
+
+	if cfg.Spider != nil {
+		maxDepth := cfg.Spider.MaxDepth
+		if maxDepth == 0 {
+			maxDepth = 4 // default
 		}
+		enumerators = append(enumerators, enumerator.NewSpider(maxDepth, wc, o.logger))
+		methods = append(methods, "spider")
 	}
+
+	if cfg.Sitemap != nil {
+		enumerators = append(enumerators, enumerator.NewSitemap(wc, o.logger))
+		methods = append(methods, "sitemap")
+	}
+
+	if cfg.Robots != nil {
+		enumerators = append(enumerators, enumerator.NewRobots(wc, o.logger))
+		methods = append(methods, "robots")
+	}
+
+	if cfg.Wayback != nil {
+		wbCfg := &enumerator.WaybackConfig{
+			UseWaybackMachine: cfg.Wayback.UseWaybackMachine,
+			UseCommonCrawl:    cfg.Wayback.UseCommonCrawl,
+			UseVirusTotal:     cfg.Wayback.UseVirusTotal,
+		}
+		enumerators = append(enumerators, enumerator.NewWaybackWithConfig(wc, o.logger, wbCfg))
+		methods = append(methods, "wayback")
+	}
+
+	// Default to spider if nothing specified
+	if len(enumerators) == 0 {
+		enumerators = append(enumerators, enumerator.NewSpider(4, wc, o.logger))
+		methods = append(methods, "spider")
+	}
+
+	source := strings.Join(methods, "+") + "-enumerator"
 	if len(enumerators) == 1 {
-		return enumerators[0]
+		return enumerators[0], source
 	}
-	return enumerator.NewComposite(enumerators, o.logger)
+	return enumerator.NewComposite(enumerators, o.logger), source
 }
 
 func (o *Orchestrator) ListWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int) ([]indexer.Endpoint, error) {

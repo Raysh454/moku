@@ -57,18 +57,24 @@ type commonCrawlItem struct {
 
 // Wayback enumerates URLs from archive sources: Wayback Machine, Common Crawl, and VirusTotal.
 type Wayback struct {
-	wc             webclient.WebClient
-	logger         logging.Logger
-	waybackBaseURL string
-	ccBaseURL      string
-	vtBaseURL      string
+	wc                webclient.WebClient
+	logger            logging.Logger
+	waybackBaseURL    string
+	ccBaseURL         string
+	vtBaseURL         string
+	useWaybackMachine bool
+	useCommonCrawl    bool
+	useVirusTotal     bool
 }
 
 // WaybackConfig holds configuration for the Wayback enumerator.
 type WaybackConfig struct {
-	WaybackBaseURL string // Optional, defaults to http://web.archive.org
-	CCBaseURL      string // Optional, defaults to http://index.commoncrawl.org
-	VTBaseURL      string // Optional, defaults to empty (not implemented)
+	WaybackBaseURL    string // Optional, defaults to http://web.archive.org
+	CCBaseURL         string // Optional, defaults to http://index.commoncrawl.org
+	VTBaseURL         string // Optional, defaults to empty (not implemented)
+	UseWaybackMachine *bool  // Optional, defaults to true
+	UseCommonCrawl    *bool  // Optional, defaults to true
+	UseVirusTotal     *bool  // Optional, defaults to false
 }
 
 // NewWayback creates a new Wayback enumerator with default configuration.
@@ -101,6 +107,11 @@ func NewWaybackWithConfig(wc webclient.WebClient, logger logging.Logger, cfg *Wa
 
 	wb.vtBaseURL = cfg.VTBaseURL
 
+	// Source enable/disable with defaults
+	wb.useWaybackMachine = cfg.UseWaybackMachine == nil || *cfg.UseWaybackMachine
+	wb.useCommonCrawl = cfg.UseCommonCrawl == nil || *cfg.UseCommonCrawl
+	wb.useVirusTotal = cfg.UseVirusTotal != nil && *cfg.UseVirusTotal
+
 	return wb
 }
 
@@ -118,18 +129,22 @@ func (w *Wayback) Enumerate(ctx context.Context, target string, cb utils.Progres
 	urlChan := make(chan string, 100)
 	var wg sync.WaitGroup
 
-	// Fetch functions to run concurrently
+	// Fetch functions to run based on configuration
 	fetchFns := []struct {
-		name string
-		fn   func(context.Context, string) ([]string, error)
+		name    string
+		enabled bool
+		fn      func(context.Context, string) ([]string, error)
 	}{
-		{"wayback", w.fetchWaybackURLs},
-		{"commoncrawl", w.fetchCommonCrawlURLs},
-		{"virustotal", w.fetchVirusTotalURLs},
+		{"wayback", w.useWaybackMachine, w.fetchWaybackURLs},
+		{"commoncrawl", w.useCommonCrawl, w.fetchCommonCrawlURLs},
+		{"virustotal", w.useVirusTotal, w.fetchVirusTotalURLs},
 	}
 
-	// Launch goroutines for each source
+	// Launch goroutines only for enabled sources
 	for _, fetcher := range fetchFns {
+		if !fetcher.enabled {
+			continue
+		}
 		wg.Add(1)
 		go func(name string, fn func(context.Context, string) ([]string, error)) {
 			defer wg.Done()

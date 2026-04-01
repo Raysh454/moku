@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, config, createJobSocket, demoApi } from './api/client'
-import type { DemoPageVersion, Endpoint, EndpointDetails, Job, JobEvent, Project, Version, Website } from './api/types'
+import { api, config, createEnumerateSocket, createJobSocket, demoApi } from './api/client'
+import type { DemoPageVersion, Endpoint, EndpointDetails, EnumerationConfig, Job, JobEvent, Project, Version, Website } from './api/types'
 import RenderedDiffViews, { type RenderedViewMode } from './components/RenderedDiffViews'
 
 type Activity = {
@@ -39,6 +39,17 @@ export default function App() {
   const [fetchLimit, setFetchLimit] = useState(100)
   const [endpointFilterStatus, setEndpointFilterStatus] = useState('*')
   const [endpointFilterLimit, setEndpointFilterLimit] = useState(200)
+
+  // Enumeration config state
+  const [enumSpiderEnabled, setEnumSpiderEnabled] = useState(true)
+  const [enumSpiderMaxDepth, setEnumSpiderMaxDepth] = useState(4)
+  const [enumSpiderConcurrency, setEnumSpiderConcurrency] = useState(5)
+  const [enumSitemapEnabled, setEnumSitemapEnabled] = useState(false)
+  const [enumRobotsEnabled, setEnumRobotsEnabled] = useState(false)
+  const [enumWaybackEnabled, setEnumWaybackEnabled] = useState(false)
+  const [enumWaybackMachine, setEnumWaybackMachine] = useState(true)
+  const [enumCommonCrawl, setEnumCommonCrawl] = useState(true)
+  const [enumVirusTotal, setEnumVirusTotal] = useState(false)
 
   const [activities, setActivities] = useState<Activity[]>([])
   const [rawItems, setRawItems] = useState<RawItem[]>([])
@@ -86,6 +97,32 @@ export default function App() {
     } finally {
       setBusy(false)
     }
+  }
+
+  const buildEnumerationConfig = (): EnumerationConfig => {
+    const cfg: EnumerationConfig = {}
+
+    if (enumSpiderEnabled) {
+      cfg.spider = {
+        max_depth: enumSpiderMaxDepth,
+        concurrency: enumSpiderConcurrency,
+      }
+    }
+    if (enumSitemapEnabled) {
+      cfg.sitemap = {}
+    }
+    if (enumRobotsEnabled) {
+      cfg.robots = {}
+    }
+    if (enumWaybackEnabled) {
+      cfg.wayback = {
+        use_wayback_machine: enumWaybackMachine,
+        use_common_crawl: enumCommonCrawl,
+        use_virus_total: enumVirusTotal,
+      }
+    }
+
+    return cfg
   }
 
   const refreshProjects = async () => {
@@ -329,12 +366,63 @@ export default function App() {
   const startEnumerate = async () =>
     withAction('Start enumerate job', async () => {
       if (!selectedProject || !selectedSite) throw new Error('Select project and site first')
-      const job = await api.startEnumerate(selectedProject, selectedSite)
+      const cfg = buildEnumerationConfig()
+      const job = await api.startEnumerate(selectedProject, selectedSite, cfg)
       pushRaw('startEnumerate', job)
       logActivity('Enumerate started', job.id)
       await waitForJob(job.id)
       await refreshEndpoints()
       await refreshJobs()
+    })
+
+  const startEnumerateWebSocket = async () =>
+    withAction('Start enumerate via websocket', async () => {
+      if (!selectedProject || !selectedSite) throw new Error('Select project and site first')
+
+      const cfg = buildEnumerationConfig()
+
+      await new Promise<void>((resolve, reject) => {
+        const { socket, sendConfig, onMessage } = createEnumerateSocket(
+          selectedProject,
+          selectedSite,
+          cfg,
+        )
+
+        socket.onerror = () => reject(new Error('WebSocket connection failed'))
+
+        socket.onopen = () => {
+          sendConfig()
+        }
+
+        onMessage(async (payload) => {
+          pushRaw('ws:enumerate', payload)
+          if ('error' in payload && payload.error) {
+            socket.close()
+            reject(new Error(payload.error))
+            return
+          }
+
+          if ('type' in payload) {
+            const event = payload as JobEvent
+            logActivity(`WS ${event.type}`, `${event.status || ''} ${event.processed || ''}/${event.total || ''}`)
+            if (event.type === 'result' || event.status === 'done') {
+              socket.close()
+              await refreshEndpoints()
+              await refreshJobs()
+              resolve()
+            }
+            if (event.status === 'failed' || event.status === 'canceled') {
+              socket.close()
+              reject(new Error(event.error || `Job ${event.status}`))
+            }
+            return
+          }
+
+          const job = payload as Job
+          setJobs((prev) => [job, ...prev.filter((entry) => entry.id !== job.id)])
+          logActivity('WS job created', `${job.id} (${job.type})`)
+        })
+      })
     })
 
   const startFetch = async () =>
@@ -539,12 +627,114 @@ export default function App() {
 
         <section className="card wide">
           <h2>3) Jobs</h2>
+
+          {/* Enumeration Config */}
+          <div className="enumConfig">
+            <h4>Enumeration Methods</h4>
+            <div className="row">
+              <label className="checkLabel">
+                <input
+                  type="checkbox"
+                  checked={enumSpiderEnabled}
+                  onChange={(e) => setEnumSpiderEnabled(e.target.checked)}
+                />
+                Spider
+              </label>
+              {enumSpiderEnabled && (
+                <>
+                  <label>
+                    depth
+                    <input
+                      type="number"
+                      value={enumSpiderMaxDepth}
+                      min={1}
+                      max={20}
+                      onChange={(e) => setEnumSpiderMaxDepth(Number(e.target.value) || 4)}
+                    />
+                  </label>
+                  <label>
+                    concurrency
+                    <input
+                      type="number"
+                      value={enumSpiderConcurrency}
+                      min={1}
+                      max={50}
+                      onChange={(e) => setEnumSpiderConcurrency(Number(e.target.value) || 5)}
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+            <div className="row">
+              <label className="checkLabel">
+                <input
+                  type="checkbox"
+                  checked={enumSitemapEnabled}
+                  onChange={(e) => setEnumSitemapEnabled(e.target.checked)}
+                />
+                Sitemap
+              </label>
+              <label className="checkLabel">
+                <input
+                  type="checkbox"
+                  checked={enumRobotsEnabled}
+                  onChange={(e) => setEnumRobotsEnabled(e.target.checked)}
+                />
+                Robots
+              </label>
+            </div>
+            <div className="row">
+              <label className="checkLabel">
+                <input
+                  type="checkbox"
+                  checked={enumWaybackEnabled}
+                  onChange={(e) => setEnumWaybackEnabled(e.target.checked)}
+                />
+                Wayback
+              </label>
+              {enumWaybackEnabled && (
+                <>
+                  <label className="checkLabel">
+                    <input
+                      type="checkbox"
+                      checked={enumWaybackMachine}
+                      onChange={(e) => setEnumWaybackMachine(e.target.checked)}
+                    />
+                    Archive.org
+                  </label>
+                  <label className="checkLabel">
+                    <input
+                      type="checkbox"
+                      checked={enumCommonCrawl}
+                      onChange={(e) => setEnumCommonCrawl(e.target.checked)}
+                    />
+                    CommonCrawl
+                  </label>
+                  <label className="checkLabel">
+                    <input
+                      type="checkbox"
+                      checked={enumVirusTotal}
+                      onChange={(e) => setEnumVirusTotal(e.target.checked)}
+                    />
+                    VirusTotal
+                  </label>
+                </>
+              )}
+            </div>
+          </div>
+
           <div className="row">
             <button
               disabled={busy || !selectedProject || !selectedSite || selectedWebsiteOriginInvalid}
               onClick={() => void startEnumerate()}
             >
               Enumerate (REST)
+            </button>
+            <button
+              disabled={busy || !selectedProject || !selectedSite || selectedWebsiteOriginInvalid}
+              onClick={() => void startEnumerateWebSocket()}
+            >
+              Enumerate (WebSocket)
             </button>
             <button
               disabled={busy || !selectedProject || !selectedSite || selectedWebsiteOriginInvalid}

@@ -2,6 +2,7 @@ import type {
   DemoPageVersion,
   Endpoint,
   EndpointDetails,
+  EnumerationConfig,
   Job,
   JobEvent,
   Project,
@@ -79,8 +80,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  startEnumerate: (project: string, site: string) =>
-    request<Job>(apiBase, `/projects/${project}/websites/${site}/jobs/enumerate`, { method: 'POST' }),
+  startEnumerate: (project: string, site: string, config?: EnumerationConfig) =>
+    request<Job>(apiBase, `/projects/${project}/websites/${site}/jobs/enumerate`, {
+      method: 'POST',
+      body: JSON.stringify({ config: config || {} }),
+    }),
 
   startFetch: (project: string, site: string, payload: { status: string; limit: number }) =>
     request<Job>(apiBase, `/projects/${project}/websites/${site}/jobs/fetch`, {
@@ -165,6 +169,30 @@ export const createJobSocket = (
 
   return {
     socket,
+    onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => {
+      socket.onmessage = (event) => {
+        try {
+          handler(JSON.parse(event.data))
+        } catch {
+          handler({ error: 'Invalid websocket payload' })
+        }
+      }
+    },
+  }
+}
+
+export const createEnumerateSocket = (
+  project: string,
+  site: string,
+  enumConfig: EnumerationConfig,
+) => {
+  const socket = new WebSocket(`${wsOrigin()}/ws/projects/${project}/websites/${site}/enumerate`)
+
+  return {
+    socket,
+    sendConfig: () => {
+      socket.send(JSON.stringify(enumConfig))
+    },
     onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => {
       socket.onmessage = (event) => {
         try {
