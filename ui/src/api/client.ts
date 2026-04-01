@@ -3,6 +3,7 @@ import type {
   Endpoint,
   EndpointDetails,
   EnumerationConfig,
+  FetchConfig,
   Job,
   JobEvent,
   Project,
@@ -86,7 +87,7 @@ export const api = {
       body: JSON.stringify({ config: config || {} }),
     }),
 
-  startFetch: (project: string, site: string, payload: { status: string; limit: number }) =>
+  startFetch: (project: string, site: string, payload: { status: string; limit: number; config?: FetchConfig }) =>
     request<Job>(apiBase, `/projects/${project}/websites/${site}/jobs/fetch`, {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -169,6 +170,30 @@ export const createJobSocket = (
 
   return {
     socket,
+    onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => {
+      socket.onmessage = (event) => {
+        try {
+          handler(JSON.parse(event.data))
+        } catch {
+          handler({ error: 'Invalid websocket payload' })
+        }
+      }
+    },
+  }
+}
+
+export const createFetchSocket = (
+  project: string,
+  site: string,
+  fetchRequest: { status: string; limit: number; config?: FetchConfig },
+) => {
+  const socket = new WebSocket(`${wsOrigin()}/ws/projects/${project}/websites/${site}/fetch`)
+
+  return {
+    socket,
+    sendRequest: () => {
+      socket.send(JSON.stringify(fetchRequest))
+    },
     onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => {
       socket.onmessage = (event) => {
         try {

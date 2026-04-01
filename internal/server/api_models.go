@@ -28,8 +28,9 @@ type AddedEndpointsResponse struct {
 
 // StartFetchJobRequest optionally scopes a fetch job by endpoint status and limit.
 type StartFetchJobRequest struct {
-	Status string `json:"status" default:"*" example:"*"`
-	Limit  int    `json:"limit" example:"100"`
+	Status string           `json:"status" default:"*" example:"*"`
+	Limit  int              `json:"limit" example:"100"`
+	Config *api.FetchConfig `json:"config,omitempty"`
 }
 
 // StartEnumerateJobRequest configures enumeration with per-enumerator settings.

@@ -717,6 +717,15 @@ const docTemplate = `{
                 }
             }
         },
+        "api.FetchConfig": {
+            "type": "object",
+            "properties": {
+                "concurrency": {
+                    "type": "integer",
+                    "example": 8
+                }
+            }
+        },
         "app.EndpointDetails": {
             "type": "object",
             "properties": {
@@ -1653,6 +1662,9 @@ const docTemplate = `{
         "server.StartFetchJobRequest": {
             "type": "object",
             "properties": {
+                "config": {
+                    "$ref": "#/definitions/api.FetchConfig"
+                },
                 "limit": {
                     "type": "integer",
                     "example": 100

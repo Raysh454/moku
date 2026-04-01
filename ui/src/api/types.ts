@@ -210,7 +210,6 @@ export type RobotsConfig = Record<string, never>
 export type WaybackConfig = {
   use_wayback_machine?: boolean
   use_common_crawl?: boolean
-  use_virus_total?: boolean
 }
 
 export type EnumerationConfig = {
@@ -218,4 +217,9 @@ export type EnumerationConfig = {
   sitemap?: SitemapConfig
   robots?: RobotsConfig
   wayback?: WaybackConfig
+}
+
+// Fetch configuration types
+export type FetchConfig = {
+  concurrency?: number
 }

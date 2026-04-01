@@ -26,5 +26,9 @@ type RobotsConfig struct{}
 type WaybackConfig struct {
 	UseWaybackMachine *bool `json:"use_wayback_machine,omitempty" example:"true"`
 	UseCommonCrawl    *bool `json:"use_common_crawl,omitempty" example:"true"`
-	UseVirusTotal     *bool `json:"use_virus_total,omitempty" example:"false"`
+}
+
+// FetchConfig configures the fetcher with per-job settings.
+type FetchConfig struct {
+	Concurrency int `json:"concurrency,omitempty" example:"8"`
 }
