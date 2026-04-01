@@ -37,6 +37,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -80,8 +81,26 @@ func NewWayback(wc webclient.WebClient, logger logging.Logger) *Wayback {
 
 // NewWaybackWithConfig creates a new Wayback enumerator with custom configuration.
 func NewWaybackWithConfig(wc webclient.WebClient, logger logging.Logger, cfg *WaybackConfig) *Wayback {
+	// Create a custom webclient with longer timeout for Wayback Machine
+	// which can be slow to respond
+	longTimeoutClient := &http.Client{Timeout: 3 * time.Minute}
+
+	// Handle nil logger case for tests
+	var waybackWC webclient.WebClient
+	if logger != nil {
+		var err error
+		waybackWC, err = webclient.NewNetHTTPClient(webclient.Config{}, logger, longTimeoutClient)
+		if err != nil {
+			// Fallback to original webclient if custom creation fails
+			waybackWC = wc
+		}
+	} else {
+		// For tests or when logger is nil, fallback to original webclient
+		waybackWC = wc
+	}
+
 	wb := &Wayback{
-		wc:     wc,
+		wc:     waybackWC,
 		logger: logger,
 	}
 
@@ -197,11 +216,7 @@ func (w *Wayback) fetchWaybackURLs(ctx context.Context, domain string) ([]string
 	// Use exact domain (no wildcard) to avoid subdomains
 	url := fmt.Sprintf("%s/cdx/search/cdx?url=%s/*&output=json&collapse=urlkey", w.waybackBaseURL, domain)
 
-	// Create a longer timeout context specifically for Wayback (it can be slow)
-	waybackCtx, cancel := context.WithTimeout(ctx, 2*60*time.Second) // 2 minutes
-	defer cancel()
-
-	resp, err := w.wc.Get(waybackCtx, url)
+	resp, err := w.wc.Get(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("wayback request failed: %w", err)
 	}
