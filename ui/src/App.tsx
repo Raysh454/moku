@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, config, createEnumerateSocket, createJobSocket, demoApi } from './api/client'
-import type { DemoPageVersion, Endpoint, EndpointDetails, EnumerationConfig, Job, JobEvent, Project, Version, Website } from './api/types'
+import { api, config, createEnumerateSocket, createFetchSocket, createJobSocket, demoApi } from './api/client'
+import type { DemoPageVersion, Endpoint, EndpointDetails, EnumerationConfig, FetchConfig, Job, JobEvent, Project, Version, Website } from './api/types'
 import RenderedDiffViews, { type RenderedViewMode } from './components/RenderedDiffViews'
 
 type Activity = {
@@ -37,6 +37,7 @@ export default function App() {
 
   const [fetchStatus, setFetchStatus] = useState('*')
   const [fetchLimit, setFetchLimit] = useState(100)
+  const [fetchConcurrency, setFetchConcurrency] = useState(4)
   const [endpointFilterStatus, setEndpointFilterStatus] = useState('*')
   const [endpointFilterLimit, setEndpointFilterLimit] = useState(200)
 
@@ -49,7 +50,6 @@ export default function App() {
   const [enumWaybackEnabled, setEnumWaybackEnabled] = useState(false)
   const [enumWaybackMachine, setEnumWaybackMachine] = useState(true)
   const [enumCommonCrawl, setEnumCommonCrawl] = useState(true)
-  const [enumVirusTotal, setEnumVirusTotal] = useState(false)
 
   const [activities, setActivities] = useState<Activity[]>([])
   const [rawItems, setRawItems] = useState<RawItem[]>([])
@@ -118,11 +118,18 @@ export default function App() {
       cfg.wayback = {
         use_wayback_machine: enumWaybackMachine,
         use_common_crawl: enumCommonCrawl,
-        use_virus_total: enumVirusTotal,
       }
     }
 
     return cfg
+  }
+
+  const buildFetchConfig = (): FetchConfig | undefined => {
+    // Only include config if concurrency is different from default (4)
+    if (fetchConcurrency !== 4) {
+      return { concurrency: fetchConcurrency }
+    }
+    return undefined
   }
 
   const refreshProjects = async () => {
@@ -431,6 +438,7 @@ export default function App() {
       const job = await api.startFetch(selectedProject, selectedSite, {
         status: fetchStatus,
         limit: fetchLimit,
+        config: buildFetchConfig(),
       })
       pushRaw('startFetch', job)
       logActivity('Fetch started', job.id)
@@ -447,12 +455,18 @@ export default function App() {
       if (!selectedProject || !selectedSite) throw new Error('Select project and site first')
 
       await new Promise<void>((resolve, reject) => {
-        const { socket, onMessage } = createJobSocket('fetch', selectedProject, selectedSite, {
+        const { socket, sendRequest, onMessage } = createFetchSocket(selectedProject, selectedSite, {
           status: fetchStatus,
           limit: fetchLimit,
+          config: buildFetchConfig(),
         })
 
         socket.onerror = () => reject(new Error('WebSocket connection failed'))
+
+        socket.onopen = () => {
+          // Send request as first message after connection opens
+          sendRequest()
+        }
 
         onMessage(async (payload) => {
           pushRaw('ws:fetch', payload)
@@ -710,14 +724,6 @@ export default function App() {
                     />
                     CommonCrawl
                   </label>
-                  <label className="checkLabel">
-                    <input
-                      type="checkbox"
-                      checked={enumVirusTotal}
-                      onChange={(e) => setEnumVirusTotal(e.target.checked)}
-                    />
-                    VirusTotal
-                  </label>
                 </>
               )}
             </div>
@@ -763,6 +769,16 @@ export default function App() {
                 type="number"
                 value={fetchLimit}
                 onChange={(event) => setFetchLimit(Number(event.target.value || 100))}
+              />
+            </label>
+            <label>
+              concurrency
+              <input
+                type="number"
+                value={fetchConcurrency}
+                min="1"
+                max="100"
+                onChange={(event) => setFetchConcurrency(Number(event.target.value || 4))}
               />
             </label>
           </div>

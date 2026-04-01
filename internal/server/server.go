@@ -503,7 +503,7 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 		body.Limit = 100
 	}
 
-	job, err := s.orchestrator.StartFetchJob(context.Background(), project, site, body.Status, body.Limit)
+	job, err := s.orchestrator.StartFetchJob(context.Background(), project, site, body.Status, body.Limit, body.Config)
 	if err != nil {
 		s.logger.Warn("starting fetch job", logging.Field{Key: "error", Value: err.Error()})
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -607,17 +607,6 @@ func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 
-	status := normalizeEndpointStatus(r.URL.Query().Get("status"))
-	if status == "" {
-		status = "new"
-	}
-	limit := 100
-	if ls := r.URL.Query().Get("limit"); ls != "" {
-		if v, err := strconv.Atoi(ls); err == nil && v > 0 {
-			limit = v
-		}
-	}
-
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.logger.Warn("upgrading to websocket", logging.Field{Key: "error", Value: err.Error()})
@@ -625,9 +614,39 @@ func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Try to read config from first WebSocket message
+	var fetchRequest StartFetchJobRequest
+	if err := conn.ReadJSON(&fetchRequest); err != nil {
+		// Fallback to query parameters for backward compatibility
+		status := normalizeEndpointStatus(r.URL.Query().Get("status"))
+		if status == "" {
+			status = "new"
+		}
+		limit := 100
+		if ls := r.URL.Query().Get("limit"); ls != "" {
+			if v, err := strconv.Atoi(ls); err == nil && v > 0 {
+				limit = v
+			}
+		}
+
+		fetchRequest = StartFetchJobRequest{
+			Status: status,
+			Limit:  limit,
+		}
+	}
+
+	// Normalize and apply defaults
+	fetchRequest.Status = normalizeEndpointStatus(fetchRequest.Status)
+	if fetchRequest.Status == "" {
+		fetchRequest.Status = "new"
+	}
+	if fetchRequest.Limit <= 0 {
+		fetchRequest.Limit = 100
+	}
+
 	ctx := r.Context()
 
-	job, err := s.orchestrator.StartFetchJob(ctx, project, site, status, limit)
+	job, err := s.orchestrator.StartFetchJob(ctx, project, site, fetchRequest.Status, fetchRequest.Limit, fetchRequest.Config)
 	if err != nil {
 		s.logger.Warn("starting fetch job", logging.Field{Key: "error", Value: err.Error()})
 		_ = conn.WriteJSON(map[string]string{"error": err.Error()})

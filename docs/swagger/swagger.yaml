@@ -10,6 +10,12 @@ definitions:
       wayback:
         type: object
     type: object
+  api.FetchConfig:
+    properties:
+      concurrency:
+        example: 8
+        type: integer
+    type: object
   app.EndpointDetails:
     properties:
       diff:
@@ -680,6 +686,8 @@ definitions:
     type: object
   server.StartFetchJobRequest:
     properties:
+      config:
+        $ref: '#/definitions/api.FetchConfig'
       limit:
         example: 100
         type: integer

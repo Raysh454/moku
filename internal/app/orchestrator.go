@@ -12,6 +12,7 @@ import (
 	"github.com/raysh454/moku/internal/api"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/enumerator"
+	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/registry"
@@ -264,7 +265,7 @@ func (o *Orchestrator) progressCallback(jobID string) utils.ProgressCallback {
 	}
 }
 
-func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status string, limit int) (*Job, error) {
+func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status string, limit int, cfg *api.FetchConfig) (*Job, error) {
 	o.logger.Info("orchestrator: Starting fetch job", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 	o.closedMu.Lock()
 	closed := o.closed
@@ -296,7 +297,7 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 
 		cb := o.progressCallback(jobID)
 		o.logger.Info("Starting fetch job", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "website", Value: site}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
-		overview, err := o.FetchWebsiteEndpoints(jobCtx, project, site, status, limit, cb)
+		overview, err := o.FetchWebsiteEndpoints(jobCtx, project, site, status, limit, cfg, cb)
 		if err != nil {
 			o.logger.Error("Orchestrator (StartFetchJob): Fetch job failed", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "error", Value: err.Error()})
 			select {
@@ -501,7 +502,6 @@ func (o *Orchestrator) buildEnumerator(cfg api.EnumerationConfig, wc webclient.W
 		wbCfg := &enumerator.WaybackConfig{
 			UseWaybackMachine: cfg.Wayback.UseWaybackMachine,
 			UseCommonCrawl:    cfg.Wayback.UseCommonCrawl,
-			UseVirusTotal:     cfg.Wayback.UseVirusTotal,
 		}
 		enumerators = append(enumerators, enumerator.NewWaybackWithConfig(wc, o.logger, wbCfg))
 		methods = append(methods, "wayback")
@@ -546,7 +546,7 @@ func (o *Orchestrator) ListVersions(ctx context.Context, projectIdentifier, webs
 	return comps.Tracker.ListVersions(ctx, limit)
 }
 
-func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int, cb utils.ProgressCallback) (*assessor.SecurityDiffOverview, error) {
+func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int, cfg *api.FetchConfig, cb utils.ProgressCallback) (*assessor.SecurityDiffOverview, error) {
 	if status == "" {
 		status = "*"
 	}
@@ -561,13 +561,27 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 		return nil, err
 	}
 
+	// Use custom fetcher if config provided
+	fetcher := comps.Fetcher
+	if cfg != nil && cfg.Concurrency > 0 {
+		// Create custom fetcher config
+		fetcherCfg := o.cfg.FetcherCfg
+		fetcherCfg.MaxConcurrency = cfg.Concurrency
+
+		customFetcher, err := o.createCustomFetcher(fetcherCfg, comps)
+		if err != nil {
+			return nil, fmt.Errorf("creating custom fetcher: %w", err)
+		}
+		fetcher = customFetcher
+	}
+
 	headExists, err := comps.Tracker.HEADExists()
 	if err != nil {
 		return nil, err
 	}
 
 	if !headExists {
-		if err := comps.Fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
+		if err := fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -579,7 +593,7 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 	}
 
 	o.logger.Info("Starting fetch of website endpoints", logging.Field{Key: "website_id", Value: web.ID}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit}, logging.Field{Key: "previous_head_id", Value: prevHeadID})
-	if err := comps.Fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
+	if err := fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
 		return nil, err
 	}
 
@@ -593,6 +607,17 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 	}
 
 	return comps.Tracker.GetSecurityDiffOverview(ctx, prevHeadID, newHeadID)
+}
+
+// createCustomFetcher creates a new fetcher with custom configuration
+func (o *Orchestrator) createCustomFetcher(fetcherCfg fetcher.Config, comps *SiteComponents) (*fetcher.Fetcher, error) {
+	return fetcher.New(
+		fetcherCfg,
+		comps.Tracker,
+		comps.WebClient,
+		comps.Index,
+		o.logger,
+	)
 }
 
 type EndpointDetails struct {

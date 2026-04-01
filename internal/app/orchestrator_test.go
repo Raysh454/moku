@@ -190,7 +190,7 @@ func TestStartFetchJob_TransitionsToRunningThenDone(t *testing.T) {
 	injectFakeComponents(t, o, "proj", "site", "https://example.com")
 
 	ctx := context.Background()
-	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10)
+	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10, nil)
 	if err != nil {
 		t.Fatalf("StartFetchJob: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestStartFetchJob_RejectsWhenClosed(t *testing.T) {
 	o := newTestOrchestrator(t)
 	o.Close()
 
-	_, err := o.StartFetchJob(context.Background(), "proj", "site", "new", 10)
+	_, err := o.StartFetchJob(context.Background(), "proj", "site", "new", 10, nil)
 	if err == nil {
 		t.Fatal("expected error from closed orchestrator")
 	}
@@ -232,7 +232,7 @@ func TestStartFetchJob_CancelJobTransitionsToCanceled(t *testing.T) {
 	injectFakeComponents(t, o, "proj", "site", "https://example.com")
 
 	ctx := context.Background()
-	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10)
+	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10, nil)
 	if err != nil {
 		t.Fatalf("StartFetchJob: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestStartFetchJob_AppearsInListJobs(t *testing.T) {
 	injectFakeComponents(t, o, "proj", "site", "https://example.com")
 
 	ctx := context.Background()
-	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10)
+	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10, nil)
 	if err != nil {
 		t.Fatalf("StartFetchJob: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestClose_CancelsRunningJobs(t *testing.T) {
 	injectFakeComponents(t, o, "proj", "site", "https://example.com")
 
 	ctx := context.Background()
-	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10)
+	job, err := o.StartFetchJob(ctx, "proj", "site", "new", 10, nil)
 	if err != nil {
 		t.Fatalf("StartFetchJob: %v", err)
 	}
