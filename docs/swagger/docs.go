@@ -906,17 +906,13 @@ const docTemplate = `{
                 "attack_surface": {
                     "$ref": "#/definitions/attacksurface.AttackSurface"
                 },
+                "change_score": {
+                    "description": "ChangeScore aggregates scored attack surface changes from diffs [0..cap].",
+                    "type": "number"
+                },
                 "confidence": {
                     "description": "Confidence is the assessor's confidence [0.0 .. 1.0] in this result.",
                     "type": "number"
-                },
-                "contrib_by_rule": {
-                    "description": "ContribByRule maps rule IDs to their total contribution to the score.\nThis allows computing rule deltas between versions without re-running the assessor.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "number",
-                        "format": "float64"
-                    }
                 },
                 "evidence": {
                     "description": "Evidence is the list of contributing evidence items.",
@@ -924,6 +920,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/assessor.EvidenceItem"
                     }
+                },
+                "exposure_score": {
+                    "description": "ExposureScore measures how much attack surface the page exposes [0..inf).",
+                    "type": "number"
+                },
+                "hardening_score": {
+                    "description": "HardeningScore measures how well security headers defend the page [0..1].",
+                    "type": "number"
                 },
                 "meta": {
                     "description": "Meta contains any additional metadata about the scoring process.",
@@ -934,16 +938,12 @@ const docTemplate = `{
                     "description": "Normalized is an integer normalized form [0 .. 100] for ease of reporting.",
                     "type": "integer"
                 },
-                "raw_features": {
-                    "description": "RawFeatures contains extracted numeric features (featureName -\u003e value), e.g: \"has_password_field\": 1.0, num_forms: 3.0",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "number",
-                        "format": "float64"
-                    }
+                "posture_score": {
+                    "description": "PostureScore combines exposure and hardening: exposure * (1 - hardening) [0..inf).",
+                    "type": "number"
                 },
                 "score": {
-                    "description": "Score is the normalized internal score range [0.0 .. 1.0].",
+                    "description": "Score is the posture score [0.0 .. 1.0]. Equal to PostureScore.",
                     "type": "number"
                 },
                 "snapshot_id": {
@@ -955,7 +955,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "version": {
-                    "description": "Version identifies the scoring algorithm / heuristics version used.\nThis should map to the assessor's attack surface features version (for auditability).",
+                    "description": "Version identifies the scoring algorithm / heuristics version used.",
                     "type": "string"
                 },
                 "version_id": {
@@ -983,26 +983,11 @@ const docTemplate = `{
                 "base_version_id": {
                     "type": "string"
                 },
-                "feature_deltas": {
-                    "description": "Optional extra detail",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "number",
-                        "format": "float64"
-                    }
-                },
                 "head_snapshot_id": {
                     "type": "string"
                 },
                 "head_version_id": {
                     "type": "string"
-                },
-                "rule_deltas": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "number",
-                        "format": "float64"
-                    }
                 },
                 "score_base": {
                     "description": "Score deltas",
@@ -1149,6 +1134,9 @@ const docTemplate = `{
         "attacksurface.AttackSurfaceChange": {
             "type": "object",
             "properties": {
+                "category": {
+                    "$ref": "#/definitions/attacksurface.ChangeCategory"
+                },
                 "detail": {
                     "description": "human-readable description of the change",
                     "type": "string"
@@ -1162,8 +1150,40 @@ const docTemplate = `{
                 "kind": {
                     "description": "e.g., \"form_added\", \"input_added\", \"header_changed\", \"cookie_changed\", \"script_added\"",
                     "type": "string"
+                },
+                "score": {
+                    "type": "number"
                 }
             }
+        },
+        "attacksurface.ChangeCategory": {
+            "type": "string",
+            "enum": [
+                "upload_surface",
+                "auth_surface",
+                "admin_surface",
+                "security_regression",
+                "cookie_risk",
+                "cookie_regression",
+                "form_surface",
+                "input_surface",
+                "script_surface",
+                "param_surface",
+                "generic"
+            ],
+            "x-enum-varnames": [
+                "CategoryUploadSurface",
+                "CategoryAuthSurface",
+                "CategoryAdminSurface",
+                "CategorySecurityRegression",
+                "CategoryCookieRisk",
+                "CategoryCookieRegression",
+                "CategoryFormSurface",
+                "CategoryInputSurface",
+                "CategoryScriptSurface",
+                "CategoryParamSurface",
+                "CategoryGeneric"
+            ]
         },
         "attacksurface.CookieInfo": {
             "type": "object",
