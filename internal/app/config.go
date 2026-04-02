@@ -20,6 +20,9 @@ type Config struct {
 	// A job will be deleted during cleanup if it exceeds JobRetentionTime.
 	JobRetentionTime time.Duration
 
+	// AnalyzerURL is the base URL of the moku-analyzer service
+	AnalyzerURL string
+
 	// Tracker Configuration
 	trackerCfg tracker.Config
 
@@ -41,6 +44,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		StorageRoot:      "~/.config/moku",
 		JobRetentionTime: 60 * time.Minute,
+		AnalyzerURL:      "http://localhost:8080", // Default moku-analyzer service URL
 		trackerCfg: tracker.Config{
 			RedactSensitiveHeaders:  false,
 			StoragePath:             "",    // Needs to be set! (Website Directory)
