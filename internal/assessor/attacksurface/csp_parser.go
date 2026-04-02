@@ -151,15 +151,6 @@ func containsNone(values []string) bool {
 	return false
 }
 
-func containsSelf(values []string) bool {
-	for _, v := range values {
-		if strings.ToLower(v) == "'self'" {
-			return true
-		}
-	}
-	return false
-}
-
 func containsWildcard(values []string) bool {
 	for _, v := range values {
 		if v == "*" {
