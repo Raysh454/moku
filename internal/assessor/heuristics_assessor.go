@@ -3,7 +3,6 @@ package assessor
 import (
 	"context"
 	"errors"
-	"math"
 	"strings"
 	"time"
 
@@ -37,50 +36,6 @@ func NewHeuristicsAssessor(cfg *Config, logger logging.Logger) (Assessor, error)
 	return inst, nil
 }
 
-func (h *HeuristicsAssessor) scoreUsingAttackSurface(snapshot *models.Snapshot, res *ScoreResult) (*attacksurface.AttackSurface, error) {
-
-	at, err := attacksurface.BuildAttackSurfaceFromHTML(snapshot.URL, snapshot.ID, snapshot.StatusCode, snapshot.Headers, snapshot.Body)
-	if err != nil {
-		h.logger.Warn("failed to build attack surface from html",
-			logging.Field{Key: "err", Value: err},
-			logging.Field{Key: "snapshot_id", Value: snapshot.ID},
-			logging.Field{Key: "url", Value: snapshot.URL},
-		)
-		return nil, err
-	}
-
-	if at != nil {
-		feats := attacksurface.ComputeFeatures(at)
-		res.RawFeatures = feats
-
-		for name, val := range feats {
-			w, ok := attacksurface.FeatureWeights[name]
-			if !ok || val == 0 {
-				continue
-			}
-			contrib := w * val
-
-			locs := []EvidenceLocation{}
-			if h.cfg.ScoreOpts.RequestLocations {
-				locs = buildFeatureLocations(name, at)
-			}
-
-			res.Evidence = append(res.Evidence, EvidenceItem{
-				Key:          name,
-				RuleID:       name,
-				Severity:     attacksurface.SeverityForFeature(name),
-				Description:  attacksurface.DescribeFeature(name),
-				Value:        val,
-				Contribution: contrib,
-				Locations:    locs,
-			})
-			res.ContribByRule[name] += contrib
-		}
-	}
-
-	return at, nil
-}
-
 func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*ScoreResult, error) {
 	if h == nil || h.logger == nil {
 		return nil, errors.New("heuristics-assessor: nil instance or logger")
@@ -88,24 +43,29 @@ func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models
 
 	res := newScoreResult(snapshot, versionID, h.cfg)
 
-	as, err := h.scoreUsingAttackSurface(snapshot, res)
+	as, err := attacksurface.BuildAttackSurfaceFromHTML(snapshot.URL, snapshot.ID, snapshot.StatusCode, snapshot.Headers, snapshot.Body)
 	if err != nil {
-		h.logger.Warn("error during attack surface scoring", logging.Field{Key: "err", Value: err}, logging.Field{Key: "snapshot_id", Value: snapshot.ID})
+		h.logger.Warn("failed to build attack surface from html",
+			logging.Field{Key: "err", Value: err},
+			logging.Field{Key: "snapshot_id", Value: snapshot.ID},
+			logging.Field{Key: "url", Value: snapshot.URL},
+		)
+		return res, nil
 	}
+
 	res.AttackSurface = as
 
-	h.computeScore(res)
+	if as != nil {
+		res.ExposureScore = attacksurface.ComputeExposureScore(as, &h.cfg.Saturation)
+		res.HardeningScore = attacksurface.ComputeHardeningScore(as.Headers)
+		res.PostureScore = ComputePostureScore(res.ExposureScore, res.HardeningScore)
+		res.Score = res.PostureScore
+		res.Normalized = int(res.Score * 100.0)
+
+		res.Evidence = buildEvidenceFromAttackSurface(as, h.cfg.ScoreOpts.RequestLocations)
+	}
 
 	return res, nil
-}
-
-func (*HeuristicsAssessor) computeScore(res *ScoreResult) {
-	var totalContrib float64
-	for _, contrib := range res.ContribByRule {
-		totalContrib += contrib
-	}
-	res.Score = normalizeScore(totalContrib)
-	res.Normalized = int(res.Score * 100.0)
 }
 
 func (h *HeuristicsAssessor) Close() error {
@@ -118,163 +78,132 @@ func (h *HeuristicsAssessor) Close() error {
 
 func newScoreResult(snapshot *models.Snapshot, versionID string, cfg *Config) *ScoreResult {
 	return &ScoreResult{
-		Score:         0.0,
-		SnapshotID:    snapshot.ID,
-		VersionID:     versionID,
-		Normalized:    0,
-		Confidence:    cfg.DefaultConfidence,
-		Version:       cfg.ScoringVersion,
-		Evidence:      []EvidenceItem{},
-		RawFeatures:   map[string]float64{},
-		ContribByRule: map[string]float64{},
-		Meta:          map[string]any{"snapshot_id": snapshot.ID, "url": snapshot.URL},
-		Timestamp:     time.Now().UTC(),
+		Score:      0.0,
+		SnapshotID: snapshot.ID,
+		VersionID:  versionID,
+		Normalized: 0,
+		Confidence: cfg.DefaultConfidence,
+		Version:    cfg.ScoringVersion,
+		Evidence:   []EvidenceItem{},
+		Meta:       map[string]any{"snapshot_id": snapshot.ID, "url": snapshot.URL},
+		Timestamp:  time.Now().UTC(),
 	}
 }
 
-func buildFeatureLocations(featureName string, as *attacksurface.AttackSurface) []EvidenceLocation {
-	if as == nil {
-		return nil
+func buildEvidenceFromAttackSurface(as *attacksurface.AttackSurface, withLocations bool) []EvidenceItem {
+	var evidence []EvidenceItem
+
+	// Forms
+	for _, form := range as.Forms {
+		action := strings.ToLower(form.Action)
+		var key, desc, severity string
+		switch {
+		case strings.Contains(action, "admin") || strings.Contains(action, "/admin"):
+			key, desc, severity = "admin_form", "Page contains forms targeting admin-like paths", "high"
+		case strings.Contains(action, "login") || strings.Contains(action, "signin") || strings.Contains(action, "auth"):
+			key, desc, severity = "auth_form", "Page contains login/authentication forms", "medium"
+		case strings.Contains(action, "upload") || strings.Contains(action, "/upload") || strings.Contains(action, "file"):
+			key, desc, severity = "upload_form", "Page contains forms targeting upload endpoints", "high"
+		default:
+			key, desc, severity = "form", "HTML form on the page", "low"
+		}
+		score := attacksurface.ElementScores["form_"+key[0:0]]
+		if s, ok := attacksurface.ElementScores[key]; ok {
+			score = s
+		}
+		ev := EvidenceItem{Key: key, RuleID: key, Severity: severity, Description: desc, Contribution: score}
+		if withLocations {
+			idx := form.DOMIndex
+			ev.Locations = []EvidenceLocation{{Type: "form", SnapshotID: as.SnapshotID, DOMIndex: &idx}}
+		}
+		evidence = append(evidence, ev)
 	}
 
-	switch featureName {
-
-	case "csp_missing", "csp_unsafe_inline", "csp_unsafe_eval":
-		return []EvidenceLocation{{
-			Type:       "header",
-			HeaderName: "content-security-policy",
-			SnapshotID: as.SnapshotID,
-		}}
-
-	case "xfo_missing":
-		return []EvidenceLocation{{
-			Type:       "header",
-			HeaderName: "x-frame-options",
-			SnapshotID: as.SnapshotID,
-		}}
-
-	case "xcto_missing":
-		return []EvidenceLocation{{
-			Type:       "header",
-			HeaderName: "x-content-type-options",
-			SnapshotID: as.SnapshotID,
-		}}
-
-	case "hsts_missing":
-		return []EvidenceLocation{{
-			Type:       "header",
-			HeaderName: "strict-transport-security",
-			SnapshotID: as.SnapshotID,
-		}}
-
-	case "referrer_policy_missing":
-		return []EvidenceLocation{{
-			Type:       "header",
-			HeaderName: "referrer-policy",
-			SnapshotID: as.SnapshotID,
-		}}
-
-	case "has_session_cookie_no_httponly":
-		for _, c := range as.Cookies {
-			if strings.Contains(strings.ToLower(c.Name), "session") && !c.HttpOnly {
-				return []EvidenceLocation{{
-					Type:       "cookie",
-					CookieName: c.Name,
-					SnapshotID: as.SnapshotID,
-				}}
+	// Inputs
+	for _, form := range as.Forms {
+		for _, in := range form.Inputs {
+			t := strings.ToLower(in.Type)
+			var key, desc, severity string
+			var score float64
+			switch t {
+			case "file":
+				key, desc, severity = "input_file", "Page exposes file upload functionality", "high"
+				score = attacksurface.ElementScores["input_file"]
+			case "password":
+				key, desc, severity = "input_password", "Page contains password input fields", "high"
+				score = attacksurface.ElementScores["input_password"]
+			default:
+				continue
 			}
-		}
-		return nil
-
-	case "num_cookies_missing_httponly":
-		var locs []EvidenceLocation
-		for _, c := range as.Cookies {
-			if !c.HttpOnly {
-				locs = append(locs, EvidenceLocation{
-					Type:       "cookie",
-					CookieName: c.Name,
-					SnapshotID: as.SnapshotID,
-				})
+			ev := EvidenceItem{Key: key, RuleID: key, Severity: severity, Description: desc, Contribution: score}
+			if withLocations {
+				fIdx := form.DOMIndex
+				iIdx := in.DOMIndex
+				ev.Locations = []EvidenceLocation{{Type: "input", SnapshotID: as.SnapshotID, ParentDOMIndex: &fIdx, DOMIndex: &iIdx}}
 			}
+			evidence = append(evidence, ev)
 		}
-		return locs
-
-	case "num_cookies_missing_secure":
-		var locs []EvidenceLocation
-		for _, c := range as.Cookies {
-			if !c.Secure {
-				locs = append(locs, EvidenceLocation{
-					Type:       "cookie",
-					CookieName: c.Name,
-					SnapshotID: as.SnapshotID,
-				})
-			}
-		}
-		return locs
-
-	case "has_file_upload", "num_file_inputs":
-		var locs []EvidenceLocation
-		for _, f := range as.Forms {
-			for _, in := range f.Inputs {
-				if strings.EqualFold(in.Type, "file") {
-					fIdx := f.DOMIndex
-					iIdx := in.DOMIndex
-					locs = append(locs, EvidenceLocation{
-						Type:           "input",
-						SnapshotID:     as.SnapshotID,
-						ParentDOMIndex: &fIdx,
-						DOMIndex:       &iIdx,
-					})
-				}
-			}
-		}
-		return locs
-
-	case "has_password_input", "num_password_inputs":
-		var locs []EvidenceLocation
-		for _, f := range as.Forms {
-			for _, in := range f.Inputs {
-				if strings.EqualFold(in.Type, "password") {
-					fIdx := f.DOMIndex
-					iIdx := in.DOMIndex
-					locs = append(locs, EvidenceLocation{
-						Type:           "input",
-						SnapshotID:     as.SnapshotID,
-						ParentDOMIndex: &fIdx,
-						DOMIndex:       &iIdx,
-					})
-				}
-			}
-		}
-		return locs
-
-	case "has_admin_form", "has_auth_form", "has_upload_form":
-		var locs []EvidenceLocation
-		for _, f := range as.Forms {
-			fIdx := f.DOMIndex
-			locs = append(locs, EvidenceLocation{
-				Type:       "form",
-				SnapshotID: as.SnapshotID,
-				DOMIndex:   &fIdx,
-			})
-		}
-		return locs
-
-	case "has_admin_param", "has_upload_param", "has_debug_param", "has_id_param", "num_suspicious_params":
-		return []EvidenceLocation{{
-			Type:       "param",
-			SnapshotID: as.SnapshotID,
-		}}
-
-	default:
-		return nil
 	}
-}
 
-func normalizeScore(rawScore float64) float64 {
-	if rawScore <= 0 {
-		return 0.0
+	// Cookies
+	for _, c := range as.Cookies {
+		if strings.Contains(strings.ToLower(c.Name), "session") && !c.HttpOnly {
+			ev := EvidenceItem{
+				Key: "session_cookie_no_httponly", RuleID: "session_cookie_no_httponly",
+				Severity: "high", Description: "Session-like cookie missing HttpOnly flag",
+				Contribution: attacksurface.ElementScores["cookie_session"],
+			}
+			if withLocations {
+				ev.Locations = []EvidenceLocation{{Type: "cookie", CookieName: c.Name, SnapshotID: as.SnapshotID}}
+			}
+			evidence = append(evidence, ev)
+		}
+		if !c.HttpOnly {
+			ev := EvidenceItem{
+				Key: "cookie_no_httponly", RuleID: "cookie_no_httponly",
+				Severity: "medium", Description: "Cookie missing the HttpOnly flag",
+				Contribution: attacksurface.ElementScores["cookie_no_httponly"],
+			}
+			if withLocations {
+				ev.Locations = []EvidenceLocation{{Type: "cookie", CookieName: c.Name, SnapshotID: as.SnapshotID}}
+			}
+			evidence = append(evidence, ev)
+		}
+		if !c.Secure {
+			ev := EvidenceItem{
+				Key: "cookie_no_secure", RuleID: "cookie_no_secure",
+				Severity: "medium", Description: "Cookie missing the Secure flag",
+				Contribution: attacksurface.ElementScores["cookie_no_secure"],
+			}
+			if withLocations {
+				ev.Locations = []EvidenceLocation{{Type: "cookie", CookieName: c.Name, SnapshotID: as.SnapshotID}}
+			}
+			evidence = append(evidence, ev)
+		}
 	}
-	k := 3.0
-	return 1.0 - math.Exp(-k*rawScore)
+
+	// Security headers
+	headerChecks := []struct {
+		name     string
+		key      string
+		desc     string
+		severity string
+	}{
+		{"content-security-policy", "csp_missing", "Content-Security-Policy header is missing", "high"},
+		{"strict-transport-security", "hsts_missing", "Strict-Transport-Security header is missing", "medium"},
+		{"x-frame-options", "xfo_missing", "X-Frame-Options header is missing", "medium"},
+		{"x-content-type-options", "xcto_missing", "X-Content-Type-Options header is missing", "low"},
+		{"referrer-policy", "referrer_policy_missing", "Referrer-Policy header is missing", "low"},
+	}
+	for _, check := range headerChecks {
+		if _, ok := as.Headers[check.name]; !ok {
+			ev := EvidenceItem{Key: check.key, RuleID: check.key, Severity: check.severity, Description: check.desc}
+			if withLocations {
+				ev.Locations = []EvidenceLocation{{Type: "header", HeaderName: check.name, SnapshotID: as.SnapshotID}}
+			}
+			evidence = append(evidence, ev)
+		}
+	}
+
+	return evidence
 }

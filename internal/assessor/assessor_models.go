@@ -92,7 +92,7 @@ type EvidenceItem struct {
 }
 
 type ScoreResult struct {
-	// Score is the normalized internal score range [0.0 .. 1.0].
+	// Score is the posture score [0.0 .. 1.0]. Equal to PostureScore.
 	Score float64 `json:"score"`
 
 	// SnapshotID is the snapshot this score applies to.
@@ -108,7 +108,6 @@ type ScoreResult struct {
 	Confidence float64 `json:"confidence"`
 
 	// Version identifies the scoring algorithm / heuristics version used.
-	// This should map to the assessor's attack surface features version (for auditability).
 	Version string `json:"version"`
 
 	// Evidence is the list of contributing evidence items.
@@ -117,17 +116,28 @@ type ScoreResult struct {
 	// Meta contains any additional metadata about the scoring process.
 	Meta map[string]any `json:"meta,omitempty"`
 
-	// RawFeatures contains extracted numeric features (featureName -> value), e.g: "has_password_field": 1.0, num_forms: 3.0
-	RawFeatures map[string]float64 `json:"raw_features,omitempty"`
+	// ExposureScore measures how much attack surface the page exposes [0..inf).
+	ExposureScore float64 `json:"exposure_score"`
 
-	// ContribByRule maps rule IDs to their total contribution to the score.
-	// This allows computing rule deltas between versions without re-running the assessor.
-	ContribByRule map[string]float64 `json:"contrib_by_rule,omitempty"`
+	// HardeningScore measures how well security headers defend the page [0..1].
+	HardeningScore float64 `json:"hardening_score"`
+
+	// PostureScore combines exposure and hardening: exposure * (1 - hardening) [0..inf).
+	PostureScore float64 `json:"posture_score"`
+
+	// ChangeScore aggregates scored attack surface changes from diffs [0..cap].
+	ChangeScore float64 `json:"change_score"`
 
 	// Timestamp is the time when this ScoreResult was produced.
 	Timestamp time.Time `json:"timestamp"`
 
 	AttackSurface *attacksurface.AttackSurface `json:"attack_surface,omitempty"`
+}
+
+// ComputePostureScore computes the posture score from exposure and hardening.
+// PostureScore = Exposure * (1 - Hardening)
+func ComputePostureScore(exposure, hardening float64) float64 {
+	return exposure * (1.0 - hardening)
 }
 
 // ScoreOptions control scoring behavior and the shape of returned evidence.
@@ -147,12 +157,9 @@ type ScoreDiff struct {
 	ScoreHead  float64 `json:"score_head"`
 	ScoreDelta float64 `json:"score_delta"`
 
-	// FeatureDeltas: feature -> (head - base)
-	FeatureDeltas map[string]float64 `json:"feature_deltas"`
-
-	// RuleDeltas: rule/feature id -> (headContrib - baseContrib)
-	// In your current design, rule id == feature name for AttackSurface features.
-	RuleDeltas map[string]float64 `json:"rule_deltas"`
+	ExposureDelta    float64 `json:"exposure_delta"`
+	HardeningDelta   float64 `json:"hardening_delta"`
+	ChangeScoreDelta float64 `json:"change_score_delta"`
 }
 
 // Tells us exactly what changed and why between two security snapshots.
@@ -168,9 +175,6 @@ type SecurityDiff struct {
 	ScoreBase  float64 `json:"score_base"`
 	ScoreHead  float64 `json:"score_head"`
 	ScoreDelta float64 `json:"score_delta"`
-	// Optional extra detail
-	FeatureDeltas map[string]float64 `json:"feature_deltas,omitempty"`
-	RuleDeltas    map[string]float64 `json:"rule_deltas,omitempty"`
 
 	// Attack surface deltas
 	AttackSurfaceChanged bool                                `json:"attack_surface_changed"`

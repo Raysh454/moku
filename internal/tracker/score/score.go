@@ -74,13 +74,7 @@ func (scoreTracker *SQLiteScoreTracker) attributeScore(ctx context.Context, scor
 		metaJSON = []byte("{}")
 	}
 
-	rawFeaturesJSON, err := json.Marshal(scoreResult.RawFeatures)
-	if err != nil {
-		if scoreTracker.logger != nil {
-			scoreTracker.logger.Warn("failed to marshal raw features", logging.Field{Key: "err", Value: err})
-		}
-		rawFeaturesJSON = []byte("{}")
-	}
+	rawFeaturesJSON := []byte("{}")
 
 	tx, err := scoreTracker.db.BeginTx(ctx, nil)
 	if err != nil {

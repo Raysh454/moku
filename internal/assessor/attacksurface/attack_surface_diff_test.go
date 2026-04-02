@@ -209,6 +209,155 @@ func TestDiffAttackSurfaces_SecurityHeaderChanged(t *testing.T) {
 	}
 }
 
+func TestDiffAttackSurfaces_CookieHttpOnlyRemoved(t *testing.T) {
+	base := &AttackSurface{
+		Cookies: []CookieInfo{
+			{Name: "session", HttpOnly: true, Secure: true},
+		},
+	}
+	head := &AttackSurface{
+		Cookies: []CookieInfo{
+			{Name: "session", HttpOnly: false, Secure: true},
+		},
+	}
+
+	changes := DiffAttackSurfaces(base, head)
+	found := false
+	for _, c := range changes {
+		if c.Kind == "cookie_httponly_removed" {
+			found = true
+			if c.Category != CategoryCookieRegression {
+				t.Errorf("expected CategoryCookieRegression, got %q", c.Category)
+			}
+			if c.Score == 0 {
+				t.Error("expected non-zero score for cookie_httponly_removed")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected cookie_httponly_removed change")
+	}
+}
+
+func TestDiffAttackSurfaces_CookieSecureRemoved(t *testing.T) {
+	base := &AttackSurface{
+		Cookies: []CookieInfo{
+			{Name: "token", Secure: true, HttpOnly: true},
+		},
+	}
+	head := &AttackSurface{
+		Cookies: []CookieInfo{
+			{Name: "token", Secure: false, HttpOnly: true},
+		},
+	}
+
+	changes := DiffAttackSurfaces(base, head)
+	found := false
+	for _, c := range changes {
+		if c.Kind == "cookie_secure_removed" {
+			found = true
+			if c.Category != CategoryCookieRegression {
+				t.Errorf("expected CategoryCookieRegression, got %q", c.Category)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected cookie_secure_removed change")
+	}
+}
+
+func TestDiffAttackSurfaces_CookieSameSiteWeakened(t *testing.T) {
+	base := &AttackSurface{
+		Cookies: []CookieInfo{
+			{Name: "csrf", SameSite: "Strict", HttpOnly: true, Secure: true},
+		},
+	}
+	head := &AttackSurface{
+		Cookies: []CookieInfo{
+			{Name: "csrf", SameSite: "Lax", HttpOnly: true, Secure: true},
+		},
+	}
+
+	changes := DiffAttackSurfaces(base, head)
+	found := false
+	for _, c := range changes {
+		if c.Kind == "cookie_samesite_weakened" {
+			found = true
+			if c.Category != CategoryCookieRegression {
+				t.Errorf("expected CategoryCookieRegression, got %q", c.Category)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected cookie_samesite_weakened change")
+	}
+}
+
+func TestDiffAttackSurfaces_AdminFormAdded_ClassifiedAsAdmin(t *testing.T) {
+	base := &AttackSurface{Forms: []Form{}}
+	head := &AttackSurface{
+		Forms: []Form{{Action: "/admin/settings", Method: "POST"}},
+	}
+
+	changes := DiffAttackSurfaces(base, head)
+	found := false
+	for _, c := range changes {
+		if c.Kind == "form_added" && c.Category == CategoryAdminSurface {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected form_added with CategoryAdminSurface")
+	}
+}
+
+func TestDiffAttackSurfaces_FileInputAdded_ClassifiedAsUpload(t *testing.T) {
+	base := &AttackSurface{
+		Forms: []Form{{Action: "/submit", Method: "POST", Inputs: []FormInput{
+			{Name: "name", Type: "text"},
+		}}},
+	}
+	head := &AttackSurface{
+		Forms: []Form{{Action: "/submit", Method: "POST", Inputs: []FormInput{
+			{Name: "name", Type: "text"},
+			{Name: "attachment", Type: "file"},
+		}}},
+	}
+
+	changes := DiffAttackSurfaces(base, head)
+	found := false
+	for _, c := range changes {
+		if c.Kind == "input_added" && c.Category == CategoryUploadSurface {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected input_added with CategoryUploadSurface for file input")
+	}
+}
+
+func TestDiffAttackSurfaces_AllChangesHaveCategoryAndScore(t *testing.T) {
+	base := &AttackSurface{
+		Forms: []Form{{Action: "/old", Method: "POST"}},
+		Headers: map[string][]string{
+			"content-security-policy": {"default-src 'self'"},
+		},
+	}
+	head := &AttackSurface{
+		Forms: []Form{{Action: "/new", Method: "POST"}},
+		Headers: map[string][]string{
+			"content-security-policy": {"default-src 'self'; script-src 'unsafe-inline'"},
+		},
+	}
+
+	changes := DiffAttackSurfaces(base, head)
+	for _, c := range changes {
+		if c.Category == "" {
+			t.Errorf("change %q has empty category", c.Kind)
+		}
+	}
+}
+
 func TestDiffAttackSurfaces_MultipleChanges(t *testing.T) {
 	base := &AttackSurface{
 		Forms: []Form{
