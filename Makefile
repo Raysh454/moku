@@ -80,7 +80,7 @@ test-race:
 ifeq ($(GOOS),windows)
 	@echo "==> race detector is not supported on Windows; skipping"
 else
-	$(GOTEST) -race ./... -v
+	SKIP_CHROMEDP=1 $(GOTEST) -race ./... -v
 endif
 
 # Run tests for a single package: make test-pkg PKG=./internal/webclient
@@ -124,7 +124,7 @@ endif
 coverage:
 	@echo "==> running tests with coverage"
 	@$(MKDIR_TEST_RESULTS)
-	$(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
+	SKIP_CHROMEDP=1 $(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
 	@echo "==> coverage summary"
 	@$(COVERAGE_SUMMARY)
 
