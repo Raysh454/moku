@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,12 @@ func (n *chromedpNoopLogger) With(fields ...logging.Field) logging.Logger {
 
 func mustCreateChromedpClient(t *testing.T) webclient.WebClient {
 	t.Helper()
+
+	// Skip ChromeDP tests in CI environments or when SKIP_CHROMEDP is set
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("SKIP_CHROMEDP") != "" {
+		t.Skip("Skipping ChromeDP tests in CI environment")
+	}
+
 	cfg := webclient.Config{Client: webclient.ClientChromedp}
 	logger := &chromedpNoopLogger{}
 

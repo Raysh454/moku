@@ -27,18 +27,26 @@ type ChromeDPClient struct {
 func NewChromedpClient(cfg Config, logger logging.Logger) (WebClient, error) {
 	componentLogger := logger.With(logging.Field{Key: "backend", Value: "chromedp"})
 
-	ctx, cancel := chromedp.NewContext(context.Background())
+	// Add a timeout context to prevent hanging in CI environments
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer startupCancel()
 
-	if err := chromedp.Run(ctx); err != nil {
-		cancel()
-		return nil, fmt.Errorf("starting chromedp: %w", err)
+	testCtx, testCancel := chromedp.NewContext(startupCtx)
+	defer testCancel()
+
+	// Test that Chrome is available by enabling the network domain
+	if err := chromedp.Run(testCtx, network.Enable()); err != nil {
+		return nil, fmt.Errorf("starting chromedp (timeout after 10s): %w", err)
 	}
 
 	componentLogger.Info("created chromedp webclient")
 
+	// Create a new context without timeout for normal operation
+	operationalCtx, operationalCancel := chromedp.NewContext(context.Background())
+
 	return &ChromeDPClient{
-		baseCtx:     ctx,
-		cancel:      cancel,
+		baseCtx:     operationalCtx,
+		cancel:      operationalCancel,
 		idleTimeout: 2 * time.Second,
 		logger:      componentLogger,
 	}, nil
