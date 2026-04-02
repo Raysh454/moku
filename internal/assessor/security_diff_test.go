@@ -8,14 +8,14 @@ import (
 
 func TestNewSecurityDiff_PropagatesScoresAndChanges(t *testing.T) {
 	baseScore := &ScoreResult{
-		Score:         0.2,
-		RawFeatures:   map[string]float64{"a": 1},
-		ContribByRule: map[string]float64{"a": 0.1},
+		Score:          0.2,
+		ExposureScore:  0.4,
+		HardeningScore: 0.5,
 	}
 	headScore := &ScoreResult{
-		Score:         0.5,
-		RawFeatures:   map[string]float64{"a": 2},
-		ContribByRule: map[string]float64{"a": 0.3},
+		Score:          0.5,
+		ExposureScore:  0.8,
+		HardeningScore: 0.3,
 	}
 
 	baseAS := &attacksurface.AttackSurface{
@@ -35,12 +35,6 @@ func TestNewSecurityDiff_PropagatesScoresAndChanges(t *testing.T) {
 	}
 	if d.ScoreBase != 0.2 || d.ScoreHead != 0.5 || d.ScoreDelta != 0.3 {
 		t.Errorf("unexpected scores: base=%v head=%v delta=%v", d.ScoreBase, d.ScoreHead, d.ScoreDelta)
-	}
-	if len(d.FeatureDeltas) == 0 {
-		t.Errorf("expected non-empty FeatureDeltas, got %v", d.FeatureDeltas)
-	}
-	if len(d.RuleDeltas) == 0 {
-		t.Errorf("expected non-empty RuleDeltas, got %v", d.RuleDeltas)
 	}
 	if !d.AttackSurfaceChanged || len(d.AttackSurfaceChanges) == 0 {
 		t.Errorf("expected attack surface changes to be reported, got changed=%v changes=%v", d.AttackSurfaceChanged, d.AttackSurfaceChanges)

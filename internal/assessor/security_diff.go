@@ -30,11 +30,9 @@ func NewSecurityDiff(
 		BaseSnapshotID: baseSnapshotID,
 		HeadSnapshotID: headSnapshotID,
 
-		ScoreBase:     scoreDiff.ScoreBase,
-		ScoreHead:     scoreDiff.ScoreHead,
-		ScoreDelta:    scoreDiff.ScoreDelta,
-		FeatureDeltas: scoreDiff.FeatureDeltas,
-		RuleDeltas:    scoreDiff.RuleDeltas,
+		ScoreBase:  scoreDiff.ScoreBase,
+		ScoreHead:  scoreDiff.ScoreHead,
+		ScoreDelta: scoreDiff.ScoreDelta,
 
 		AttackSurfaceChanged: len(asChanges) > 0,
 		AttackSurfaceChanges: asChanges,
@@ -50,7 +48,6 @@ func NewSecurityDiffOverview(diffs []*SecurityDiff) *SecurityDiffOverview {
 		return ov
 	}
 
-	// You can copy version IDs from the first diff if needed
 	ov.BaseVersionID = diffs[0].BaseVersionID
 	ov.HeadVersionID = diffs[0].HeadVersionID
 

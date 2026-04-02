@@ -1,6 +1,8 @@
 package assessor
 
-// Config holds runtime settings for the assessor. Keep small initially.
+import "github.com/raysh454/moku/internal/assessor/attacksurface"
+
+// Config holds runtime settings for the assessor.
 type Config struct {
 	// ScoringVersion allows safe evolution of scoring logic.
 	ScoringVersion string `json:"scoring_version"`
@@ -9,4 +11,10 @@ type Config struct {
 	DefaultConfidence float64 `json:"default_confidence"`
 
 	ScoreOpts ScoreOptions
+
+	// Saturation controls element count capping for exposure scoring.
+	Saturation attacksurface.SaturationConfig `json:"saturation"`
+
+	// ChangeScoreCap caps the sum of change scores (default 1.0).
+	ChangeScoreCap float64 `json:"change_score_cap"`
 }
