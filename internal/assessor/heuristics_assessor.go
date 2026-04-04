@@ -58,8 +58,7 @@ func (h *HeuristicsAssessor) ScoreSnapshot(ctx context.Context, snapshot *models
 	if as != nil {
 		res.ExposureScore = attacksurface.ComputeExposureScore(as, &h.cfg.Saturation)
 		res.HardeningScore = attacksurface.ComputeHardeningScore(as.Headers)
-		res.PostureScore = ComputePostureScore(res.ExposureScore, res.HardeningScore)
-		res.Score = res.PostureScore
+		res.Score = ComputeScore(res.ExposureScore, res.HardeningScore)
 		res.Normalized = int(res.Score * 100.0)
 
 		res.Evidence = buildEvidenceFromAttackSurface(as, h.cfg.ScoreOpts.RequestLocations)

@@ -92,7 +92,7 @@ type EvidenceItem struct {
 }
 
 type ScoreResult struct {
-	// Score is the posture score [0.0 .. 1.0]. Equal to PostureScore.
+	// Score combines exposure and hardening: exposure * (1 - hardening) [0..inf).
 	Score float64 `json:"score"`
 
 	// SnapshotID is the snapshot this score applies to.
@@ -122,21 +122,15 @@ type ScoreResult struct {
 	// HardeningScore measures how well security headers defend the page [0..1].
 	HardeningScore float64 `json:"hardening_score"`
 
-	// PostureScore combines exposure and hardening: exposure * (1 - hardening) [0..inf).
-	PostureScore float64 `json:"posture_score"`
-
-	// ChangeScore aggregates scored attack surface changes from diffs [0..cap].
-	ChangeScore float64 `json:"change_score"`
-
 	// Timestamp is the time when this ScoreResult was produced.
 	Timestamp time.Time `json:"timestamp"`
 
 	AttackSurface *attacksurface.AttackSurface `json:"attack_surface,omitempty"`
 }
 
-// ComputePostureScore computes the posture score from exposure and hardening.
-// PostureScore = Exposure * (1 - Hardening)
-func ComputePostureScore(exposure, hardening float64) float64 {
+// ComputeScore computes the score from exposure and hardening.
+// Score = Exposure * (1 - Hardening)
+func ComputeScore(exposure, hardening float64) float64 {
 	return exposure * (1.0 - hardening)
 }
 
@@ -157,9 +151,8 @@ type ScoreDiff struct {
 	ScoreHead  float64 `json:"score_head"`
 	ScoreDelta float64 `json:"score_delta"`
 
-	ExposureDelta    float64 `json:"exposure_delta"`
-	HardeningDelta   float64 `json:"hardening_delta"`
-	ChangeScoreDelta float64 `json:"change_score_delta"`
+	ExposureDelta  float64 `json:"exposure_delta"`
+	HardeningDelta float64 `json:"hardening_delta"`
 }
 
 // Tells us exactly what changed and why between two security snapshots.

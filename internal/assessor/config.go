@@ -14,7 +14,4 @@ type Config struct {
 
 	// Saturation controls element count capping for exposure scoring.
 	Saturation attacksurface.SaturationConfig `json:"saturation"`
-
-	// ChangeScoreCap caps the sum of change scores (default 1.0).
-	ChangeScoreCap float64 `json:"change_score_cap"`
 }

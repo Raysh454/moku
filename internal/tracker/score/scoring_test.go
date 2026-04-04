@@ -406,7 +406,6 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
 		Version:        "v-test",
 		ExposureScore:  0.3,
 		HardeningScore: 0.1,
-		PostureScore:   0.2,
 		AttackSurface: &attacksurface.AttackSurface{
 			URL:             url,
 			SnapshotID:      baseSnapshotID,
@@ -424,7 +423,6 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
 		Version:        "v-test",
 		ExposureScore:  0.9,
 		HardeningScore: 0.1,
-		PostureScore:   0.8,
 		AttackSurface: &attacksurface.AttackSurface{
 			URL:             url,
 			SnapshotID:      headSnapshotID,
@@ -594,7 +592,6 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs(t *testing.T) {
 		Version:        "v-test",
 		ExposureScore:  0.3,
 		HardeningScore: 0.1,
-		PostureScore:   0.2,
 		AttackSurface: &attacksurface.AttackSurface{
 			URL:             url,
 			SnapshotID:      baseSnapshotID,
@@ -612,7 +609,6 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs(t *testing.T) {
 		Version:        "v-test",
 		ExposureScore:  0.9,
 		HardeningScore: 0.1,
-		PostureScore:   0.8,
 		AttackSurface: &attacksurface.AttackSurface{
 			URL:             url,
 			SnapshotID:      headSnapshotID,

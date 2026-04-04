@@ -895,10 +895,6 @@
                 "attack_surface": {
                     "$ref": "#/definitions/attacksurface.AttackSurface"
                 },
-                "change_score": {
-                    "description": "ChangeScore aggregates scored attack surface changes from diffs [0..cap].",
-                    "type": "number"
-                },
                 "confidence": {
                     "description": "Confidence is the assessor's confidence [0.0 .. 1.0] in this result.",
                     "type": "number"
@@ -927,12 +923,8 @@
                     "description": "Normalized is an integer normalized form [0 .. 100] for ease of reporting.",
                     "type": "integer"
                 },
-                "posture_score": {
-                    "description": "PostureScore combines exposure and hardening: exposure * (1 - hardening) [0..inf).",
-                    "type": "number"
-                },
                 "score": {
-                    "description": "Score is the posture score [0.0 .. 1.0]. Equal to PostureScore.",
+                    "description": "Score combines exposure and hardening: exposure * (1 - hardening) [0..inf).",
                     "type": "number"
                 },
                 "snapshot_id": {
