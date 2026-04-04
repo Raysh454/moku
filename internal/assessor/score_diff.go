@@ -12,11 +12,10 @@ func DiffScores(base, head *ScoreResult) *ScoreDiff {
 	}
 
 	return &ScoreDiff{
-		ScoreBase:        base.Score,
-		ScoreHead:        head.Score,
-		ScoreDelta:       head.Score - base.Score,
-		ExposureDelta:    head.ExposureScore - base.ExposureScore,
-		HardeningDelta:   head.HardeningScore - base.HardeningScore,
-		ChangeScoreDelta: head.ChangeScore - base.ChangeScore,
+		ScoreBase:      base.Score,
+		ScoreHead:      head.Score,
+		ScoreDelta:     head.Score - base.Score,
+		ExposureDelta:  head.ExposureScore - base.ExposureScore,
+		HardeningDelta: head.HardeningScore - base.HardeningScore,
 	}
 }

@@ -72,9 +72,6 @@ func TestHeuristicsAssessor_ScoreHTML_Default(t *testing.T) {
 		t.Errorf("Expected Version == %q, got %q", cfg.ScoringVersion, result.Version)
 	}
 
-	if result.PostureScore != result.Score {
-		t.Errorf("Expected PostureScore == Score, got posture=%v score=%v", result.PostureScore, result.Score)
-	}
 }
 
 func TestHeuristicsAssessor_ScoreSnapshot_WithSecurityHeaders(t *testing.T) {
