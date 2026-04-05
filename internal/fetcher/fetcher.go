@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/raysh454/moku/internal/filter"
 	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker"
@@ -25,6 +26,12 @@ type Fetcher struct {
 	logger  logging.Logger
 }
 
+// filteredURL holds a URL that was filtered along with its reason
+type filteredURL struct {
+	URL    string
+	Reason string
+}
+
 // New creates a new Fetcher with the given webclient, logger and tracker
 func New(cfg Config, tracker tracker.Tracker, wc webclient.WebClient, indexer indexer.EndpointIndex, logger logging.Logger) (*Fetcher, error) {
 	return &Fetcher{
@@ -39,12 +46,30 @@ func New(cfg Config, tracker tracker.Tracker, wc webclient.WebClient, indexer in
 // FetchFromIndex fetches endpoints from the index by status, updates their status,
 // commits snapshots, and returns whatever you need (e.g., created version IDs).
 func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int, cb utils.ProgressCallback) error {
+	return f.FetchFromIndexWithOptions(ctx, status, limit, nil, cb)
+}
+
+// FetchFromIndexWithOptions fetches endpoints from the index with optional filtering.
+// If opts is nil or opts.FilterConfig is nil, no filtering is applied.
+func (f *Fetcher) FetchFromIndexWithOptions(ctx context.Context, status string, limit int, opts *FetchOptions, cb utils.ProgressCallback) error {
 	if f.indexer == nil {
 		return fmt.Errorf("fetcher: index is nil")
 	}
 
-	f.logger.Info("fetcher: listing endpoints from index", logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
-	eps, err := f.indexer.ListEndpoints(ctx, status, limit)
+	f.logger.Info("fetcher: listing endpoints from index",
+		logging.Field{Key: "status", Value: status},
+		logging.Field{Key: "limit", Value: limit},
+		logging.Field{Key: "filtering", Value: opts != nil && opts.FilterConfig != nil})
+
+	var eps []indexer.Endpoint
+	var err error
+
+	// Use filtered listing if filter config provided
+	if opts != nil && opts.FilterConfig != nil {
+		eps, err = f.indexer.ListEndpointsFiltered(ctx, status, limit, opts.FilterConfig)
+	} else {
+		eps, err = f.indexer.ListEndpoints(ctx, status, limit)
+	}
 	if err != nil {
 		return err
 	}
@@ -60,7 +85,9 @@ func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int, 
 	}
 
 	f.logger.Info("starting fetch for endpoints", logging.Field{Key: "count", Value: len(urls)})
-	f.Fetch(ctx, urls, cb)
+
+	// Pass filter options for post-fetch status code filtering
+	f.FetchWithOptions(ctx, urls, opts, cb)
 
 	return nil
 }
@@ -87,12 +114,46 @@ func (f *Fetcher) FetchFromIndex(ctx context.Context, status string, limit int, 
 //
 // Context cancellation is respected at multiple points for graceful shutdown.
 func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.ProgressCallback) {
+	f.FetchWithOptions(ctx, pageUrls, nil, cb)
+}
+
+// FetchWithOptions retrieves all given HTTP URLs with optional filtering and stores snapshots.
+// If opts.FilterStatusCodes is true, responses matching SkipStatusCodes are filtered out.
+func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts *FetchOptions, cb utils.ProgressCallback) {
 	var wg sync.WaitGroup
 	// urlQueue is buffered to avoid blocking the main goroutine when feeding URLs.
 	// Buffer size is 2x MaxConcurrency to allow some queueing without contention.
 	urlQueue := make(chan string, f.config.MaxConcurrency*2)
 	snapCh := make(chan *models.Snapshot)
 	batcherDone := make(chan struct{})
+	filterCollectorDone := make(chan struct{})
+
+	// Channel for URLs filtered by status code (for marking in indexer)
+	filteredCh := make(chan filteredURL, f.config.MaxConcurrency)
+
+	// Collected filtered URLs (populated by collector goroutine)
+	var filteredURLs []string
+	var filteredReasons map[string]string
+
+	// Create filter engine if status code filtering is enabled
+	var filterEngine *filter.Engine
+	if opts != nil && opts.FilterStatusCodes && opts.FilterConfig != nil {
+		filterEngine = filter.NewEngine(opts.FilterConfig)
+
+		// Start a goroutine to collect filtered URLs to avoid blocking workers
+		filteredURLs = make([]string, 0)
+		filteredReasons = make(map[string]string)
+		go func() {
+			defer close(filterCollectorDone)
+			for fu := range filteredCh {
+				filteredURLs = append(filteredURLs, fu.URL)
+				filteredReasons[fu.URL] = fu.Reason
+			}
+		}()
+	} else {
+		// No filter engine, just close the collector done channel
+		close(filterCollectorDone)
+	}
 
 	total := len(pageUrls)
 	var processed int32
@@ -246,6 +307,25 @@ func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.Progres
 					continue
 				}
 
+				// Check if response status code should be filtered
+				if filterEngine != nil {
+					result := filterEngine.ShouldFilterStatus(response.StatusCode)
+					if result.Filtered {
+						if f.logger != nil {
+							f.logger.Debug("filtering response by status code",
+								logging.Field{Key: "url", Value: pageUrl},
+								logging.Field{Key: "status", Value: response.StatusCode},
+								logging.Field{Key: "reason", Value: result.Reason})
+						}
+						select {
+						case <-ctx.Done():
+							return
+						case filteredCh <- filteredURL{URL: pageUrl, Reason: result.Reason}:
+						}
+						continue
+					}
+				}
+
 				snap := utils.NewSnapshotFromResponse(response)
 				select {
 				case <-ctx.Done():
@@ -276,6 +356,20 @@ cleanup:
 	wg.Wait()
 	// Close snapCh to signal batcher that no more snapshots will be sent
 	close(snapCh)
+	// Close filtered channel to signal collector goroutine
+	close(filteredCh)
+
+	// Wait for filter collector goroutine to finish
+	<-filterCollectorDone
+
+	// Mark filtered URLs in indexer
+	if f.indexer != nil && len(filteredURLs) > 0 {
+		if err := f.indexer.MarkFilteredBatch(ctx, filteredURLs, filteredReasons); err != nil && f.logger != nil {
+			f.logger.Error("error marking filtered URLs in indexer",
+				logging.Field{Key: "error", Value: err})
+		}
+	}
+
 	// Wait for batcher to finish committing all snapshots
 	<-batcherDone
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
+	"github.com/raysh454/moku/internal/filter"
 	"github.com/raysh454/moku/internal/tracker"
 	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
@@ -34,6 +35,9 @@ type Config struct {
 
 	// Url Parsing Options
 	urlCfg utils.CanonicalizeOptions
+
+	// Filter configuration (global defaults for URL/response filtering)
+	FilterCfg *filter.FilterConfig
 }
 
 // DefaultConfig returns a Config populated with sensible development defaults.
@@ -69,5 +73,6 @@ func DefaultConfig() *Config {
 			DefaultScheme:          "https",
 			TrackingParamAllowlist: nil,
 		},
+		FilterCfg: filter.DefaultFilterConfig(),
 	}
 }

@@ -99,6 +99,17 @@ func NewOrchestrator(cfg *Config, reg *registry.Registry, logger logging.Logger)
 	}
 }
 
+// SeedDefaultFiltersForAllWebsites seeds default filter rules for websites that don't have any.
+// This ensures backwards compatibility for websites created before the seeding feature.
+func (o *Orchestrator) SeedDefaultFiltersForAllWebsites(ctx context.Context) error {
+	return o.registry.SeedDefaultsForAllWebsites(ctx)
+}
+
+// Registry returns the underlying registry.
+func (o *Orchestrator) Registry() *registry.Registry {
+	return o.registry
+}
+
 func (o *Orchestrator) ensureJobMaps() {
 	o.jobsMu.Lock()
 	defer o.jobsMu.Unlock()
@@ -438,6 +449,25 @@ func (o *Orchestrator) CreateWebsite(ctx context.Context, projectIdentifier, slu
 
 func (o *Orchestrator) ListWebsites(ctx context.Context, projectIdentifier string) ([]registry.Website, error) {
 	return o.registry.ListWebsites(ctx, projectIdentifier)
+}
+
+// GetWebsiteIndexer returns the indexer for a website.
+func (o *Orchestrator) GetWebsiteIndexer(ctx context.Context, projectIdentifier, websiteSlug string) (*indexer.Index, error) {
+	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
+	if err != nil {
+		return nil, err
+	}
+	comps, err := o.siteComponentsFor(ctx, web)
+	if err != nil {
+		return nil, err
+	}
+	// The Index field is of type EndpointIndex interface, but the actual
+	// implementation is *indexer.Index which has additional methods.
+	idx, ok := comps.Index.(*indexer.Index)
+	if !ok {
+		return nil, fmt.Errorf("indexer is not of expected type")
+	}
+	return idx, nil
 }
 
 func (o *Orchestrator) AddWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug string, rawURLs []string, source string) ([]string, error) {

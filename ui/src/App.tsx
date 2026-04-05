@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, config, createEnumerateSocket, createFetchSocket, createJobSocket, demoApi } from './api/client'
+import { api, config, createEnumerateSocket, createFetchSocket, demoApi } from './api/client'
 import type { DemoPageVersion, Endpoint, EndpointDetails, EnumerationConfig, FetchConfig, Job, JobEvent, Project, Version, Website } from './api/types'
 import RenderedDiffViews, { type RenderedViewMode } from './components/RenderedDiffViews'
+import FilterConfigPanel from './components/FilterConfigPanel'
 
 type Activity = {
   at: string
@@ -38,7 +39,7 @@ export default function App() {
   const [fetchStatus, setFetchStatus] = useState('*')
   const [fetchLimit, setFetchLimit] = useState(100)
   const [fetchConcurrency, setFetchConcurrency] = useState(4)
-  const [endpointFilterStatus, setEndpointFilterStatus] = useState('*')
+  const [endpointFilterStatus, setEndpointFilterStatus] = useState('')
   const [endpointFilterLimit, setEndpointFilterLimit] = useState(200)
 
   // Enumeration config state
@@ -813,11 +814,28 @@ export default function App() {
         </section>
 
         <section className="card wide">
+          <h2>Filter Configuration</h2>
+          <FilterConfigPanel
+            project={selectedProject}
+            site={selectedSite}
+            onActivity={logActivity}
+          />
+        </section>
+
+        <section className="card wide">
           <h2>4) Endpoints</h2>
           <div className="row">
             <label>
               filter status
-              <input value={endpointFilterStatus} onChange={(event) => setEndpointFilterStatus(event.target.value)} />
+              <select value={endpointFilterStatus} onChange={(event) => setEndpointFilterStatus(event.target.value)}>
+                <option value="">Non-filtered (default)</option>
+                <option value="*">All (including filtered)</option>
+                <option value="pending">Pending</option>
+                <option value="fetched">Fetched</option>
+                <option value="failed">Failed</option>
+                <option value="filtered">Filtered only</option>
+                <option value="new">New</option>
+              </select>
             </label>
             <label>
               limit

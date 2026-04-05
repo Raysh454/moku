@@ -11,6 +11,7 @@ import (
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
+	"github.com/raysh454/moku/internal/filter"
 	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -242,6 +243,8 @@ type DummyEndpointIndex struct {
 	Failed          []string
 	FetchedBatches  [][]string
 	PendingBatches  [][]string
+	FilteredBatches [][]string
+	FilteredReasons map[string]string
 	ListedEndpoints []indexer.Endpoint
 
 	MarkFailedErr       error
@@ -286,6 +289,39 @@ func (d *DummyEndpointIndex) MarkFetchedBatch(ctx context.Context, canonicals []
 	cp := append([]string(nil), canonicals...)
 	d.FetchedBatches = append(d.FetchedBatches, cp)
 	return d.MarkFetchedBatchErr
+}
+
+func (d *DummyEndpointIndex) ListEndpointsFiltered(ctx context.Context, status string, limit int, filterConfig *filter.FilterConfig) ([]indexer.Endpoint, error) {
+	return d.ListEndpoints(ctx, status, limit)
+}
+
+func (d *DummyEndpointIndex) MarkFilteredBatch(ctx context.Context, canonicals []string, reasons map[string]string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.FilteredBatches == nil {
+		d.FilteredBatches = make([][]string, 0)
+	}
+	if d.FilteredReasons == nil {
+		d.FilteredReasons = make(map[string]string)
+	}
+	cp := append([]string(nil), canonicals...)
+	d.FilteredBatches = append(d.FilteredBatches, cp)
+	for k, v := range reasons {
+		d.FilteredReasons[k] = v
+	}
+	return nil
+}
+
+func (d *DummyEndpointIndex) UnfilterBatch(ctx context.Context, canonicals []string) error {
+	return nil
+}
+
+func (d *DummyEndpointIndex) GetEndpointStats(ctx context.Context) (map[string]int, error) {
+	return map[string]int{}, nil
+}
+
+func (d *DummyEndpointIndex) GetFilteredEndpoints(ctx context.Context, limit int) ([]indexer.Endpoint, error) {
+	return nil, nil
 }
 
 //
@@ -754,6 +790,226 @@ func TestFetcher_WorkerPoolProgressCallback(t *testing.T) {
 		if !counts[len(urls)] {
 			t.Errorf("expected final progress count of %d to be present, got max: %v", len(urls), progressCalls)
 		}
+	}
+}
+
+//
+// ───────────────────────────────────────────────
+//   Filter Integration Tests
+// ───────────────────────────────────────────────
+//
+
+// StatusCodeWebClient is a DummyWebClient that returns different status codes per URL
+type StatusCodeWebClient struct {
+	StatusCodes   map[string]int // URL -> status code
+	DefaultStatus int
+}
+
+func (c *StatusCodeWebClient) Do(ctx context.Context, req *webclient.Request) (*webclient.Response, error) {
+	status := c.DefaultStatus
+	if code, ok := c.StatusCodes[req.URL]; ok {
+		status = code
+	}
+	return &webclient.Response{
+		Request:    req,
+		Body:       []byte(fmt.Sprintf("status:%d url:%s", status, req.URL)),
+		StatusCode: status,
+		FetchedAt:  time.Now(),
+	}, nil
+}
+
+func (c *StatusCodeWebClient) Get(ctx context.Context, url string) (*webclient.Response, error) {
+	return c.Do(ctx, &webclient.Request{Method: "GET", URL: url})
+}
+
+func (c *StatusCodeWebClient) Close() error { return nil }
+
+func TestFetchWithOptions_StatusCodeFiltering(t *testing.T) {
+	ctx := context.Background()
+
+	// Set up web client that returns different status codes
+	wc := &StatusCodeWebClient{
+		DefaultStatus: 200,
+		StatusCodes: map[string]int{
+			"http://example.com/page1":     200,
+			"http://example.com/notfound":  404,
+			"http://example.com/forbidden": 403,
+			"http://example.com/page2":     200,
+		},
+	}
+
+	tr := &DummyTracker{}
+	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	urls := []string{
+		"http://example.com/page1",
+		"http://example.com/notfound",
+		"http://example.com/forbidden",
+		"http://example.com/page2",
+	}
+
+	// Filter config that skips 404s
+	filterCfg := &filter.FilterConfig{
+		SkipStatusCodes: []int{404},
+	}
+
+	opts := &fetcher.FetchOptions{
+		FilterStatusCodes: true,
+		FilterConfig:      filterCfg,
+	}
+
+	f.FetchWithOptions(ctx, urls, opts, nil)
+
+	// Check that 404 was filtered
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	filteredURLs := make([]string, 0)
+	for _, batch := range idx.FilteredBatches {
+		filteredURLs = append(filteredURLs, batch...)
+	}
+
+	// Should have filtered the 404 URL
+	foundFiltered := false
+	for _, url := range filteredURLs {
+		if url == "http://example.com/notfound" {
+			foundFiltered = true
+			break
+		}
+	}
+
+	if !foundFiltered {
+		t.Errorf("expected http://example.com/notfound to be filtered, filtered URLs: %v", filteredURLs)
+	}
+
+	// 403 should NOT be filtered (security-relevant)
+	for _, url := range filteredURLs {
+		if url == "http://example.com/forbidden" {
+			t.Errorf("403 response should not be filtered, but was: %v", filteredURLs)
+		}
+	}
+
+	// Check filter reason
+	if reason, ok := idx.FilteredReasons["http://example.com/notfound"]; ok {
+		if reason == "" {
+			t.Error("filter reason should not be empty")
+		}
+	}
+}
+
+func TestFetchWithOptions_NoFilterConfig(t *testing.T) {
+	ctx := context.Background()
+
+	wc := &StatusCodeWebClient{
+		DefaultStatus: 200,
+		StatusCodes: map[string]int{
+			"http://example.com/notfound": 404,
+		},
+	}
+
+	tr := &DummyTracker{}
+	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	urls := []string{"http://example.com/notfound"}
+
+	// No filter options - 404 should be fetched normally
+	f.FetchWithOptions(ctx, urls, nil, nil)
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	// Should not have filtered anything
+	if len(idx.FilteredBatches) > 0 {
+		var filtered []string
+		for _, batch := range idx.FilteredBatches {
+			filtered = append(filtered, batch...)
+		}
+		if len(filtered) > 0 {
+			t.Errorf("expected no filtered URLs when no filter config, got: %v", filtered)
+		}
+	}
+}
+
+func TestFetchWithOptions_MultipleStatusCodesFiltered(t *testing.T) {
+	ctx := context.Background()
+
+	wc := &StatusCodeWebClient{
+		DefaultStatus: 200,
+		StatusCodes: map[string]int{
+			"http://example.com/notfound1": 404,
+			"http://example.com/notfound2": 404,
+			"http://example.com/gone":      410,
+			"http://example.com/ok":        200,
+		},
+	}
+
+	tr := &DummyTracker{}
+	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	urls := []string{
+		"http://example.com/notfound1",
+		"http://example.com/notfound2",
+		"http://example.com/gone",
+		"http://example.com/ok",
+	}
+
+	// Filter config that skips 404 and 410
+	filterCfg := &filter.FilterConfig{
+		SkipStatusCodes: []int{404, 410},
+	}
+
+	opts := &fetcher.FetchOptions{
+		FilterStatusCodes: true,
+		FilterConfig:      filterCfg,
+	}
+
+	f.FetchWithOptions(ctx, urls, opts, nil)
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	// Collect all filtered URLs
+	filteredURLs := make(map[string]bool)
+	for _, batch := range idx.FilteredBatches {
+		for _, url := range batch {
+			filteredURLs[url] = true
+		}
+	}
+
+	// Should have filtered 404s and 410
+	expected := []string{
+		"http://example.com/notfound1",
+		"http://example.com/notfound2",
+		"http://example.com/gone",
+	}
+
+	for _, url := range expected {
+		if !filteredURLs[url] {
+			t.Errorf("expected %s to be filtered", url)
+		}
+	}
+
+	// OK should not be filtered
+	if filteredURLs["http://example.com/ok"] {
+		t.Error("200 OK response should not be filtered")
 	}
 }
 

@@ -223,3 +223,39 @@ export type EnumerationConfig = {
 export type FetchConfig = {
   concurrency?: number
 }
+
+// Filter types
+export type RuleType = 'extension' | 'pattern' | 'status_code'
+
+export type FilterRule = {
+  id: string
+  website_id: string
+  rule_type: RuleType
+  rule_value: string
+  enabled: boolean
+  created_at: number
+  updated_at: number
+}
+
+export type FilterConfig = {
+  skip_extensions?: string[]
+  skip_patterns?: string[]
+  skip_status_codes?: number[]
+  rules?: FilterRule[]
+}
+
+export type FilteredEndpoint = {
+  url: string
+  canonical_url: string
+  status: string
+  filter_reason: string
+  filtered_at: number
+}
+
+export type EndpointStats = {
+  pending: number
+  fetched: number
+  failed: number
+  filtered: number
+  total: number
+}

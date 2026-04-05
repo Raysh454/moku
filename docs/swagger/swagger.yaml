@@ -703,6 +703,19 @@ definitions:
       limit:
         example: 100
         type: integer
+      skip_extensions:
+        description: Filter overrides for this fetch job
+        items:
+          type: string
+        type: array
+      skip_patterns:
+        items:
+          type: string
+        type: array
+      skip_status_codes:
+        items:
+          type: integer
+        type: array
       status:
         default: '*'
         example: '*'

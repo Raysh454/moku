@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/raysh454/moku/internal/assessor"
+	"github.com/raysh454/moku/internal/filter"
 	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -303,6 +304,20 @@ func (d *DummyEndpointIndex) MarkFetchedBatch(_ context.Context, canonicals []st
 	defer d.mu.Unlock()
 	d.FetchedBatches = append(d.FetchedBatches, append([]string(nil), canonicals...))
 	return d.MarkFetchedBatchErr
+}
+
+func (d *DummyEndpointIndex) ListEndpointsFiltered(_ context.Context, status string, limit int, _ *filter.FilterConfig) ([]indexer.Endpoint, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]indexer.Endpoint(nil), d.ListedEndpoints...), nil
+}
+
+func (d *DummyEndpointIndex) MarkFilteredBatch(_ context.Context, _ []string, _ map[string]string) error {
+	return nil
+}
+
+func (d *DummyEndpointIndex) UnfilterBatch(_ context.Context, _ []string) error {
+	return nil
 }
 
 // ─── Enumerator ────────────────────────────────────────────────────────

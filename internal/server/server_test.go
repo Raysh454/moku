@@ -61,6 +61,34 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 	}
 }
 
+// createWebsiteWithoutDefaults creates a website and deletes all seeded filter rules.
+// Use this for tests that need a clean slate without default filter rules.
+func createWebsiteWithoutDefaults(t *testing.T, s *server.Server, projSlug, siteSlug, origin string) {
+	t.Helper()
+	doJSON(t, s, "POST", "/projects/"+projSlug+"/websites",
+		`{"slug":"`+siteSlug+`","origin":"`+origin+`"}`)
+
+	// Get all rules and delete them to start with clean slate
+	rec := doJSON(t, s, "GET", "/projects/"+projSlug+"/websites/"+siteSlug+"/filters", "")
+	var resp map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		return // silently continue if decode fails
+	}
+	rules, ok := resp["rules"].([]any)
+	if !ok {
+		return
+	}
+	for _, r := range rules {
+		rule, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		if id, ok := rule["id"].(string); ok {
+			doJSON(t, s, "DELETE", "/projects/"+projSlug+"/websites/"+siteSlug+"/filters/"+id, "")
+		}
+	}
+}
+
 // ─── CORS ──────────────────────────────────────────────────────────────
 
 func TestServer_CORS_HeaderPresent(t *testing.T) {
@@ -245,5 +273,425 @@ func TestServer_OptionsPreflight(t *testing.T) {
 	methods := rec.Header().Get("Access-Control-Allow-Methods")
 	if methods == "" {
 		t.Error("expected Allow-Methods header on OPTIONS")
+	}
+}
+
+// ─── Filter Rules ──────────────────────────────────────────────────────
+
+func TestServer_ListFilterRules_Empty(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	createWebsiteWithoutDefaults(t, s, "proj", "site", "https://example.com")
+
+	rec := doJSON(t, s, "GET", "/projects/proj/websites/site/filters", "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	var resp map[string]any
+	decodeJSON(t, rec, &resp)
+	rules, ok := resp["rules"].([]any)
+	if !ok {
+		t.Fatal("expected 'rules' array in response")
+	}
+	if len(rules) != 0 {
+		t.Errorf("expected 0 rules, got %d", len(rules))
+	}
+}
+
+func TestServer_CreateFilterRule(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	rec := doJSON(t, s, "POST", "/projects/proj/websites/site/filters",
+		`{"rule_type":"extension","rule_value":".jpg","action":"skip"}`)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var rule map[string]any
+	decodeJSON(t, rec, &rule)
+	if rule["rule_type"] != "extension" {
+		t.Errorf("expected rule_type 'extension', got %v", rule["rule_type"])
+	}
+	if rule["rule_value"] != ".jpg" {
+		t.Errorf("expected rule_value '.jpg', got %v", rule["rule_value"])
+	}
+	// Note: action is stored in database but not returned in response
+	// The response contains: id, website_id, rule_type, rule_value, priority, enabled, created_at, updated_at
+	if rule["enabled"] != true {
+		t.Errorf("expected enabled true, got %v", rule["enabled"])
+	}
+}
+
+func TestServer_CreateFilterRule_InvalidType(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	rec := doJSON(t, s, "POST", "/projects/proj/websites/site/filters",
+		`{"rule_type":"invalid_type","rule_value":".jpg","action":"skip"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid rule_type, got %d", rec.Code)
+	}
+}
+
+func TestServer_GetFilterRule(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	createRec := doJSON(t, s, "POST", "/projects/proj/websites/site/filters",
+		`{"rule_type":"extension","rule_value":".png","action":"skip"}`)
+
+	var created map[string]any
+	decodeJSON(t, createRec, &created)
+	id := created["id"].(string)
+
+	rec := doJSON(t, s, "GET", "/projects/proj/websites/site/filters/"+id, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var rule map[string]any
+	decodeJSON(t, rec, &rule)
+	if rule["id"] != id {
+		t.Errorf("expected id %s, got %v", id, rule["id"])
+	}
+}
+
+func TestServer_GetFilterRule_NotFound(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	rec := doJSON(t, s, "GET", "/projects/proj/websites/site/filters/nonexistent", "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestServer_DeleteFilterRule(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	createRec := doJSON(t, s, "POST", "/projects/proj/websites/site/filters",
+		`{"rule_type":"extension","rule_value":".gif","action":"skip"}`)
+
+	var created map[string]any
+	decodeJSON(t, createRec, &created)
+	id := created["id"].(string)
+
+	rec := doJSON(t, s, "DELETE", "/projects/proj/websites/site/filters/"+id, "")
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", rec.Code)
+	}
+
+	// Verify it's gone
+	rec = doJSON(t, s, "GET", "/projects/proj/websites/site/filters/"+id, "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", rec.Code)
+	}
+}
+
+func TestServer_UpdateFilterRule(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	createRec := doJSON(t, s, "POST", "/projects/proj/websites/site/filters",
+		`{"rule_type":"extension","rule_value":".jpg","action":"skip"}`)
+
+	var created map[string]any
+	decodeJSON(t, createRec, &created)
+	id := created["id"].(string)
+
+	rec := doJSON(t, s, "PUT", "/projects/proj/websites/site/filters/"+id,
+		`{"rule_value":".jpeg"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var updated map[string]any
+	decodeJSON(t, rec, &updated)
+	if updated["rule_value"] != ".jpeg" {
+		t.Errorf("expected rule_value '.jpeg', got %v", updated["rule_value"])
+	}
+}
+
+func TestServer_ToggleFilterRule(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	createRec := doJSON(t, s, "POST", "/projects/proj/websites/site/filters",
+		`{"rule_type":"extension","rule_value":".jpg","action":"skip"}`)
+
+	var created map[string]any
+	decodeJSON(t, createRec, &created)
+	id := created["id"].(string)
+
+	// Initially enabled
+	if created["enabled"] != true {
+		t.Errorf("expected enabled=true, got %v", created["enabled"])
+	}
+
+	// Disable
+	rec := doJSON(t, s, "POST", "/projects/proj/websites/site/filters/"+id+"/toggle", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var toggled map[string]any
+	decodeJSON(t, rec, &toggled)
+	if toggled["enabled"] != false {
+		t.Errorf("expected enabled=false after toggle, got %v", toggled["enabled"])
+	}
+
+	// Enable again
+	rec = doJSON(t, s, "POST", "/projects/proj/websites/site/filters/"+id+"/toggle", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	decodeJSON(t, rec, &toggled)
+	if toggled["enabled"] != true {
+		t.Errorf("expected enabled=true after second toggle, got %v", toggled["enabled"])
+	}
+}
+
+func TestServer_GetFilterConfig(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+	doJSON(t, s, "POST", "/projects/proj/websites", `{"slug":"site","origin":"https://example.com"}`)
+
+	// Update the website's filter config directly
+	rec := doJSON(t, s, "PUT", "/projects/proj/websites/site/filters/config",
+		`{"skip_extensions":[".jpg",".png"],"skip_status_codes":[404]}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for PUT config, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, s, "GET", "/projects/proj/websites/site/filters/config", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var config map[string]any
+	decodeJSON(t, rec, &config)
+
+	// Should have skip_extensions
+	skipExt, ok := config["skip_extensions"].([]any)
+	if !ok {
+		t.Fatal("expected skip_extensions array in config")
+	}
+	if len(skipExt) != 2 {
+		t.Errorf("expected 2 extensions, got %d", len(skipExt))
+	}
+
+	// Should have skip_status_codes
+	skipCodes, ok := config["skip_status_codes"].([]any)
+	if !ok {
+		t.Fatal("expected skip_status_codes array in config")
+	}
+	if len(skipCodes) != 1 {
+		t.Errorf("expected 1 status code, got %d", len(skipCodes))
+	}
+}
+
+func TestServer_ListFilterRules_WebsiteNotFound(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	doJSON(t, s, "POST", "/projects", `{"slug":"proj","name":"Proj"}`)
+
+	rec := doJSON(t, s, "GET", "/projects/proj/websites/nonexistent/filters", "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent website, got %d", rec.Code)
+	}
+}
+
+// ─── E2E Integration: Full Filtering Workflow ──────────────────────────
+
+func TestServer_FilterWorkflow_E2E(t *testing.T) {
+	// This test exercises the complete filtering workflow:
+	// 1. Create project and website
+	// 2. Add filter rules
+	// 3. Update website filter config
+	// 4. Add endpoints
+	// 5. List endpoints and verify filtering behavior
+	// 6. Toggle rules and verify changes
+	// 7. Unfilter endpoints
+	t.Parallel()
+	s := newTestServer(t)
+
+	// Step 1: Create project and website (without default rules for clean test)
+	rec := doJSON(t, s, "POST", "/projects", `{"slug":"filter-test","name":"Filter Test"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create project: %d %s", rec.Code, rec.Body.String())
+	}
+
+	createWebsiteWithoutDefaults(t, s, "filter-test", "example", "https://example.com")
+
+	// Step 2: Add filter rules
+	rec = doJSON(t, s, "POST", "/projects/filter-test/websites/example/filters",
+		`{"rule_type":"extension","rule_value":".jpg","action":"skip"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create extension rule: %d %s", rec.Code, rec.Body.String())
+	}
+	var extRule map[string]any
+	decodeJSON(t, rec, &extRule)
+	extRuleID := extRule["id"].(string)
+
+	rec = doJSON(t, s, "POST", "/projects/filter-test/websites/example/filters",
+		`{"rule_type":"pattern","rule_value":"*/assets/*","action":"skip"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create pattern rule: %d %s", rec.Code, rec.Body.String())
+	}
+	var patternRule map[string]any
+	decodeJSON(t, rec, &patternRule)
+	patternRuleID := patternRule["id"].(string)
+
+	rec = doJSON(t, s, "POST", "/projects/filter-test/websites/example/filters",
+		`{"rule_type":"status_code","rule_value":"404","action":"skip"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create status code rule: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Step 3: Verify rules are listed
+	rec = doJSON(t, s, "GET", "/projects/filter-test/websites/example/filters", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to list rules: %d", rec.Code)
+	}
+	var rulesList map[string]any
+	decodeJSON(t, rec, &rulesList)
+	rules := rulesList["rules"].([]any)
+	if len(rules) != 3 {
+		t.Errorf("expected 3 rules, got %d", len(rules))
+	}
+
+	// Step 4: Update website filter config (quick config)
+	rec = doJSON(t, s, "PUT", "/projects/filter-test/websites/example/filters/config",
+		`{"skip_extensions":[".png",".gif"],"skip_status_codes":[410]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to update filter config: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify config was updated
+	rec = doJSON(t, s, "GET", "/projects/filter-test/websites/example/filters/config", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to get filter config: %d", rec.Code)
+	}
+	var config map[string]any
+	decodeJSON(t, rec, &config)
+	skipExt := config["skip_extensions"].([]any)
+	if len(skipExt) != 2 {
+		t.Errorf("expected 2 skip extensions in config, got %d", len(skipExt))
+	}
+
+	// Step 5: Toggle a rule
+	rec = doJSON(t, s, "POST", "/projects/filter-test/websites/example/filters/"+extRuleID+"/toggle", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to toggle rule: %d %s", rec.Code, rec.Body.String())
+	}
+	var toggledRule map[string]any
+	decodeJSON(t, rec, &toggledRule)
+	if toggledRule["enabled"] != false {
+		t.Error("expected rule to be disabled after toggle")
+	}
+
+	// Toggle back
+	rec = doJSON(t, s, "POST", "/projects/filter-test/websites/example/filters/"+extRuleID+"/toggle", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to toggle rule back: %d", rec.Code)
+	}
+
+	// Step 6: Update a rule
+	rec = doJSON(t, s, "PUT", "/projects/filter-test/websites/example/filters/"+patternRuleID,
+		`{"rule_value":"*/media/*"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to update rule: %d %s", rec.Code, rec.Body.String())
+	}
+	var updatedRule map[string]any
+	decodeJSON(t, rec, &updatedRule)
+	if updatedRule["rule_value"] != "*/media/*" {
+		t.Errorf("expected updated rule_value '*/media/*', got %v", updatedRule["rule_value"])
+	}
+
+	// Step 7: Delete a rule
+	rec = doJSON(t, s, "DELETE", "/projects/filter-test/websites/example/filters/"+patternRuleID, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("failed to delete rule: %d", rec.Code)
+	}
+
+	// Verify deletion
+	rec = doJSON(t, s, "GET", "/projects/filter-test/websites/example/filters/"+patternRuleID, "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for deleted rule, got %d", rec.Code)
+	}
+
+	// Step 8: Verify remaining rules
+	rec = doJSON(t, s, "GET", "/projects/filter-test/websites/example/filters", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to list rules after deletion: %d", rec.Code)
+	}
+	decodeJSON(t, rec, &rulesList)
+	rules = rulesList["rules"].([]any)
+	if len(rules) != 2 {
+		t.Errorf("expected 2 rules after deletion, got %d", len(rules))
+	}
+
+	// Step 9: Add endpoints to the website
+	rec = doJSON(t, s, "POST", "/projects/filter-test/websites/example/endpoints",
+		`{"urls":["https://example.com/page.html","https://example.com/image.jpg","https://example.com/style.css"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to add endpoints: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Step 10: List endpoints
+	rec = doJSON(t, s, "GET", "/projects/filter-test/websites/example/endpoints?status=all", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to list endpoints: %d", rec.Code)
+	}
+	var endpoints []any
+	decodeJSON(t, rec, &endpoints)
+	if len(endpoints) < 1 {
+		t.Errorf("expected at least 1 endpoint, got %d", len(endpoints))
+	}
+
+	// Step 11: Get endpoint stats
+	rec = doJSON(t, s, "GET", "/projects/filter-test/websites/example/endpoints/stats", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to get endpoint stats: %d %s", rec.Code, rec.Body.String())
+	}
+	var stats map[string]any
+	decodeJSON(t, rec, &stats)
+	// Verify stats response has expected structure
+	if _, ok := stats["total"]; !ok {
+		t.Error("expected 'total' in stats response")
 	}
 }

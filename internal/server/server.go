@@ -72,6 +72,12 @@ func NewServer(cfg Config) (*Server, error) {
 
 	orch := app.NewOrchestrator(cfg.AppConfig, reg, logger)
 
+	// Seed default filter rules for existing websites that don't have any
+	ctx := context.Background()
+	if err := orch.SeedDefaultFiltersForAllWebsites(ctx); err != nil {
+		logger.Warn("seeding default filter rules", logging.Field{Key: "error", Value: err.Error()})
+	}
+
 	r := chi.NewRouter()
 	s := &Server{
 		cfg:          cfg,
@@ -144,6 +150,33 @@ func (s *Server) routes() {
 	// WebSockets for job progress
 	r.Get("/ws/projects/{project}/websites/{site}/fetch", s.handleFetchWS)
 	r.Get("/ws/projects/{project}/websites/{site}/enumerate", s.handleEnumerateWS)
+
+	// Filter Rules CRUD
+	r.Options("/projects/{project}/websites/{site}/filters", s.optionsHandler("GET, POST"))
+	r.Options("/projects/{project}/websites/{site}/filters/{ruleID}", s.optionsHandler("GET, PUT, DELETE"))
+	r.Options("/projects/{project}/websites/{site}/filters/config", s.optionsHandler("GET, PUT"))
+	r.Options("/projects/{project}/websites/{site}/endpoints/filtered", s.optionsHandler("GET"))
+	r.Options("/projects/{project}/websites/{site}/endpoints/unfilter", s.optionsHandler("POST"))
+	r.Options("/projects/{project}/websites/{site}/endpoints/stats", s.optionsHandler("GET"))
+
+	r.Get("/projects/{project}/websites/{site}/filters", s.handleListFilterRules)
+	r.Post("/projects/{project}/websites/{site}/filters", s.handleCreateFilterRule)
+	r.Get("/projects/{project}/websites/{site}/filters/{ruleID}", s.handleGetFilterRule)
+	r.Put("/projects/{project}/websites/{site}/filters/{ruleID}", s.handleUpdateFilterRule)
+	r.Delete("/projects/{project}/websites/{site}/filters/{ruleID}", s.handleDeleteFilterRule)
+	r.Post("/projects/{project}/websites/{site}/filters/{ruleID}/toggle", s.handleToggleFilterRule)
+
+	// Filter Config (website-level quick config)
+	r.Get("/projects/{project}/websites/{site}/filters/config", s.handleGetFilterConfig)
+	r.Put("/projects/{project}/websites/{site}/filters/config", s.handleUpdateFilterConfig)
+
+	// Apply filters to existing endpoints
+	r.Options("/projects/{project}/websites/{site}/filters/apply", s.optionsHandler("POST"))
+	r.Post("/projects/{project}/websites/{site}/filters/apply", s.handleApplyFilters)
+
+	// Filtered endpoints and stats
+	r.Post("/projects/{project}/websites/{site}/endpoints/unfilter", s.handleUnfilterEndpoints)
+	r.Get("/projects/{project}/websites/{site}/endpoints/stats", s.handleEndpointStats)
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
