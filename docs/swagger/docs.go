@@ -1681,6 +1681,25 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 100
                 },
+                "skip_extensions": {
+                    "description": "Filter overrides for this fetch job",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "skip_patterns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "skip_status_codes": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "status": {
                     "type": "string",
                     "default": "*",

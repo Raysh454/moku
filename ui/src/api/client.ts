@@ -2,11 +2,16 @@ import type {
   DemoPageVersion,
   Endpoint,
   EndpointDetails,
+  EndpointStats,
   EnumerationConfig,
   FetchConfig,
+  FilterConfig,
+  FilteredEndpoint,
+  FilterRule,
   Job,
   JobEvent,
   Project,
+  RuleType,
   SuccessMessage,
   Version,
   Website,
@@ -96,7 +101,7 @@ export const api = {
   listJobs: () => requestList<Job>(apiBase, '/jobs'),
   getJob: (jobId: string) => request<Job>(apiBase, `/jobs/${jobId}`),
 
-  listEndpoints: (project: string, site: string, status = '*', limit = 200) =>
+  listEndpoints: (project: string, site: string, status = '', limit = 200) =>
     requestList<Endpoint>(
       apiBase,
       `/projects/${project}/websites/${site}/endpoints?status=${encodeURIComponent(status)}&limit=${limit}`,
@@ -115,6 +120,59 @@ export const api = {
       apiBase,
       `/projects/${project}/websites/${site}/versions?limit=${limit}`,
     ),
+
+  // Filter API
+  listFilterRules: async (project: string, site: string) => {
+    const payload = await request<{ rules: FilterRule[] }>(apiBase, `/projects/${project}/websites/${site}/filters`)
+    return payload.rules || []
+  },
+
+  createFilterRule: (project: string, site: string, payload: { rule_type: RuleType; rule_value: string; action?: string }) =>
+    request<FilterRule>(apiBase, `/projects/${project}/websites/${site}/filters`, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, action: payload.action || 'skip' }),
+    }),
+
+  updateFilterRule: (project: string, site: string, ruleId: string, payload: { rule_type?: RuleType; rule_value?: string; enabled?: boolean }) =>
+    request<FilterRule>(apiBase, `/projects/${project}/websites/${site}/filters/${ruleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteFilterRule: (project: string, site: string, ruleId: string) =>
+    request<{ success: boolean }>(apiBase, `/projects/${project}/websites/${site}/filters/${ruleId}`, {
+      method: 'DELETE',
+    }),
+
+  toggleFilterRule: (project: string, site: string, ruleId: string) =>
+    request<FilterRule>(apiBase, `/projects/${project}/websites/${site}/filters/${ruleId}/toggle`, {
+      method: 'POST',
+    }),
+
+  getFilterConfig: (project: string, site: string) =>
+    request<FilterConfig>(apiBase, `/projects/${project}/websites/${site}/filters/config`),
+
+  updateFilterConfig: (project: string, site: string, payload: Partial<FilterConfig>) =>
+    request<FilterConfig>(apiBase, `/projects/${project}/websites/${site}/filters/config`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+
+
+  unfilterEndpoints: (project: string, site: string, canonicalUrls: string[]) =>
+    request<{ success: boolean; count: number }>(apiBase, `/projects/${project}/websites/${site}/endpoints/unfilter`, {
+      method: 'POST',
+      body: JSON.stringify({ canonical_urls: canonicalUrls }),
+    }),
+
+  getEndpointStats: (project: string, site: string) =>
+    request<EndpointStats>(apiBase, `/projects/${project}/websites/${site}/endpoints/stats`),
+
+  applyFilters: (project: string, site: string) =>
+    request<{ filtered: number; message: string }>(apiBase, `/projects/${project}/websites/${site}/filters/apply`, {
+      method: 'POST',
+    }),
 }
 
 export const demoApi = {

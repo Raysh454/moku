@@ -10,6 +10,7 @@ import (
 
 	_ "modernc.org/sqlite" // pure-Go sqlite driver; replace if you prefer mattn/go-sqlite3
 
+	"github.com/raysh454/moku/internal/filter"
 	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/utils"
@@ -255,5 +256,291 @@ func TestConcurrentAddEndpoints(t *testing.T) {
 	// /a, /b, /c, /b?a=1&b=2  => 4
 	if cnt != 4 {
 		t.Fatalf("expected 4 unique endpoints after concurrent adds, got %d", cnt)
+	}
+}
+
+func TestListEndpointsFiltered(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+
+	ctx := context.Background()
+
+	// Add various endpoints including some that should be filtered
+	urls := []string{
+		"http://example.com/page.html",
+		"http://example.com/image.jpg",
+		"http://example.com/logo.png",
+		"http://example.com/script.js",
+		"http://example.com/assets/style.css",
+		"http://example.com/api/data",
+	}
+
+	_, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	// Create filter config that skips .jpg and .png
+	filterConfig := &filter.FilterConfig{
+		SkipExtensions: []string{".jpg", ".png"},
+	}
+
+	// List endpoints with filter
+	filtered, err := ix.ListEndpointsFiltered(ctx, "*", 100, filterConfig)
+	if err != nil {
+		t.Fatalf("ListEndpointsFiltered error: %v", err)
+	}
+
+	// Should return 4 endpoints (excluding .jpg and .png)
+	if len(filtered) != 4 {
+		t.Errorf("expected 4 filtered endpoints, got %d", len(filtered))
+	}
+
+	// Verify filtered endpoints don't include images
+	for _, ep := range filtered {
+		if ep.Path == "/image.jpg" || ep.Path == "/logo.png" {
+			t.Errorf("filtered list should not include %s", ep.Path)
+		}
+	}
+}
+
+func TestMarkFilteredBatch(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+
+	ctx := context.Background()
+
+	// Add endpoints
+	urls := []string{
+		"http://example.com/image.jpg",
+		"http://example.com/photo.png",
+		"http://example.com/page.html",
+	}
+
+	canonicals, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	// Mark first two as filtered
+	toFilter := canonicals[:2]
+	reasons := map[string]string{
+		toFilter[0]: "extension:.jpg",
+		toFilter[1]: "extension:.png",
+	}
+
+	err = ix.MarkFilteredBatch(ctx, toFilter, reasons)
+	if err != nil {
+		t.Fatalf("MarkFilteredBatch error: %v", err)
+	}
+
+	// Check status of filtered endpoints
+	filteredEndpoints, err := ix.GetFilteredEndpoints(ctx, 100)
+	if err != nil {
+		t.Fatalf("GetFilteredEndpoints error: %v", err)
+	}
+
+	if len(filteredEndpoints) != 2 {
+		t.Errorf("expected 2 filtered endpoints, got %d", len(filteredEndpoints))
+	}
+
+	// Verify they have filter reasons
+	for _, ep := range filteredEndpoints {
+		if ep.FilterReason == "" {
+			t.Errorf("expected filter reason to be set for %s", ep.URL)
+		}
+	}
+}
+
+func TestUnfilterBatch(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+
+	ctx := context.Background()
+
+	// Add endpoints
+	urls := []string{
+		"http://example.com/image.jpg",
+		"http://example.com/page.html",
+	}
+
+	canonicals, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	// Mark first one as filtered
+	toFilter := []string{canonicals[0]}
+	reasons := map[string]string{
+		toFilter[0]: "extension:.jpg",
+	}
+
+	err = ix.MarkFilteredBatch(ctx, toFilter, reasons)
+	if err != nil {
+		t.Fatalf("MarkFilteredBatch error: %v", err)
+	}
+
+	// Verify it's filtered
+	filtered, _ := ix.GetFilteredEndpoints(ctx, 100)
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered endpoint, got %d", len(filtered))
+	}
+
+	// Unfilter it
+	err = ix.UnfilterBatch(ctx, toFilter)
+	if err != nil {
+		t.Fatalf("UnfilterBatch error: %v", err)
+	}
+
+	// Verify it's no longer filtered
+	filtered, _ = ix.GetFilteredEndpoints(ctx, 100)
+	if len(filtered) != 0 {
+		t.Errorf("expected 0 filtered endpoints after unfilter, got %d", len(filtered))
+	}
+
+	// Verify it has pending status now
+	pending, _ := ix.ListEndpoints(ctx, "pending", 100)
+	foundPending := false
+	for _, ep := range pending {
+		if ep.CanonicalURL == canonicals[0] {
+			foundPending = true
+			break
+		}
+	}
+	if !foundPending {
+		t.Error("expected unfiltered endpoint to be in pending status")
+	}
+}
+
+func TestGetEndpointStats(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+
+	ctx := context.Background()
+
+	// Add endpoints
+	urls := []string{
+		"http://example.com/page1.html",
+		"http://example.com/page2.html",
+		"http://example.com/image.jpg",
+	}
+
+	canonicals, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	// Mark one as pending, one as fetched, one as filtered
+	if err := ix.MarkPending(ctx, canonicals[0]); err != nil {
+		t.Fatalf("MarkPending error: %v", err)
+	}
+	if err := ix.MarkFetched(ctx, canonicals[1], "v1", time.Now()); err != nil {
+		t.Fatalf("MarkFetched error: %v", err)
+	}
+	if err := ix.MarkFilteredBatch(ctx, []string{canonicals[2]}, map[string]string{canonicals[2]: "extension:.jpg"}); err != nil {
+		t.Fatalf("MarkFilteredBatch error: %v", err)
+	}
+
+	// Get stats
+	stats, err := ix.GetEndpointStats(ctx)
+	if err != nil {
+		t.Fatalf("GetEndpointStats error: %v", err)
+	}
+
+	if stats["pending"] != 1 {
+		t.Errorf("expected 1 pending, got %d", stats["pending"])
+	}
+	if stats["fetched"] != 1 {
+		t.Errorf("expected 1 fetched, got %d", stats["fetched"])
+	}
+	if stats["filtered"] != 1 {
+		t.Errorf("expected 1 filtered, got %d", stats["filtered"])
+	}
+	if stats["total"] != 3 {
+		t.Errorf("expected 3 total, got %d", stats["total"])
+	}
+}
+
+func TestListEndpointsFiltered_PatternMatching(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+
+	ctx := context.Background()
+
+	// Add various endpoints
+	urls := []string{
+		"http://example.com/api/users",
+		"http://example.com/assets/js/app.js",
+		"http://example.com/assets/css/style.css",
+		"http://example.com/vendor/jquery.min.js",
+		"http://example.com/page.html",
+	}
+
+	_, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	// Create filter config that skips /assets/* pattern
+	filterConfig := &filter.FilterConfig{
+		SkipPatterns: []string{"*/assets/*"},
+	}
+
+	// List endpoints with filter
+	filtered, err := ix.ListEndpointsFiltered(ctx, "*", 100, filterConfig)
+	if err != nil {
+		t.Fatalf("ListEndpointsFiltered error: %v", err)
+	}
+
+	// Should return 3 endpoints (excluding /assets/*)
+	if len(filtered) != 3 {
+		t.Errorf("expected 3 filtered endpoints, got %d", len(filtered))
+	}
+
+	// Verify no assets paths in result
+	for _, ep := range filtered {
+		if len(ep.Path) > 7 && ep.Path[:8] == "/assets/" {
+			t.Errorf("filtered list should not include assets path: %s", ep.Path)
+		}
 	}
 }

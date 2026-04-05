@@ -349,6 +349,15 @@ func (r *Registry) CreateWebsite(ctx context.Context, projectIdentifier string, 
 		return nil, fmt.Errorf("insert website: %w", err)
 	}
 
+	// Seed default filter rules for the new website
+	if err := r.SeedDefaultFilterRules(ctx, id); err != nil {
+		// Log warning but don't fail website creation
+		// The rules can be added manually if seeding fails
+		r.logger.Warn("failed to seed default filter rules",
+			logging.Field{Key: "website_id", Value: id},
+			logging.Field{Key: "error", Value: err.Error()})
+	}
+
 	return &Website{
 		ID:          id,
 		ProjectID:   projectID,
