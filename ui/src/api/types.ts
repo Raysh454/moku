@@ -90,11 +90,14 @@ export type Snapshot = {
 
 export type ScoreResult = {
   score: number
+  exposure_score: number
+  hardening_score: number
   normalized: number
   confidence: number
   version: string
   snapshot_id: string
   version_id: string
+  timestamp?: string
   evidence?: Array<{
     id?: string
     key: string
@@ -104,15 +107,25 @@ export type ScoreResult = {
     value?: unknown
     contribution?: number
   }>
-  matched_rules?: Array<{
-    id: string
-    key: string
-    severity: string
-    weight: number
-  }>
-  raw_features?: Record<string, number>
-  contrib_by_rule?: Record<string, number>
+  meta?: Record<string, unknown>
+  // The full attack surface payload is large and structured; treat it as
+  // opaque pass-through until a dedicated renderer exists.
+  attack_surface?: unknown
 }
+
+// ChangeCategory mirrors internal/assessor/attacksurface/change_taxonomy.go.
+export type ChangeCategory =
+  | 'upload_surface'
+  | 'auth_surface'
+  | 'admin_surface'
+  | 'security_regression'
+  | 'cookie_risk'
+  | 'cookie_regression'
+  | 'form_surface'
+  | 'input_surface'
+  | 'script_surface'
+  | 'param_surface'
+  | 'generic'
 
 // EvidenceLocation points to a specific part of the document for precise attribution.
 export type EvidenceLocation = {
@@ -129,6 +142,8 @@ export type EvidenceLocation = {
 export type AttackSurfaceChange = {
   kind: string
   detail: string
+  category: ChangeCategory
+  score: number
   evidence_locations?: EvidenceLocation[]
 }
 
@@ -141,8 +156,10 @@ export type SecurityDiff = {
   score_base: number
   score_head: number
   score_delta: number
-  feature_deltas?: Record<string, number>
-  rule_deltas?: Record<string, number>
+  // Per-axis deltas. exposure_delta follows the same "higher = worse"
+  // convention as score_delta. hardening_delta is inverted: higher = better.
+  exposure_delta: number
+  hardening_delta: number
   attack_surface_changed: boolean
   attack_surface_changes?: AttackSurfaceChange[]
 }

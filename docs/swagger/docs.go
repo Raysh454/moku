@@ -975,6 +975,13 @@ const docTemplate = `{
                 "base_version_id": {
                     "type": "string"
                 },
+                "exposure_delta": {
+                    "description": "Per-axis score deltas. ExposureDelta is head.ExposureScore - base.ExposureScore\n(positive = more attack surface exposed). HardeningDelta is\nhead.HardeningScore - base.HardeningScore (positive = better defenses).",
+                    "type": "number"
+                },
+                "hardening_delta": {
+                    "type": "number"
+                },
                 "head_snapshot_id": {
                     "type": "string"
                 },

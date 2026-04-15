@@ -41,6 +41,34 @@ func TestNewSecurityDiff_PropagatesScoresAndChanges(t *testing.T) {
 	}
 }
 
+func TestNewSecurityDiff_PropagatesExposureAndHardeningDeltas(t *testing.T) {
+	// Exposure rises (0.4 -> 0.8) and hardening weakens (0.5 -> 0.3).
+	// Both movements are regressions, but we're asserting the raw deltas here.
+	baseScore := &ScoreResult{
+		Score:          0.2,
+		ExposureScore:  0.4,
+		HardeningScore: 0.5,
+	}
+	headScore := &ScoreResult{
+		Score:          0.5,
+		ExposureScore:  0.8,
+		HardeningScore: 0.3,
+	}
+
+	d, err := NewSecurityDiff("https://example.com/", "b", "h", "sb", "sh", baseScore, headScore, nil, nil)
+	if err != nil {
+		t.Fatalf("NewSecurityDiff returned error: %v", err)
+	}
+
+	const epsilon = 1e-9
+	if diff := d.ExposureDelta - 0.4; diff > epsilon || diff < -epsilon {
+		t.Errorf("expected ExposureDelta == 0.4, got %v", d.ExposureDelta)
+	}
+	if diff := d.HardeningDelta - (-0.2); diff > epsilon || diff < -epsilon {
+		t.Errorf("expected HardeningDelta == -0.2, got %v", d.HardeningDelta)
+	}
+}
+
 func TestNewSecurityDiff_InvalidURL(t *testing.T) {
 	_, err := NewSecurityDiff("://bad url", "base", "head", "snap-base", "snap-head", nil, nil, nil, nil)
 	if err == nil {

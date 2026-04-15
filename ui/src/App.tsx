@@ -3,6 +3,8 @@ import { api, config, createEnumerateSocket, createFetchSocket, demoApi } from '
 import type { DemoPageVersion, Endpoint, EndpointDetails, EnumerationConfig, FetchConfig, Job, JobEvent, Project, Version, Website } from './api/types'
 import RenderedDiffViews, { type RenderedViewMode } from './components/RenderedDiffViews'
 import FilterConfigPanel from './components/FilterConfigPanel'
+import { ScoreBreakdownPanel } from './components/ScoreBreakdownPanel'
+import { SecurityDiffPanel } from './components/SecurityDiffPanel'
 
 type Activity = {
   at: string
@@ -917,9 +919,17 @@ export default function App() {
 
               <div>
                 <h3>Score result</h3>
-                <pre>{JSON.stringify(details.score_result ?? null, null, 2)}</pre>
+                {details.score_result ? (
+                  <ScoreBreakdownPanel result={details.score_result} />
+                ) : (
+                  <p className="muted">No score result available.</p>
+                )}
                 <h3>Security diff</h3>
-                <pre>{JSON.stringify(details.security_diff ?? null, null, 2)}</pre>
+                {details.security_diff ? (
+                  <SecurityDiffPanel diff={details.security_diff} />
+                ) : (
+                  <p className="muted">No security diff available.</p>
+                )}
                 <h3>Content/Header diff</h3>
                 <pre>{JSON.stringify(details.diff ?? null, null, 2)}</pre>
               </div>
@@ -1090,45 +1100,7 @@ export default function App() {
               <section className="card">
                 <h3>Security Diff</h3>
                 {comparisonDetails.security_diff ? (
-                  <div className="securityDiff">
-                    <div className="scoreComparison">
-                      <div>
-                        <strong>Base Score:</strong> {comparisonDetails.security_diff.score_base?.toFixed(2) ?? 'N/A'}
-                      </div>
-                      <div>
-                        <strong>Head Score:</strong> {comparisonDetails.security_diff.score_head?.toFixed(2) ?? 'N/A'}
-                      </div>
-                      <div className={
-                        (comparisonDetails.security_diff.score_delta ?? 0) > 0 ? 'scoreDeltaPositive' :
-                        (comparisonDetails.security_diff.score_delta ?? 0) < 0 ? 'scoreDeltaNegative' :
-                        'scoreDeltaNeutral'
-                      }>
-                        <strong>Delta:</strong> {comparisonDetails.security_diff.score_delta?.toFixed(2) ?? '0.00'}
-                        {(comparisonDetails.security_diff.score_delta ?? 0) > 0 && ' (improved)'}
-                        {(comparisonDetails.security_diff.score_delta ?? 0) < 0 && ' (regressed)'}
-                      </div>
-                    </div>
-
-                    {comparisonDetails.security_diff.attack_surface_changes && comparisonDetails.security_diff.attack_surface_changes.length > 0 && (
-                      <div className="attackSurfaceChanges">
-                        <h4>Attack Surface Changes</h4>
-                        <ul>
-                          {comparisonDetails.security_diff.attack_surface_changes.map((change, idx) => (
-                            <li key={idx} className={`changeKind-${change.kind}`}>
-                              <strong>{change.kind}:</strong> {change.detail}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {comparisonDetails.security_diff.feature_deltas && Object.keys(comparisonDetails.security_diff.feature_deltas).length > 0 && (
-                      <div className="featureDeltas">
-                        <h4>Feature Changes</h4>
-                        <pre>{JSON.stringify(comparisonDetails.security_diff.feature_deltas, null, 2)}</pre>
-                      </div>
-                    )}
-                  </div>
+                  <SecurityDiffPanel diff={comparisonDetails.security_diff} />
                 ) : (
                   <p>No security diff available</p>
                 )}
