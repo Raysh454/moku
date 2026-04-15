@@ -129,4 +129,3 @@ func (e *Engine) sortedRules() []Rule {
 
 	return rules
 }
-
