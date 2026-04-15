@@ -1,13 +1,14 @@
 package filter
 
 import (
+	"strconv"
 	"strings"
 )
 
-// DefaultFilterConfig returns a FilterConfig with security-focused defaults.
+// DefaultConfig returns a Config with security-focused defaults.
 // These defaults skip obvious binary/media files while keeping security-relevant content.
-func DefaultFilterConfig() *FilterConfig {
-	return &FilterConfig{
+func DefaultConfig() *Config {
+	return &Config{
 		// Skip obvious binary/media files that are unlikely to contain security issues
 		SkipExtensions: []string{
 			// Images (static pixels - no XSS risk)
@@ -35,15 +36,14 @@ func DefaultFilterConfig() *FilterConfig {
 // MergeConfigs merges multiple filter configs with later configs taking precedence.
 // The merge strategy is: combine all skip lists and deduplicate.
 // Order: global -> website -> api overrides
-func MergeConfigs(configs ...*FilterConfig) *FilterConfig {
-	result := &FilterConfig{
+func MergeConfigs(configs ...*Config) *Config {
+	result := &Config{
 		SkipExtensions:  []string{},
 		SkipPatterns:    []string{},
 		SkipStatusCodes: []int{},
-		Rules:           []FilterRule{},
+		Rules:           []Rule{},
 	}
 
-	// Track seen items for deduplication
 	seenExtensions := make(map[string]bool)
 	seenPatterns := make(map[string]bool)
 	seenStatusCodes := make(map[int]bool)
@@ -54,7 +54,7 @@ func MergeConfigs(configs ...*FilterConfig) *FilterConfig {
 			continue
 		}
 
-		// Merge extensions
+		// Extensions need normalization before dedup (case / missing-dot).
 		for _, ext := range cfg.SkipExtensions {
 			normalized := normalizeExtension(ext)
 			if !seenExtensions[normalized] {
@@ -63,23 +63,10 @@ func MergeConfigs(configs ...*FilterConfig) *FilterConfig {
 			}
 		}
 
-		// Merge patterns
-		for _, pattern := range cfg.SkipPatterns {
-			if !seenPatterns[pattern] {
-				seenPatterns[pattern] = true
-				result.SkipPatterns = append(result.SkipPatterns, pattern)
-			}
-		}
+		result.SkipPatterns = dedupAppend(result.SkipPatterns, cfg.SkipPatterns, seenPatterns)
+		result.SkipStatusCodes = dedupAppend(result.SkipStatusCodes, cfg.SkipStatusCodes, seenStatusCodes)
 
-		// Merge status codes
-		for _, code := range cfg.SkipStatusCodes {
-			if !seenStatusCodes[code] {
-				seenStatusCodes[code] = true
-				result.SkipStatusCodes = append(result.SkipStatusCodes, code)
-			}
-		}
-
-		// Merge rules
+		// Rules dedup by ID, not by value.
 		for _, rule := range cfg.Rules {
 			if !seenRules[rule.ID] {
 				seenRules[rule.ID] = true
@@ -91,6 +78,20 @@ func MergeConfigs(configs ...*FilterConfig) *FilterConfig {
 	return result
 }
 
+// dedupAppend appends values from src to dst, skipping any value already in seen.
+// Values added are recorded in seen, so the same map can be threaded across
+// multiple calls to accumulate state.
+func dedupAppend[T comparable](dst, src []T, seen map[T]bool) []T {
+	for _, v := range src {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		dst = append(dst, v)
+	}
+	return dst
+}
+
 // normalizeExtension ensures extension is lowercase and starts with a dot.
 func normalizeExtension(ext string) string {
 	ext = strings.ToLower(strings.TrimSpace(ext))
@@ -100,9 +101,9 @@ func normalizeExtension(ext string) string {
 	return ext
 }
 
-// RulesToConfig converts a slice of FilterRules to FilterConfig.
-func RulesToConfig(rules []FilterRule) *FilterConfig {
-	cfg := &FilterConfig{
+// RulesToConfig converts a slice of Rules to Config.
+func RulesToConfig(rules []Rule) *Config {
+	cfg := &Config{
 		SkipExtensions:  []string{},
 		SkipPatterns:    []string{},
 		SkipStatusCodes: []int{},
@@ -120,31 +121,11 @@ func RulesToConfig(rules []FilterRule) *FilterConfig {
 		case RuleTypePattern:
 			cfg.SkipPatterns = append(cfg.SkipPatterns, rule.RuleValue)
 		case RuleTypeStatusCode:
-			// Parse status code
-			if n, err := parseInt(rule.RuleValue); err == nil {
+			if n, err := strconv.Atoi(rule.RuleValue); err == nil {
 				cfg.SkipStatusCodes = append(cfg.SkipStatusCodes, n)
 			}
 		}
 	}
 
 	return cfg
-}
-
-func parseInt(s string) (int, error) {
-	var result int
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, &strconvError{s}
-		}
-		result = result*10 + int(c-'0')
-	}
-	return result, nil
-}
-
-type strconvError struct {
-	s string
-}
-
-func (e *strconvError) Error() string {
-	return "invalid number: " + e.s
 }

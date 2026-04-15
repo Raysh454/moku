@@ -3,6 +3,7 @@ package filter
 import (
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -197,10 +198,5 @@ func indexOfGlobPattern(str, pattern string) int {
 
 // matchStatusCode checks if the given status code is in the skip list.
 func matchStatusCode(code int, skipCodes []int) bool {
-	for _, skipCode := range skipCodes {
-		if code == skipCode {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(skipCodes, code)
 }

@@ -12,13 +12,13 @@ import (
 // LoadFilterConfig loads and merges filter configuration for a website.
 // It combines the global config with website-specific rules from the database
 // and the website's config JSON column.
-func (r *Registry) LoadFilterConfig(ctx context.Context, websiteID string, globalConfig *filter.FilterConfig) (*filter.FilterConfig, error) {
+func (r *Registry) LoadFilterConfig(ctx context.Context, websiteID string, globalConfig *filter.Config) (*filter.Config, error) {
 	// Load website config from database
 	websiteConfig, err := r.loadWebsiteFilterConfig(ctx, websiteID)
 	if err != nil {
 		r.logger.Debug("Failed to load website filter config, using empty config",
 			logging.Field{Key: "error", Value: err.Error()})
-		websiteConfig = &filter.FilterConfig{}
+		websiteConfig = &filter.Config{}
 	}
 
 	// Load filter rules from database
@@ -26,7 +26,7 @@ func (r *Registry) LoadFilterConfig(ctx context.Context, websiteID string, globa
 	if err != nil {
 		r.logger.Debug("Failed to load filter rules, using empty rules",
 			logging.Field{Key: "error", Value: err.Error()})
-		rules = []filter.FilterRule{}
+		rules = []filter.Rule{}
 	}
 
 	// Convert rules to config
@@ -39,7 +39,7 @@ func (r *Registry) LoadFilterConfig(ctx context.Context, websiteID string, globa
 }
 
 // loadWebsiteFilterConfig loads the filter configuration from the website's config JSON column.
-func (r *Registry) loadWebsiteFilterConfig(ctx context.Context, websiteID string) (*filter.FilterConfig, error) {
+func (r *Registry) loadWebsiteFilterConfig(ctx context.Context, websiteID string) (*filter.Config, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT config FROM websites WHERE id = ?`,
 		websiteID,
@@ -51,21 +51,21 @@ func (r *Registry) loadWebsiteFilterConfig(ctx context.Context, websiteID string
 	}
 
 	if configJSON == "" || configJSON == "{}" {
-		return &filter.FilterConfig{}, nil
+		return &filter.Config{}, nil
 	}
 
 	// Parse the JSON config
-	var websiteFilterCfg filter.WebsiteFilterConfig
+	var websiteFilterCfg filter.WebsiteConfig
 	if err := json.Unmarshal([]byte(configJSON), &websiteFilterCfg); err != nil {
 		// Not a valid filter config, return empty
-		return &filter.FilterConfig{}, nil
+		return &filter.Config{}, nil
 	}
 
-	return websiteFilterCfg.ToFilterConfig(), nil
+	return websiteFilterCfg.ToConfig(), nil
 }
 
 // UpdateWebsiteFilterConfig updates the filter configuration in the website's config JSON column.
-func (r *Registry) UpdateWebsiteFilterConfig(ctx context.Context, websiteID string, cfg *filter.WebsiteFilterConfig) error {
+func (r *Registry) UpdateWebsiteFilterConfig(ctx context.Context, websiteID string, cfg *filter.WebsiteConfig) error {
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal filter config: %w", err)
@@ -91,7 +91,7 @@ func (r *Registry) UpdateWebsiteFilterConfig(ctx context.Context, websiteID stri
 }
 
 // GetWebsiteFilterConfig returns the filter configuration from the website's config JSON column.
-func (r *Registry) GetWebsiteFilterConfig(ctx context.Context, websiteID string) (*filter.WebsiteFilterConfig, error) {
+func (r *Registry) GetWebsiteFilterConfig(ctx context.Context, websiteID string) (*filter.WebsiteConfig, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT config FROM websites WHERE id = ?`,
 		websiteID,
@@ -103,13 +103,13 @@ func (r *Registry) GetWebsiteFilterConfig(ctx context.Context, websiteID string)
 	}
 
 	if configJSON == "" || configJSON == "{}" {
-		return &filter.WebsiteFilterConfig{}, nil
+		return &filter.WebsiteConfig{}, nil
 	}
 
-	var cfg filter.WebsiteFilterConfig
+	var cfg filter.WebsiteConfig
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		// Not a valid filter config, return empty
-		return &filter.WebsiteFilterConfig{}, nil
+		return &filter.WebsiteConfig{}, nil
 	}
 
 	return &cfg, nil

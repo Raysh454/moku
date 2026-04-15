@@ -37,7 +37,7 @@ type Config struct {
 	urlCfg utils.CanonicalizeOptions
 
 	// Filter configuration (global defaults for URL/response filtering)
-	FilterCfg *filter.FilterConfig
+	FilterCfg *filter.Config
 }
 
 // DefaultConfig returns a Config populated with sensible development defaults.
@@ -73,6 +73,6 @@ func DefaultConfig() *Config {
 			DefaultScheme:          "https",
 			TrackingParamAllowlist: nil,
 		},
-		FilterCfg: filter.DefaultFilterConfig(),
+		FilterCfg: filter.DefaultConfig(),
 	}
 }

@@ -289,7 +289,7 @@ func TestListEndpointsFiltered(t *testing.T) {
 	}
 
 	// Create filter config that skips .jpg and .png
-	filterConfig := &filter.FilterConfig{
+	filterConfig := &filter.Config{
 		SkipExtensions: []string{".jpg", ".png"},
 	}
 
@@ -522,7 +522,7 @@ func TestListEndpointsFiltered_PatternMatching(t *testing.T) {
 	}
 
 	// Create filter config that skips /assets/* pattern
-	filterConfig := &filter.FilterConfig{
+	filterConfig := &filter.Config{
 		SkipPatterns: []string{"*/assets/*"},
 	}
 

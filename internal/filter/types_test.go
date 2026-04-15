@@ -27,15 +27,15 @@ func TestRuleType_IsValid(t *testing.T) {
 	}
 }
 
-func TestFilterRule_Validate(t *testing.T) {
+func TestRule_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		rule    FilterRule
+		rule    Rule
 		wantErr bool
 	}{
 		{
 			name: "valid extension rule",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-1",
 				WebsiteID: "site-1",
 				RuleType:  RuleTypeExtension,
@@ -45,7 +45,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		},
 		{
 			name: "valid pattern rule",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-2",
 				WebsiteID: "site-1",
 				RuleType:  RuleTypePattern,
@@ -55,7 +55,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		},
 		{
 			name: "valid status code rule",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-3",
 				WebsiteID: "site-1",
 				RuleType:  RuleTypeStatusCode,
@@ -65,7 +65,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		},
 		{
 			name: "missing rule type",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-4",
 				WebsiteID: "site-1",
 				RuleValue: ".jpg",
@@ -74,7 +74,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		},
 		{
 			name: "missing rule value",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-5",
 				WebsiteID: "site-1",
 				RuleType:  RuleTypeExtension,
@@ -83,7 +83,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid rule type",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-6",
 				WebsiteID: "site-1",
 				RuleType:  RuleType("invalid"),
@@ -93,7 +93,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid status code - not a number",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-7",
 				WebsiteID: "site-1",
 				RuleType:  RuleTypeStatusCode,
@@ -103,7 +103,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid status code - out of range",
-			rule: FilterRule{
+			rule: Rule{
 				ID:        "rule-8",
 				WebsiteID: "site-1",
 				RuleType:  RuleTypeStatusCode,
@@ -117,7 +117,7 @@ func TestFilterRule_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.rule.Validate()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FilterRule.Validate() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Rule.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -202,41 +202,41 @@ func TestValidateStatusCode(t *testing.T) {
 	}
 }
 
-func TestFilterConfig_IsEmpty(t *testing.T) {
+func TestConfig_IsEmpty(t *testing.T) {
 	tests := []struct {
 		name   string
-		config FilterConfig
+		config Config
 		want   bool
 	}{
 		{
 			name:   "empty config",
-			config: FilterConfig{},
+			config: Config{},
 			want:   true,
 		},
 		{
 			name: "with skip extensions",
-			config: FilterConfig{
+			config: Config{
 				SkipExtensions: []string{".jpg"},
 			},
 			want: false,
 		},
 		{
 			name: "with skip patterns",
-			config: FilterConfig{
+			config: Config{
 				SkipPatterns: []string{"*/media/*"},
 			},
 			want: false,
 		},
 		{
 			name: "with skip status codes",
-			config: FilterConfig{
+			config: Config{
 				SkipStatusCodes: []int{404},
 			},
 			want: false,
 		},
 		{
 			name: "with empty slices",
-			config: FilterConfig{
+			config: Config{
 				SkipExtensions:  []string{},
 				SkipPatterns:    []string{},
 				SkipStatusCodes: []int{},
@@ -249,7 +249,7 @@ func TestFilterConfig_IsEmpty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.config.IsEmpty()
 			if got != tt.want {
-				t.Errorf("FilterConfig.IsEmpty() = %v, want %v", got, tt.want)
+				t.Errorf("Config.IsEmpty() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -30,7 +30,7 @@ type Config struct {
 type FetchOptions struct {
 	// FilterConfig is the filter configuration to apply during fetching.
 	// If nil, no filtering is applied.
-	FilterConfig *filter.FilterConfig
+	FilterConfig *filter.Config
 
 	// FilterStatusCodes controls whether to filter responses by status code.
 	// When true, responses matching SkipStatusCodes in FilterConfig are filtered out.

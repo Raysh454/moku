@@ -306,7 +306,7 @@ func (d *DummyEndpointIndex) MarkFetchedBatch(_ context.Context, canonicals []st
 	return d.MarkFetchedBatchErr
 }
 
-func (d *DummyEndpointIndex) ListEndpointsFiltered(_ context.Context, status string, limit int, _ *filter.FilterConfig) ([]indexer.Endpoint, error) {
+func (d *DummyEndpointIndex) ListEndpointsFiltered(_ context.Context, status string, limit int, _ *filter.Config) ([]indexer.Endpoint, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return append([]indexer.Endpoint(nil), d.ListedEndpoints...), nil

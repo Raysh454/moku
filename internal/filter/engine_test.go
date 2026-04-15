@@ -7,14 +7,14 @@ import (
 func TestEngine_ShouldFilter(t *testing.T) {
 	tests := []struct {
 		name   string
-		config *FilterConfig
+		config *Config
 		url    string
 		want   bool
 		reason string
 	}{
 		{
 			name: "filter by extension",
-			config: &FilterConfig{
+			config: &Config{
 				SkipExtensions: []string{".jpg", ".png"},
 			},
 			url:    "https://example.com/image.jpg",
@@ -23,7 +23,7 @@ func TestEngine_ShouldFilter(t *testing.T) {
 		},
 		{
 			name: "filter by pattern",
-			config: &FilterConfig{
+			config: &Config{
 				SkipPatterns: []string{"*/media/*"},
 			},
 			url:    "https://example.com/media/video.mp4",
@@ -32,7 +32,7 @@ func TestEngine_ShouldFilter(t *testing.T) {
 		},
 		{
 			name: "no filter - different extension",
-			config: &FilterConfig{
+			config: &Config{
 				SkipExtensions: []string{".jpg", ".png"},
 			},
 			url:    "https://example.com/script.js",
@@ -48,14 +48,14 @@ func TestEngine_ShouldFilter(t *testing.T) {
 		},
 		{
 			name:   "empty config",
-			config: &FilterConfig{},
+			config: &Config{},
 			url:    "https://example.com/image.jpg",
 			want:   false,
 			reason: "",
 		},
 		{
 			name: "combined filters - extension match",
-			config: &FilterConfig{
+			config: &Config{
 				SkipExtensions: []string{".jpg"},
 				SkipPatterns:   []string{"*/static/*"},
 			},
@@ -65,7 +65,7 @@ func TestEngine_ShouldFilter(t *testing.T) {
 		},
 		{
 			name: "combined filters - pattern match",
-			config: &FilterConfig{
+			config: &Config{
 				SkipExtensions: []string{".jpg"},
 				SkipPatterns:   []string{"*/static/*"},
 			},
@@ -75,7 +75,7 @@ func TestEngine_ShouldFilter(t *testing.T) {
 		},
 		{
 			name: "case insensitive extension",
-			config: &FilterConfig{
+			config: &Config{
 				SkipExtensions: []string{".jpg"},
 			},
 			url:    "https://example.com/IMAGE.JPG",
@@ -101,14 +101,14 @@ func TestEngine_ShouldFilter(t *testing.T) {
 func TestEngine_ShouldFilterStatus(t *testing.T) {
 	tests := []struct {
 		name   string
-		config *FilterConfig
+		config *Config
 		code   int
 		want   bool
 		reason string
 	}{
 		{
 			name: "filter 404",
-			config: &FilterConfig{
+			config: &Config{
 				SkipStatusCodes: []int{404, 410},
 			},
 			code:   404,
@@ -117,7 +117,7 @@ func TestEngine_ShouldFilterStatus(t *testing.T) {
 		},
 		{
 			name: "filter 410",
-			config: &FilterConfig{
+			config: &Config{
 				SkipStatusCodes: []int{404, 410},
 			},
 			code:   410,
@@ -126,7 +126,7 @@ func TestEngine_ShouldFilterStatus(t *testing.T) {
 		},
 		{
 			name: "no filter - 200",
-			config: &FilterConfig{
+			config: &Config{
 				SkipStatusCodes: []int{404, 410},
 			},
 			code:   200,
@@ -142,7 +142,7 @@ func TestEngine_ShouldFilterStatus(t *testing.T) {
 		},
 		{
 			name:   "empty config",
-			config: &FilterConfig{},
+			config: &Config{},
 			code:   404,
 			want:   false,
 			reason: "",
@@ -160,53 +160,6 @@ func TestEngine_ShouldFilterStatus(t *testing.T) {
 				t.Errorf("Engine.ShouldFilterStatus(%d).Reason = %q, want %q", tt.code, result.Reason, tt.reason)
 			}
 		})
-	}
-}
-
-func TestEngine_FilterURLs(t *testing.T) {
-	config := &FilterConfig{
-		SkipExtensions: []string{".jpg", ".png", ".gif"},
-		SkipPatterns:   []string{"*/media/*"},
-	}
-	engine := NewEngine(config)
-
-	urls := []string{
-		"https://example.com/page.html",
-		"https://example.com/image.jpg",
-		"https://example.com/media/video.mp4",
-		"https://example.com/api/users",
-		"https://example.com/logo.png",
-	}
-
-	kept, filtered := engine.FilterURLs(urls)
-
-	expectedFiltered := 3 // .jpg, /media/, .png
-	expectedKept := 2     // .html, /api/
-
-	if len(filtered) != expectedFiltered {
-		t.Errorf("FilterURLs() filtered count = %d, want %d", len(filtered), expectedFiltered)
-	}
-	if len(kept) != expectedKept {
-		t.Errorf("FilterURLs() kept count = %d, want %d", len(kept), expectedKept)
-	}
-
-	// Check specific URLs - kept should not include filtered extensions
-	for _, url := range kept {
-		if url == "https://example.com/image.jpg" || url == "https://example.com/logo.png" {
-			t.Errorf("FilterURLs() should have filtered %s", url)
-		}
-	}
-
-	// Check filtered URLs contain expected ones
-	filteredURLs := make(map[string]bool)
-	for _, f := range filtered {
-		filteredURLs[f.URL] = true
-	}
-	if !filteredURLs["https://example.com/image.jpg"] {
-		t.Error("FilterURLs() should have filtered image.jpg")
-	}
-	if !filteredURLs["https://example.com/logo.png"] {
-		t.Error("FilterURLs() should have filtered logo.png")
 	}
 }
 

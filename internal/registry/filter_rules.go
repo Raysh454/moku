@@ -14,8 +14,8 @@ import (
 var ErrFilterRuleNotFound = fmt.Errorf("filter rule not found")
 
 // AddFilterRule creates a new filter rule for a website.
-func (r *Registry) AddFilterRule(ctx context.Context, websiteID string, ruleType filter.RuleType, ruleValue string) (*filter.FilterRule, error) {
-	rule := &filter.FilterRule{
+func (r *Registry) AddFilterRule(ctx context.Context, websiteID string, ruleType filter.RuleType, ruleValue string) (*filter.Rule, error) {
+	rule := &filter.Rule{
 		ID:        uuid.New().String(),
 		WebsiteID: websiteID,
 		RuleType:  ruleType,
@@ -46,8 +46,8 @@ func (r *Registry) AddFilterRule(ctx context.Context, websiteID string, ruleType
 }
 
 // AddFilterRuleWithPriority creates a new filter rule with a custom priority.
-func (r *Registry) AddFilterRuleWithPriority(ctx context.Context, websiteID string, ruleType filter.RuleType, ruleValue string, priority int) (*filter.FilterRule, error) {
-	rule := &filter.FilterRule{
+func (r *Registry) AddFilterRuleWithPriority(ctx context.Context, websiteID string, ruleType filter.RuleType, ruleValue string, priority int) (*filter.Rule, error) {
+	rule := &filter.Rule{
 		ID:        uuid.New().String(),
 		WebsiteID: websiteID,
 		RuleType:  ruleType,
@@ -76,7 +76,7 @@ func (r *Registry) AddFilterRuleWithPriority(ctx context.Context, websiteID stri
 }
 
 // ListFilterRules returns all filter rules for a website.
-func (r *Registry) ListFilterRules(ctx context.Context, websiteID string) ([]filter.FilterRule, error) {
+func (r *Registry) ListFilterRules(ctx context.Context, websiteID string) ([]filter.Rule, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, website_id, rule_type, rule_value, priority, enabled, created_at, updated_at
 		 FROM filter_rules
@@ -89,9 +89,9 @@ func (r *Registry) ListFilterRules(ctx context.Context, websiteID string) ([]fil
 	}
 	defer rows.Close()
 
-	var rules []filter.FilterRule
+	var rules []filter.Rule
 	for rows.Next() {
-		var rule filter.FilterRule
+		var rule filter.Rule
 		if err := rows.Scan(&rule.ID, &rule.WebsiteID, &rule.RuleType, &rule.RuleValue, &rule.Priority, &rule.Enabled, &rule.CreatedAt, &rule.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan filter rule: %w", err)
 		}
@@ -106,7 +106,7 @@ func (r *Registry) ListFilterRules(ctx context.Context, websiteID string) ([]fil
 }
 
 // ListEnabledFilterRules returns only enabled filter rules for a website.
-func (r *Registry) ListEnabledFilterRules(ctx context.Context, websiteID string) ([]filter.FilterRule, error) {
+func (r *Registry) ListEnabledFilterRules(ctx context.Context, websiteID string) ([]filter.Rule, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, website_id, rule_type, rule_value, priority, enabled, created_at, updated_at
 		 FROM filter_rules
@@ -119,9 +119,9 @@ func (r *Registry) ListEnabledFilterRules(ctx context.Context, websiteID string)
 	}
 	defer rows.Close()
 
-	var rules []filter.FilterRule
+	var rules []filter.Rule
 	for rows.Next() {
-		var rule filter.FilterRule
+		var rule filter.Rule
 		if err := rows.Scan(&rule.ID, &rule.WebsiteID, &rule.RuleType, &rule.RuleValue, &rule.Priority, &rule.Enabled, &rule.CreatedAt, &rule.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan filter rule: %w", err)
 		}
@@ -136,7 +136,7 @@ func (r *Registry) ListEnabledFilterRules(ctx context.Context, websiteID string)
 }
 
 // GetFilterRule returns a single filter rule by ID.
-func (r *Registry) GetFilterRule(ctx context.Context, ruleID string) (*filter.FilterRule, error) {
+func (r *Registry) GetFilterRule(ctx context.Context, ruleID string) (*filter.Rule, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT id, website_id, rule_type, rule_value, priority, enabled, created_at, updated_at
 		 FROM filter_rules
@@ -144,7 +144,7 @@ func (r *Registry) GetFilterRule(ctx context.Context, ruleID string) (*filter.Fi
 		ruleID,
 	)
 
-	var rule filter.FilterRule
+	var rule filter.Rule
 	if err := row.Scan(&rule.ID, &rule.WebsiteID, &rule.RuleType, &rule.RuleValue, &rule.Priority, &rule.Enabled, &rule.CreatedAt, &rule.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrFilterRuleNotFound
@@ -158,7 +158,7 @@ func (r *Registry) GetFilterRule(ctx context.Context, ruleID string) (*filter.Fi
 // UpdateFilterRule updates an existing filter rule.
 func (r *Registry) UpdateFilterRule(ctx context.Context, ruleID string, ruleType filter.RuleType, ruleValue string, enabled bool) error {
 	// Create a rule struct for validation
-	rule := &filter.FilterRule{
+	rule := &filter.Rule{
 		RuleType:  ruleType,
 		RuleValue: ruleValue,
 	}
@@ -290,7 +290,7 @@ func (r *Registry) DisableFilterRule(ctx context.Context, ruleID string) error {
 // SeedDefaultFilterRules creates default filter rules for a website.
 // This seeds the default skip extensions so they appear in the UI as toggleable rules.
 func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string) error {
-	defaults := filter.DefaultFilterConfig()
+	defaults := filter.DefaultConfig()
 	now := time.Now().Unix()
 
 	// Begin transaction
@@ -314,7 +314,7 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 
 	// Seed extension rules
 	for _, ext := range defaults.SkipExtensions {
-		rule := &filter.FilterRule{
+		rule := &filter.Rule{
 			ID:        uuid.New().String(),
 			WebsiteID: websiteID,
 			RuleType:  filter.RuleTypeExtension,
@@ -335,7 +335,7 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 
 	// Seed pattern rules (if any defaults exist)
 	for _, pattern := range defaults.SkipPatterns {
-		rule := &filter.FilterRule{
+		rule := &filter.Rule{
 			ID:        uuid.New().String(),
 			WebsiteID: websiteID,
 			RuleType:  filter.RuleTypePattern,
@@ -356,7 +356,7 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 
 	// Seed status code rules (if any defaults exist)
 	for _, code := range defaults.SkipStatusCodes {
-		rule := &filter.FilterRule{
+		rule := &filter.Rule{
 			ID:        uuid.New().String(),
 			WebsiteID: websiteID,
 			RuleType:  filter.RuleTypeStatusCode,
