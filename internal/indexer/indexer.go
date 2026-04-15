@@ -16,7 +16,7 @@ import (
 type EndpointIndex interface {
 	AddEndpoints(ctx context.Context, rawUrls []string, source string) ([]string, error)
 	ListEndpoints(ctx context.Context, status string, limit int) ([]Endpoint, error)
-	ListEndpointsFiltered(ctx context.Context, status string, limit int, filterCfg *filter.FilterConfig) ([]Endpoint, error)
+	ListEndpointsFiltered(ctx context.Context, status string, limit int, filterCfg *filter.Config) ([]Endpoint, error)
 	MarkPending(ctx context.Context, canonical string) error
 	MarkPendingBatch(ctx context.Context, canonicals []string) error
 	MarkFetched(ctx context.Context, canonical string, versionID string, fetchedAt time.Time) error
@@ -264,7 +264,7 @@ func (ix *Index) ListEndpoints(ctx context.Context, status string, limit int) ([
 
 // ListEndpointsFiltered returns endpoints filtered by the given filter config.
 // URLs that match the filter are marked as "filtered" with their reason and not returned.
-func (ix *Index) ListEndpointsFiltered(ctx context.Context, status string, limit int, filterCfg *filter.FilterConfig) ([]Endpoint, error) {
+func (ix *Index) ListEndpointsFiltered(ctx context.Context, status string, limit int, filterCfg *filter.Config) ([]Endpoint, error) {
 	// First get all endpoints matching the status
 	endpoints, err := ix.ListEndpoints(ctx, status, 0) // Get all, we'll limit after filtering
 	if err != nil {

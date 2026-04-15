@@ -27,8 +27,8 @@ const (
 	PriorityStatusCode = 25  // Status codes evaluated last
 )
 
-// FilterRule represents a single filter rule stored in the database.
-type FilterRule struct {
+// Rule represents a single filter rule stored in the database.
+type Rule struct {
 	ID        string   `json:"id"`
 	WebsiteID string   `json:"website_id"`
 	RuleType  RuleType `json:"rule_type"`
@@ -40,7 +40,7 @@ type FilterRule struct {
 }
 
 // Validate checks if the filter rule is valid.
-func (r *FilterRule) Validate() error {
+func (r *Rule) Validate() error {
 	if !r.RuleType.IsValid() {
 		return fmt.Errorf("invalid rule type: %s", r.RuleType)
 	}
@@ -67,7 +67,7 @@ func (r *FilterRule) Validate() error {
 }
 
 // DefaultPriority returns the default priority for this rule type.
-func (r *FilterRule) DefaultPriority() int {
+func (r *Rule) DefaultPriority() int {
 	switch r.RuleType {
 	case RuleTypePattern:
 		return PriorityPattern
@@ -90,9 +90,9 @@ func (rt RuleType) IsValid() bool {
 	}
 }
 
-// FilterConfig holds the filter configuration.
+// Config holds the filter configuration.
 // This is a simplified skip-only configuration.
-type FilterConfig struct {
+type Config struct {
 	// SkipExtensions are file extensions to skip (e.g., ".jpg", ".png")
 	SkipExtensions []string `json:"skip_extensions,omitempty"`
 
@@ -102,12 +102,12 @@ type FilterConfig struct {
 	// SkipStatusCodes are HTTP status codes to filter (e.g., 404)
 	SkipStatusCodes []int `json:"skip_status_codes,omitempty"`
 
-	// Rules are the individual FilterRule objects (from database)
-	Rules []FilterRule `json:"rules,omitempty"`
+	// Rules are the individual Rule objects (from database)
+	Rules []Rule `json:"rules,omitempty"`
 }
 
 // IsEmpty returns true if the config has no filtering rules.
-func (c *FilterConfig) IsEmpty() bool {
+func (c *Config) IsEmpty() bool {
 	if c == nil {
 		return true
 	}
@@ -117,26 +117,10 @@ func (c *FilterConfig) IsEmpty() bool {
 		len(c.Rules) == 0
 }
 
-// FilterResult contains the result of a filter check.
-type FilterResult struct {
+// Result contains the result of a filter check.
+type Result struct {
 	Filtered bool   `json:"filtered"`
 	Reason   string `json:"reason,omitempty"`
-	RuleID   string `json:"rule_id,omitempty"`
-}
-
-// NewFilteredResult creates a FilterResult indicating the URL should be filtered.
-func NewFilteredResult(reason string, ruleID string) FilterResult {
-	return FilterResult{
-		Filtered: true,
-		Reason:   reason,
-		RuleID:   ruleID,
-	}
-}
-
-// FilterEngine is the interface for filter evaluation.
-type FilterEngine interface {
-	ShouldFilter(url string) FilterResult
-	ShouldFilterStatus(statusCode int) FilterResult
 }
 
 // ValidateExtension checks if an extension value is valid.
@@ -191,19 +175,19 @@ func ValidateStatusCode(code string) error {
 	return nil
 }
 
-// WebsiteFilterConfig is the JSON structure stored in websites.config column.
-type WebsiteFilterConfig struct {
+// WebsiteConfig is the JSON structure stored in websites.config column.
+type WebsiteConfig struct {
 	SkipExtensions  []string `json:"skip_extensions,omitempty"`
 	SkipPatterns    []string `json:"skip_patterns,omitempty"`
 	SkipStatusCodes []int    `json:"skip_status_codes,omitempty"`
 }
 
-// ToFilterConfig converts WebsiteFilterConfig to FilterConfig.
-func (w *WebsiteFilterConfig) ToFilterConfig() *FilterConfig {
+// ToConfig converts WebsiteConfig to Config.
+func (w *WebsiteConfig) ToConfig() *Config {
 	if w == nil {
-		return &FilterConfig{}
+		return &Config{}
 	}
-	return &FilterConfig{
+	return &Config{
 		SkipExtensions:  w.SkipExtensions,
 		SkipPatterns:    w.SkipPatterns,
 		SkipStatusCodes: w.SkipStatusCodes,

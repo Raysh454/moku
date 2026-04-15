@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func TestDefaultFilterConfig(t *testing.T) {
-	config := DefaultFilterConfig()
+func TestDefaultConfig(t *testing.T) {
+	config := DefaultConfig()
 
 	// Check that security defaults are set
 	if len(config.SkipExtensions) == 0 {
-		t.Error("DefaultFilterConfig() should have SkipExtensions")
+		t.Error("DefaultConfig() should have SkipExtensions")
 	}
 
 	// Verify security-important extensions are NOT in skip list
@@ -18,7 +18,7 @@ func TestDefaultFilterConfig(t *testing.T) {
 	for _, ext := range securityExtensions {
 		for _, skip := range config.SkipExtensions {
 			if skip == ext {
-				t.Errorf("DefaultFilterConfig() should not skip security-relevant extension %s", ext)
+				t.Errorf("DefaultConfig() should not skip security-relevant extension %s", ext)
 			}
 		}
 	}
@@ -34,67 +34,67 @@ func TestDefaultFilterConfig(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("DefaultFilterConfig() should skip binary extension %s", ext)
+			t.Errorf("DefaultConfig() should skip binary extension %s", ext)
 		}
 	}
 
 	// Status codes should be empty by default (404 is opt-in)
 	if len(config.SkipStatusCodes) != 0 {
-		t.Errorf("DefaultFilterConfig() should not skip any status codes by default, got %v", config.SkipStatusCodes)
+		t.Errorf("DefaultConfig() should not skip any status codes by default, got %v", config.SkipStatusCodes)
 	}
 }
 
 func TestMergeConfigs(t *testing.T) {
 	tests := []struct {
 		name   string
-		global *FilterConfig
-		site   *FilterConfig
-		api    *FilterConfig
-		want   *FilterConfig
+		global *Config
+		site   *Config
+		api    *Config
+		want   *Config
 	}{
 		{
 			name:   "all nil",
 			global: nil,
 			site:   nil,
 			api:    nil,
-			want:   &FilterConfig{},
+			want:   &Config{},
 		},
 		{
 			name: "only global",
-			global: &FilterConfig{
+			global: &Config{
 				SkipExtensions: []string{".jpg", ".png"},
 			},
 			site: nil,
 			api:  nil,
-			want: &FilterConfig{
+			want: &Config{
 				SkipExtensions: []string{".jpg", ".png"},
 			},
 		},
 		{
 			name: "global + site merge",
-			global: &FilterConfig{
+			global: &Config{
 				SkipExtensions: []string{".jpg"},
 			},
-			site: &FilterConfig{
+			site: &Config{
 				SkipExtensions: []string{".png"},
 			},
 			api: nil,
-			want: &FilterConfig{
+			want: &Config{
 				SkipExtensions: []string{".jpg", ".png"},
 			},
 		},
 		{
 			name: "all three levels merge",
-			global: &FilterConfig{
+			global: &Config{
 				SkipExtensions: []string{".jpg"},
 			},
-			site: &FilterConfig{
+			site: &Config{
 				SkipPatterns: []string{"*/media/*"},
 			},
-			api: &FilterConfig{
+			api: &Config{
 				SkipStatusCodes: []int{404},
 			},
-			want: &FilterConfig{
+			want: &Config{
 				SkipExtensions:  []string{".jpg"},
 				SkipPatterns:    []string{"*/media/*"},
 				SkipStatusCodes: []int{404},
@@ -102,29 +102,29 @@ func TestMergeConfigs(t *testing.T) {
 		},
 		{
 			name: "deduplication",
-			global: &FilterConfig{
+			global: &Config{
 				SkipExtensions: []string{".jpg", ".png"},
 			},
-			site: &FilterConfig{
+			site: &Config{
 				SkipExtensions: []string{".png", ".gif"}, // .png is duplicate
 			},
 			api: nil,
-			want: &FilterConfig{
+			want: &Config{
 				SkipExtensions: []string{".jpg", ".png", ".gif"},
 			},
 		},
 		{
 			name: "status codes merge",
-			global: &FilterConfig{
+			global: &Config{
 				SkipStatusCodes: []int{404},
 			},
-			site: &FilterConfig{
+			site: &Config{
 				SkipStatusCodes: []int{410},
 			},
-			api: &FilterConfig{
+			api: &Config{
 				SkipStatusCodes: []int{500},
 			},
-			want: &FilterConfig{
+			want: &Config{
 				SkipStatusCodes: []int{404, 410, 500},
 			},
 		},
@@ -153,7 +153,7 @@ func TestMergeConfigs(t *testing.T) {
 }
 
 func TestRulesToConfig(t *testing.T) {
-	rules := []FilterRule{
+	rules := []Rule{
 		{RuleType: RuleTypeExtension, RuleValue: ".jpg", Enabled: true},
 		{RuleType: RuleTypeExtension, RuleValue: ".png", Enabled: true},
 		{RuleType: RuleTypeExtension, RuleValue: ".gif", Enabled: false}, // disabled
@@ -181,14 +181,14 @@ func TestRulesToConfig(t *testing.T) {
 }
 
 func TestRulesToConfig_Empty(t *testing.T) {
-	config := RulesToConfig([]FilterRule{})
+	config := RulesToConfig([]Rule{})
 	if !config.IsEmpty() {
 		t.Error("RulesToConfig([]) should return empty config")
 	}
 }
 
 func TestRulesToConfig_InvalidStatusCode(t *testing.T) {
-	rules := []FilterRule{
+	rules := []Rule{
 		{RuleType: RuleTypeStatusCode, RuleValue: "invalid", Enabled: true},
 	}
 

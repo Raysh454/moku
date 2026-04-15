@@ -374,7 +374,7 @@ func TestSeedDefaultFilterRules(t *testing.T) {
 	}
 
 	// Should have default rules (at least the extension rules from DefaultFilterConfig)
-	defaults := filter.DefaultFilterConfig()
+	defaults := filter.DefaultConfig()
 	expectedCount := len(defaults.SkipExtensions) + len(defaults.SkipPatterns) + len(defaults.SkipStatusCodes)
 
 	if len(rules) != expectedCount {

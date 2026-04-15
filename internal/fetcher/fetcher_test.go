@@ -291,7 +291,7 @@ func (d *DummyEndpointIndex) MarkFetchedBatch(ctx context.Context, canonicals []
 	return d.MarkFetchedBatchErr
 }
 
-func (d *DummyEndpointIndex) ListEndpointsFiltered(ctx context.Context, status string, limit int, filterConfig *filter.FilterConfig) ([]indexer.Endpoint, error) {
+func (d *DummyEndpointIndex) ListEndpointsFiltered(ctx context.Context, status string, limit int, filterConfig *filter.Config) ([]indexer.Endpoint, error) {
 	return d.ListEndpoints(ctx, status, limit)
 }
 
@@ -855,7 +855,7 @@ func TestFetchWithOptions_StatusCodeFiltering(t *testing.T) {
 	}
 
 	// Filter config that skips 404s
-	filterCfg := &filter.FilterConfig{
+	filterCfg := &filter.Config{
 		SkipStatusCodes: []int{404},
 	}
 
@@ -972,7 +972,7 @@ func TestFetchWithOptions_MultipleStatusCodesFiltered(t *testing.T) {
 	}
 
 	// Filter config that skips 404 and 410
-	filterCfg := &filter.FilterConfig{
+	filterCfg := &filter.Config{
 		SkipStatusCodes: []int{404, 410},
 	}
 

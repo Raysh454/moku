@@ -58,7 +58,7 @@ func (s *Server) handleCreateFilterRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var rule *filter.FilterRule
+	var rule *filter.Rule
 	if req.Priority != nil {
 		rule, err = s.orchestrator.Registry().AddFilterRuleWithPriority(r.Context(), ws.ID, ruleType, req.RuleValue, *req.Priority)
 	} else {
@@ -232,7 +232,7 @@ func (s *Server) handleUpdateFilterConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg := &filter.WebsiteFilterConfig{
+	cfg := &filter.WebsiteConfig{
 		SkipExtensions:  req.SkipExtensions,
 		SkipPatterns:    req.SkipPatterns,
 		SkipStatusCodes: req.SkipStatusCodes,

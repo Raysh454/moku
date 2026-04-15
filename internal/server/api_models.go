@@ -120,8 +120,8 @@ type ApplyFiltersResponse struct {
 	Message  string `json:"message"`
 }
 
-// toFilterRuleResponse converts a filter.FilterRule to FilterRuleResponse.
-func toFilterRuleResponse(r filter.FilterRule) FilterRuleResponse {
+// toFilterRuleResponse converts a filter.Rule to FilterRuleResponse.
+func toFilterRuleResponse(r filter.Rule) FilterRuleResponse {
 	return FilterRuleResponse{
 		ID:        r.ID,
 		WebsiteID: r.WebsiteID,
