@@ -3,6 +3,7 @@ import type { AttackSurfaceChange, Snapshot, SecurityDiff, CombinedFileDiff } fr
 import RenderedFrame, { type HighlightedElement, type TextChange } from './RenderedFrame'
 import DOMTreeView from './DOMTreeView'
 import { parseHtmlToTree, diffDomTrees, getChangeSummary } from './DOMParser'
+import { AttackSurfaceChangesPanel } from './AttackSurfaceChangesPanel'
 
 export type RenderedViewMode = 
   | 'preview'           // Single rendered view with highlights
@@ -266,31 +267,15 @@ export default function RenderedDiffViews({
       </div>
 
       {/* Attack Surface Changes Panel */}
-      {securityDiff?.attack_surface_changes && securityDiff.attack_surface_changes.length > 0 && viewMode !== 'timeline' && (
-        <div className="attackChangesPanel">
-          <h4>Attack Surface Changes ({securityDiff.attack_surface_changes.length})</h4>
-          <div className="changesList">
-            {securityDiff.attack_surface_changes.map((change, idx) => (
-              <div
-                key={idx}
-                className={`changeItem ${activeChangeIndex === idx ? 'active' : ''} ${hoveredChange === change ? 'hovered' : ''}`}
-                onClick={() => handleChangeClick(idx)}
-                onMouseEnter={() => setHoveredChange(change)}
-                onMouseLeave={() => setHoveredChange(null)}
-              >
-                <span className={`changeKindBadge kind-${change.kind.split('_')[0]}`}>
-                  {change.kind.replace(/_/g, ' ')}
-                </span>
-                <span className="changeDetail">{change.detail}</span>
-                {change.evidence_locations && change.evidence_locations.length > 0 && (
-                  <span className="changeLocationCount">
-                    📍 {change.evidence_locations.length}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+      {securityDiff?.attack_surface_changes && viewMode !== 'timeline' && (
+        <AttackSurfaceChangesPanel
+          changes={securityDiff.attack_surface_changes}
+          activeChangeIndex={activeChangeIndex}
+          hoveredChange={hoveredChange}
+          onChangeClick={handleChangeClick}
+          onChangeHoverEnter={setHoveredChange}
+          onChangeHoverLeave={() => setHoveredChange(null)}
+        />
       )}
 
       {/* View Content */}

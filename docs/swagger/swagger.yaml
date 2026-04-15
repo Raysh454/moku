@@ -213,6 +213,14 @@ definitions:
         type: string
       base_version_id:
         type: string
+      exposure_delta:
+        description: |-
+          Per-axis score deltas. ExposureDelta is head.ExposureScore - base.ExposureScore
+          (positive = more attack surface exposed). HardeningDelta is
+          head.HardeningScore - base.HardeningScore (positive = better defenses).
+        type: number
+      hardening_delta:
+        type: number
       head_snapshot_id:
         type: string
       head_version_id:

@@ -34,6 +34,9 @@ func NewSecurityDiff(
 		ScoreHead:  scoreDiff.ScoreHead,
 		ScoreDelta: scoreDiff.ScoreDelta,
 
+		ExposureDelta:  scoreDiff.ExposureDelta,
+		HardeningDelta: scoreDiff.HardeningDelta,
+
 		AttackSurfaceChanged: len(asChanges) > 0,
 		AttackSurfaceChanges: asChanges,
 	}, nil

@@ -6,7 +6,6 @@ import type {
   EnumerationConfig,
   FetchConfig,
   FilterConfig,
-  FilteredEndpoint,
   FilterRule,
   Job,
   JobEvent,

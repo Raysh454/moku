@@ -169,6 +169,12 @@ type SecurityDiff struct {
 	ScoreHead  float64 `json:"score_head"`
 	ScoreDelta float64 `json:"score_delta"`
 
+	// Per-axis score deltas. ExposureDelta is head.ExposureScore - base.ExposureScore
+	// (positive = more attack surface exposed). HardeningDelta is
+	// head.HardeningScore - base.HardeningScore (positive = better defenses).
+	ExposureDelta  float64 `json:"exposure_delta"`
+	HardeningDelta float64 `json:"hardening_delta"`
+
 	// Attack surface deltas
 	AttackSurfaceChanged bool                                `json:"attack_surface_changed"`
 	AttackSurfaceChanges []attacksurface.AttackSurfaceChange `json:"attack_surface_changes,omitempty"`
