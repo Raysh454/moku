@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/api"
 	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/registry"
@@ -63,6 +64,7 @@ func injectFakeComponents(t *testing.T, o *Orchestrator, projectSlug, websiteSlu
 	tr := &testutil.DummyTracker{}
 	wc := &testutil.DummyWebClient{}
 	idx := &testutil.DummyEndpointIndex{}
+	an := &testutil.DummyAnalyzer{}
 
 	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, logger)
 	if err != nil {
@@ -74,6 +76,7 @@ func injectFakeComponents(t *testing.T, o *Orchestrator, projectSlug, websiteSlu
 		Index:     idx,
 		Fetcher:   f,
 		WebClient: wc,
+		Analyzer:  an,
 	}
 
 	o.siteCompMutex.Lock()
@@ -530,4 +533,100 @@ func TestListVersions_InvalidWebsite_ReturnsError(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for nonexistent website")
 	}
+}
+
+// ─── Analyzer plugin wiring ────────────────────────────────────────────
+
+// TestNewSiteComponents_HasAnalyzer verifies the real NewSiteComponents
+// constructs a non-nil analyzer for the site, proving the plugin plumbing
+// from app.Config through analyzer.NewAnalyzer works end-to-end.
+func TestNewSiteComponents_HasAnalyzer(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	ctx := context.Background()
+
+	if _, err := o.CreateProject(ctx, "scan-proj", "Scan Proj", ""); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	web, err := o.CreateWebsite(ctx, "scan-proj", "scan-site", "http://example.com")
+	if err != nil {
+		t.Fatalf("CreateWebsite: %v", err)
+	}
+
+	comps, err := NewSiteComponents(ctx, o.cfg, *web, &testutil.DummyLogger{})
+	if err != nil {
+		t.Fatalf("NewSiteComponents: %v", err)
+	}
+	t.Cleanup(func() { _ = comps.Close() })
+
+	if comps.Analyzer == nil {
+		t.Fatal("SiteComponents.Analyzer is nil; want non-nil from analyzer.NewAnalyzer")
+	}
+	if got := string(comps.Analyzer.Name()); got != "moku" {
+		t.Errorf("Analyzer.Name() = %q, want %q (default backend)", got, "moku")
+	}
+}
+
+// TestOrchestrator_GetAnalyzer_ReturnsSiteAnalyzer verifies the orchestrator
+// exposes a site's analyzer for HTTP handlers needing Capabilities/Health.
+func TestOrchestrator_GetAnalyzer_ReturnsSiteAnalyzer(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "http://example.com")
+
+	a, err := o.GetAnalyzer(context.Background(), "proj", "site")
+	if err != nil {
+		t.Fatalf("GetAnalyzer: %v", err)
+	}
+	if a == nil {
+		t.Fatal("GetAnalyzer returned nil analyzer with nil error")
+	}
+}
+
+// TestOrchestrator_StartScanJob_NilRequestErrors asserts input validation.
+func TestOrchestrator_StartScanJob_NilRequestErrors(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	if _, err := o.StartScanJob(context.Background(), "proj", "site", nil); err == nil {
+		t.Error("expected error for nil scan request")
+	}
+}
+
+// TestOrchestrator_StartScanJob_EmptyURLErrors asserts input validation.
+func TestOrchestrator_StartScanJob_EmptyURLErrors(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	if _, err := o.StartScanJob(context.Background(), "proj", "site", &analyzer.ScanRequest{URL: ""}); err == nil {
+		t.Error("expected error for empty scan URL")
+	}
+}
+
+// TestOrchestrator_StartScanJob_CompletesAndStoresResult drives the scan-job
+// goroutine through to JobDone using the DummyAnalyzer and asserts that the
+// terminal Job carries a populated ScanResult.
+func TestOrchestrator_StartScanJob_CompletesAndStoresResult(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "http://example.com")
+
+	job, err := o.StartScanJob(context.Background(), "proj", "site", &analyzer.ScanRequest{URL: "http://example.com/"})
+	if err != nil {
+		t.Fatalf("StartScanJob: %v", err)
+	}
+	if job.Type != "scan" {
+		t.Errorf("job.Type = %q, want %q", job.Type, "scan")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stored := o.GetJob(job.ID)
+		if stored != nil && stored.Status == JobDone {
+			if stored.ScanResult == nil {
+				t.Fatal("stored.ScanResult is nil; want non-nil")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("scan job did not reach JobDone within deadline")
 }

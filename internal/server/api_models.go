@@ -1,6 +1,9 @@
 package server
 
 import (
+	"time"
+
+	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/api"
 	"github.com/raysh454/moku/internal/filter"
 )
@@ -43,6 +46,32 @@ type StartFetchJobRequest struct {
 // StartEnumerateJobRequest configures enumeration with per-enumerator settings.
 type StartEnumerateJobRequest struct {
 	Config api.EnumerationConfig `json:"config"`
+}
+
+// StartScanJobRequest configures a vulnerability-scan job. The URL field is
+// required; every other field is honored only when the selected backend's
+// Capabilities advertise support for it.
+type StartScanJobRequest struct {
+	URL         string               `json:"url" example:"https://example.com/"`
+	Profile     analyzer.ScanProfile `json:"profile,omitempty" example:"balanced"`
+	Scope       *analyzer.ScanScope  `json:"scope,omitempty"`
+	Auth        *analyzer.ScanAuth   `json:"auth,omitempty"`
+	MaxDuration time.Duration        `json:"max_duration,omitempty" example:"300000000000"`
+	RawOptions  map[string]string    `json:"raw_options,omitempty"`
+}
+
+// AnalyzerCapabilitiesResponse reports which backend is wired to a site and
+// what optional ScanRequest fields it honors.
+type AnalyzerCapabilitiesResponse struct {
+	Backend      analyzer.Backend      `json:"backend"`
+	Capabilities analyzer.Capabilities `json:"capabilities"`
+}
+
+// AnalyzerHealthResponse reports whether the configured analyzer backend is
+// reachable right now.
+type AnalyzerHealthResponse struct {
+	Backend analyzer.Backend `json:"backend"`
+	Status  string           `json:"status" example:"ok"`
 }
 
 // ErrorResponse is a uniform error payload returned by the API.

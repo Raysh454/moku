@@ -1,4 +1,293 @@
 definitions:
+  analyzer.Backend:
+    enum:
+    - moku
+    - burp
+    - zap
+    type: string
+    x-enum-varnames:
+    - BackendMoku
+    - BackendBurp
+    - BackendZAP
+  analyzer.Capabilities:
+    properties:
+      async:
+        description: |-
+          Async is true when SubmitScan returns before the scan has finished and
+          GetScan must be polled. Every current backend sets this to true; the
+          field exists for future adapters that may expose a synchronous API.
+        type: boolean
+      max_concurrent_scans:
+        description: |-
+          MaxConcurrentScans is the backend's self-reported concurrency ceiling.
+          Zero means "unknown" or "unbounded"; callers should treat zero as "do
+          not rate-limit based on this value".
+        type: integer
+      supports_auth:
+        description: |-
+          SupportsAuth indicates whether the backend honors ScanRequest.Auth.
+          When false, callers SHOULD NOT set Auth (it will be ignored).
+        type: boolean
+      supports_scan_profile:
+        description: |-
+          SupportsScanProfile indicates whether the backend maps ScanRequest.Profile
+          to a native scan configuration. When false, Profile is ignored and the
+          backend's default profile is used.
+        type: boolean
+      supports_scope:
+        description: |-
+          SupportsScope indicates whether the backend honors ScanRequest.Scope.
+          When false, the scanner will scan whatever crawl strategy it default
+          to without scope filtering.
+        type: boolean
+      version:
+        description: |-
+          Version is the backend's reported version string (e.g. "moku-0.1.0",
+          "Burp Enterprise 2024.5", "ZAP 2.14.0"). Informational.
+        type: string
+    type: object
+  analyzer.Confidence:
+    enum:
+    - tentative
+    - firm
+    - certain
+    type: string
+    x-enum-varnames:
+    - ConfidenceTentative
+    - ConfidenceFirm
+    - ConfidenceCertain
+  analyzer.Finding:
+    properties:
+      confidence:
+        $ref: '#/definitions/analyzer.Confidence'
+      cwe:
+        description: |-
+          CWE lists associated Common Weakness Enumeration IDs. Every major
+          scanner reports these. Moku entries may be empty until the assessor
+          rules are annotated with CWE mappings.
+        items:
+          type: integer
+        type: array
+      description:
+        description: Description explains what the finding means in prose.
+        type: string
+      evidence:
+        description: |-
+          Evidence is a redacted request/response snippet or observation that
+          demonstrates why the finding was raised.
+        type: string
+      id:
+        description: |-
+          ID is a backend-local stable identifier for this finding. Used by
+          consumers to deduplicate results across poll iterations.
+        type: string
+      method:
+        description: |-
+          Method is the HTTP method associated with the finding when applicable
+          (e.g. "POST" for a form-based injection point).
+        type: string
+      parameter:
+        description: |-
+          Parameter is the injection point name when the finding is parameter-
+          scoped: a query parameter, form field, cookie, or header name.
+        type: string
+      path:
+        description: |-
+          Path is the path portion of the URL, surfaced separately for grouping
+          findings by route in reporting UIs.
+        type: string
+      raw_data:
+        additionalProperties: {}
+        description: |-
+          RawData carries backend-specific extras that do not fit the unified
+          schema. Keys SHOULD be namespaced by backend (e.g. "burp.issue_type_id",
+          "zap.messageId", "moku.contribution"). Consumers that read RawData are
+          explicitly coupling themselves to a specific backend.
+        type: object
+      references:
+        description: |-
+          References links to external documentation (OWASP, CVE, vendor
+          advisories) describing the class of vulnerability.
+        items:
+          type: string
+        type: array
+      remediation:
+        description: Remediation is advice on how to fix the underlying weakness.
+        type: string
+      severity:
+        $ref: '#/definitions/analyzer.Severity'
+      title:
+        description: |-
+          Title is a human-readable vulnerability name (e.g. "Reflected XSS",
+          "Missing Content-Security-Policy header").
+        type: string
+      url:
+        description: URL is the full affected URL (scheme + host + path + query).
+        type: string
+      wasc:
+        description: |-
+          WASC lists associated WASC Threat Classification IDs. ZAP reports
+          these natively; Burp and Moku usually leave this empty.
+        items:
+          type: integer
+        type: array
+    type: object
+  analyzer.ScanAuth:
+    properties:
+      extra:
+        additionalProperties:
+          type: string
+        description: |-
+          Extra holds scheme-specific parameters (e.g. form field selectors for
+          Type=="form"). Keys and semantics are scanner-defined.
+        type: object
+      type:
+        description: |-
+          Type selects the authentication scheme the scanner should use.
+          Supported values: "none", "basic", "bearer", "form".
+        type: string
+      username:
+        type: string
+    type: object
+  analyzer.ScanProfile:
+    enum:
+    - quick
+    - balanced
+    - thorough
+    type: string
+    x-enum-varnames:
+    - ProfileQuick
+    - ProfileBalanced
+    - ProfileThorough
+  analyzer.ScanProgress:
+    properties:
+      note:
+        type: string
+      percent:
+        type: integer
+      phase:
+        type: string
+    type: object
+  analyzer.ScanResult:
+    properties:
+      backend:
+        allOf:
+        - $ref: '#/definitions/analyzer.Backend'
+        description: |-
+          Backend identifies which adapter produced this result, mirroring the
+          value returned by Analyzer.Name().
+      completed_at:
+        type: string
+      error:
+        description: |-
+          Error carries a human-readable failure message. Populated only when
+          Status == StatusFailed.
+        type: string
+      findings:
+        description: |-
+          Findings is the unified, backend-agnostic list of results. MUST be
+          non-nil (possibly empty) once Status is StatusCompleted. This is what
+          consumers read.
+        items:
+          $ref: '#/definitions/analyzer.Finding'
+        type: array
+      job_id:
+        description: |-
+          JobID is the backend-local scan identifier (Burp's task_id, ZAP's
+          scan ID, Moku's UUID).
+        type: string
+      progress:
+        allOf:
+        - $ref: '#/definitions/analyzer.ScanProgress'
+        description: |-
+          Progress is an optional mid-run progress snapshot. Backends MAY
+          populate this while Status is StatusRunning. Consumers MUST tolerate
+          a nil Progress at any status.
+      raw_data:
+        additionalProperties: {}
+        description: |-
+          RawData is a backend-specific escape hatch. Keys MUST be namespaced
+          by backend name (e.g. "burp.task_id", "zap.scan_id",
+          "moku.exposure_score"). Reading RawData explicitly couples the caller
+          to a specific backend and is NOT part of the LSP contract.
+        type: object
+      status:
+        $ref: '#/definitions/analyzer.ScanStatus'
+      submitted_at:
+        type: string
+      summary:
+        allOf:
+        - $ref: '#/definitions/analyzer.ScanSummary'
+        description: |-
+          Summary aggregates per-severity counts. Mirrors Burp's issue_counts
+          and ZAP's per-risk totals. MUST be non-nil once Status is
+          StatusCompleted and its counts MUST sum to len(Findings).
+      url:
+        description: URL is the target that was scanned.
+        type: string
+    type: object
+  analyzer.ScanScope:
+    properties:
+      exclude_hosts:
+        items:
+          type: string
+        type: array
+      exclude_paths:
+        items:
+          type: string
+        type: array
+      include_hosts:
+        items:
+          type: string
+        type: array
+      include_paths:
+        items:
+          type: string
+        type: array
+    type: object
+  analyzer.ScanStatus:
+    enum:
+    - pending
+    - running
+    - completed
+    - failed
+    - canceled
+    type: string
+    x-enum-varnames:
+    - StatusPending
+    - StatusRunning
+    - StatusCompleted
+    - StatusFailed
+    - StatusCanceled
+  analyzer.ScanSummary:
+    properties:
+      critical:
+        type: integer
+      high:
+        type: integer
+      info:
+        type: integer
+      low:
+        type: integer
+      medium:
+        type: integer
+      total:
+        type: integer
+    type: object
+  analyzer.Severity:
+    enum:
+    - info
+    - low
+    - medium
+    - high
+    - critical
+    type: string
+    x-enum-varnames:
+    - SeverityInfo
+    - SeverityLow
+    - SeverityMedium
+    - SeverityHigh
+    - SeverityCritical
   api.EnumerationConfig:
     properties:
       robots:
@@ -41,6 +330,12 @@ definitions:
         type: string
       project:
         type: string
+      scan_result:
+        allOf:
+        - $ref: '#/definitions/analyzer.ScanResult'
+        description: |-
+          ScanResult is populated when Type == "scan" and the analyzer pipeline
+          completed. It carries the unified industry-shaped Findings list.
       security_overview:
         $ref: '#/definitions/assessor.SecurityDiffOverview'
       started_at:
@@ -672,6 +967,21 @@ definitions:
         example: 42
         type: integer
     type: object
+  server.AnalyzerCapabilitiesResponse:
+    properties:
+      backend:
+        $ref: '#/definitions/analyzer.Backend'
+      capabilities:
+        $ref: '#/definitions/analyzer.Capabilities'
+    type: object
+  server.AnalyzerHealthResponse:
+    properties:
+      backend:
+        $ref: '#/definitions/analyzer.Backend'
+      status:
+        example: ok
+        type: string
+    type: object
   server.CreateProjectRequest:
     properties:
       description:
@@ -729,6 +1039,49 @@ definitions:
         example: '*'
         type: string
     type: object
+  server.StartScanJobRequest:
+    properties:
+      auth:
+        $ref: '#/definitions/analyzer.ScanAuth'
+      max_duration:
+        allOf:
+        - $ref: '#/definitions/time.Duration'
+        example: 300000000000
+      profile:
+        allOf:
+        - $ref: '#/definitions/analyzer.ScanProfile'
+        example: balanced
+      raw_options:
+        additionalProperties:
+          type: string
+        type: object
+      scope:
+        $ref: '#/definitions/analyzer.ScanScope'
+      url:
+        example: https://example.com/
+        type: string
+    type: object
+  time.Duration:
+    enum:
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    format: int64
+    type: integer
+    x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
 info:
   contact: {}
 paths:
@@ -893,6 +1246,68 @@ paths:
       summary: Create a website inside a project
       tags:
       - Websites
+  /projects/{project}/websites/{site}/analyzer/capabilities:
+    get:
+      description: Returns which analyzer backend a site is wired to (moku/burp/zap/…)
+        and which optional ScanRequest fields it honors.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AnalyzerCapabilitiesResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Report analyzer capabilities for a site
+      tags:
+      - Analyzer
+  /projects/{project}/websites/{site}/analyzer/health:
+    get:
+      description: Probes the analyzer backend's readiness. Returns 200 with a status
+        string when reachable, 503 when unavailable.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AnalyzerHealthResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Check analyzer health for a site
+      tags:
+      - Analyzer
   /projects/{project}/websites/{site}/endpoints:
     get:
       description: Lists endpoints for the given project/site combination.
@@ -1087,6 +1502,48 @@ paths:
           schema:
             $ref: '#/definitions/server.ErrorResponse'
       summary: Start a fetch job
+      tags:
+      - Jobs
+  /projects/{project}/websites/{site}/jobs/scan:
+    post:
+      consumes:
+      - application/json
+      description: Submits a URL for scanning via the configured analyzer backend
+        (Moku native, Burp Suite, OWASP ZAP, etc.). Returns immediately with a job;
+        poll /jobs/{jobID} or stream events to see results.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Scan options
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.StartScanJobRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/app.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Start a vulnerability scan job
       tags:
       - Jobs
   /projects/{project}/websites/{site}/versions:

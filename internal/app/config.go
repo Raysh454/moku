@@ -3,6 +3,7 @@ package app
 import (
 	"time"
 
+	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/filter"
@@ -29,6 +30,11 @@ type Config struct {
 
 	// WebClient configuration
 	WebClientCfg webclient.Config
+
+	// Analyzer (vulnerability-scanner plugin) configuration. Selects the
+	// backend (Moku native / Burp / ZAP / ...) and carries per-backend
+	// settings. See internal/analyzer for the interface contract.
+	AnalyzerCfg analyzer.Config
 
 	// Assessor configuration
 	assessorCfg assessor.Config
@@ -59,6 +65,19 @@ func DefaultConfig() *Config {
 		},
 		WebClientCfg: webclient.Config{
 			Client: webclient.ClientNetHTTP,
+		},
+		AnalyzerCfg: analyzer.Config{
+			Backend: analyzer.BackendMoku,
+			DefaultPoll: analyzer.PollOptions{
+				Timeout:       5 * time.Minute,
+				Interval:      2 * time.Second,
+				BackoffFactor: 1.5,
+				MaxInterval:   30 * time.Second,
+			},
+			Moku: analyzer.MokuConfig{
+				DefaultProfile: analyzer.ProfileBalanced,
+				JobRetention:   60 * time.Minute,
+			},
 		},
 		assessorCfg: assessor.Config{
 			ScoringVersion:    "v0.1.0",

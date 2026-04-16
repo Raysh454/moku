@@ -19,6 +19,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
 	_ "github.com/raysh454/moku/docs/swagger"
+	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/api"
 	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/logging"
@@ -119,6 +120,9 @@ func (s *Server) routes() {
 	r.Options("/projects/{project}/websites/{site}/endpoints/details", s.optionsHandler("GET"))
 	r.Options("/projects/{project}/websites/{site}/jobs/fetch", s.optionsHandler("POST"))
 	r.Options("/projects/{project}/websites/{site}/jobs/enumerate", s.optionsHandler("POST"))
+	r.Options("/projects/{project}/websites/{site}/jobs/scan", s.optionsHandler("POST"))
+	r.Options("/projects/{project}/websites/{site}/analyzer/capabilities", s.optionsHandler("GET"))
+	r.Options("/projects/{project}/websites/{site}/analyzer/health", s.optionsHandler("GET"))
 	r.Options("/jobs", s.optionsHandler("GET"))
 	r.Options("/jobs/{jobID}", s.optionsHandler("GET, DELETE"))
 	r.Options("/ws/projects/{project}/websites/{site}/fetch", s.optionsHandler("GET"))
@@ -143,6 +147,9 @@ func (s *Server) routes() {
 	// Jobs over REST
 	r.Post("/projects/{project}/websites/{site}/jobs/fetch", s.handleStartFetchJob)
 	r.Post("/projects/{project}/websites/{site}/jobs/enumerate", s.handleStartEnumerateJob)
+	r.Post("/projects/{project}/websites/{site}/jobs/scan", s.handleStartScanJob)
+	r.Get("/projects/{project}/websites/{site}/analyzer/capabilities", s.handleGetAnalyzerCapabilities)
+	r.Get("/projects/{project}/websites/{site}/analyzer/health", s.handleGetAnalyzerHealth)
 	r.Get("/jobs", s.handleListJobs)
 	r.Get("/jobs/{jobID}", s.handleGetJob)
 	r.Delete("/jobs/{jobID}", s.handleCancelJob)
@@ -573,6 +580,107 @@ func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request)
 	}
 	s.logger.Info("started enumerate job", logging.Field{Key: "job_id", Value: job.ID})
 	writeJSON(w, http.StatusAccepted, job)
+}
+
+// handleStartScanJob godoc
+// @Summary Start a vulnerability scan job
+// @Description Submits a URL for scanning via the configured analyzer backend (Moku native, Burp Suite, OWASP ZAP, etc.). Returns immediately with a job; poll /jobs/{jobID} or stream events to see results.
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param request body StartScanJobRequest true "Scan options"
+// @Success 202 {object} app.Job
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/jobs/scan [post]
+func (s *Server) handleStartScanJob(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	site := chi.URLParam(r, "site")
+
+	var body StartScanJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		s.logger.Warn("decoding scan request", logging.Field{Key: "error", Value: err.Error()})
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.URL == "" {
+		writeError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	req := &analyzer.ScanRequest{
+		URL:         body.URL,
+		Profile:     body.Profile,
+		Scope:       body.Scope,
+		Auth:        body.Auth,
+		MaxDuration: body.MaxDuration,
+		RawOptions:  body.RawOptions,
+	}
+
+	job, err := s.orchestrator.StartScanJob(context.Background(), project, site, req)
+	if err != nil {
+		s.logger.Warn("starting scan job", logging.Field{Key: "error", Value: err.Error()})
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Info("started scan job", logging.Field{Key: "job_id", Value: job.ID}, logging.Field{Key: "url", Value: body.URL})
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+// handleGetAnalyzerCapabilities godoc
+// @Summary Report analyzer capabilities for a site
+// @Description Returns which analyzer backend a site is wired to (moku/burp/zap/…) and which optional ScanRequest fields it honors.
+// @Tags Analyzer
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Success 200 {object} AnalyzerCapabilitiesResponse
+// @Failure 404 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/analyzer/capabilities [get]
+func (s *Server) handleGetAnalyzerCapabilities(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	site := chi.URLParam(r, "site")
+
+	a, err := s.orchestrator.GetAnalyzer(r.Context(), project, site)
+	if err != nil {
+		s.logger.Warn("getting analyzer", logging.Field{Key: "error", Value: err.Error()})
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, AnalyzerCapabilitiesResponse{
+		Backend:      a.Name(),
+		Capabilities: a.Capabilities(),
+	})
+}
+
+// handleGetAnalyzerHealth godoc
+// @Summary Check analyzer health for a site
+// @Description Probes the analyzer backend's readiness. Returns 200 with a status string when reachable, 503 when unavailable.
+// @Tags Analyzer
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Success 200 {object} AnalyzerHealthResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/analyzer/health [get]
+func (s *Server) handleGetAnalyzerHealth(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	site := chi.URLParam(r, "site")
+
+	a, err := s.orchestrator.GetAnalyzer(r.Context(), project, site)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	status, err := a.Health(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, AnalyzerHealthResponse{Backend: a.Name(), Status: status})
+		return
+	}
+	writeJSON(w, http.StatusOK, AnalyzerHealthResponse{Backend: a.Name(), Status: status})
 }
 
 // handleGetJob godoc
