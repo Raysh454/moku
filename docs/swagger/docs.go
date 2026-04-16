@@ -259,6 +259,96 @@ const docTemplate = `{
                 }
             }
         },
+        "/projects/{project}/websites/{site}/analyzer/capabilities": {
+            "get": {
+                "description": "Returns which analyzer backend a site is wired to (moku/burp/zap/…) and which optional ScanRequest fields it honors.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Analyzer"
+                ],
+                "summary": "Report analyzer capabilities for a site",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project slug",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Website slug",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AnalyzerCapabilitiesResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project}/websites/{site}/analyzer/health": {
+            "get": {
+                "description": "Probes the analyzer backend's readiness. Returns 200 with a status string when reachable, 503 when unavailable.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Analyzer"
+                ],
+                "summary": "Check analyzer health for a site",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project slug",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Website slug",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AnalyzerHealthResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project}/websites/{site}/endpoints": {
             "get": {
                 "description": "Lists endpoints for the given project/site combination.",
@@ -549,6 +639,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/projects/{project}/websites/{site}/jobs/scan": {
+            "post": {
+                "description": "Submits a URL for scanning via the configured analyzer backend (Moku native, Burp Suite, OWASP ZAP, etc.). Returns immediately with a job; poll /jobs/{jobID} or stream events to see results.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Start a vulnerability scan job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project slug",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Website slug",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Scan options",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.StartScanJobRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/app.Job"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project}/websites/{site}/versions": {
             "get": {
                 "description": "Returns a list of versions (commits) for the website, ordered by most recent first.",
@@ -700,6 +850,328 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "analyzer.Backend": {
+            "type": "string",
+            "enum": [
+                "moku",
+                "burp",
+                "zap"
+            ],
+            "x-enum-varnames": [
+                "BackendMoku",
+                "BackendBurp",
+                "BackendZAP"
+            ]
+        },
+        "analyzer.Capabilities": {
+            "type": "object",
+            "properties": {
+                "async": {
+                    "description": "Async is true when SubmitScan returns before the scan has finished and\nGetScan must be polled. Every current backend sets this to true; the\nfield exists for future adapters that may expose a synchronous API.",
+                    "type": "boolean"
+                },
+                "max_concurrent_scans": {
+                    "description": "MaxConcurrentScans is the backend's self-reported concurrency ceiling.\nZero means \"unknown\" or \"unbounded\"; callers should treat zero as \"do\nnot rate-limit based on this value\".",
+                    "type": "integer"
+                },
+                "supports_auth": {
+                    "description": "SupportsAuth indicates whether the backend honors ScanRequest.Auth.\nWhen false, callers SHOULD NOT set Auth (it will be ignored).",
+                    "type": "boolean"
+                },
+                "supports_scan_profile": {
+                    "description": "SupportsScanProfile indicates whether the backend maps ScanRequest.Profile\nto a native scan configuration. When false, Profile is ignored and the\nbackend's default profile is used.",
+                    "type": "boolean"
+                },
+                "supports_scope": {
+                    "description": "SupportsScope indicates whether the backend honors ScanRequest.Scope.\nWhen false, the scanner will scan whatever crawl strategy it default\nto without scope filtering.",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "Version is the backend's reported version string (e.g. \"moku-0.1.0\",\n\"Burp Enterprise 2024.5\", \"ZAP 2.14.0\"). Informational.",
+                    "type": "string"
+                }
+            }
+        },
+        "analyzer.Confidence": {
+            "type": "string",
+            "enum": [
+                "tentative",
+                "firm",
+                "certain"
+            ],
+            "x-enum-varnames": [
+                "ConfidenceTentative",
+                "ConfidenceFirm",
+                "ConfidenceCertain"
+            ]
+        },
+        "analyzer.Finding": {
+            "type": "object",
+            "properties": {
+                "confidence": {
+                    "$ref": "#/definitions/analyzer.Confidence"
+                },
+                "cwe": {
+                    "description": "CWE lists associated Common Weakness Enumeration IDs. Every major\nscanner reports these. Moku entries may be empty until the assessor\nrules are annotated with CWE mappings.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "description": {
+                    "description": "Description explains what the finding means in prose.",
+                    "type": "string"
+                },
+                "evidence": {
+                    "description": "Evidence is a redacted request/response snippet or observation that\ndemonstrates why the finding was raised.",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is a backend-local stable identifier for this finding. Used by\nconsumers to deduplicate results across poll iterations.",
+                    "type": "string"
+                },
+                "method": {
+                    "description": "Method is the HTTP method associated with the finding when applicable\n(e.g. \"POST\" for a form-based injection point).",
+                    "type": "string"
+                },
+                "parameter": {
+                    "description": "Parameter is the injection point name when the finding is parameter-\nscoped: a query parameter, form field, cookie, or header name.",
+                    "type": "string"
+                },
+                "path": {
+                    "description": "Path is the path portion of the URL, surfaced separately for grouping\nfindings by route in reporting UIs.",
+                    "type": "string"
+                },
+                "raw_data": {
+                    "description": "RawData carries backend-specific extras that do not fit the unified\nschema. Keys SHOULD be namespaced by backend (e.g. \"burp.issue_type_id\",\n\"zap.messageId\", \"moku.contribution\"). Consumers that read RawData are\nexplicitly coupling themselves to a specific backend.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "references": {
+                    "description": "References links to external documentation (OWASP, CVE, vendor\nadvisories) describing the class of vulnerability.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "remediation": {
+                    "description": "Remediation is advice on how to fix the underlying weakness.",
+                    "type": "string"
+                },
+                "severity": {
+                    "$ref": "#/definitions/analyzer.Severity"
+                },
+                "title": {
+                    "description": "Title is a human-readable vulnerability name (e.g. \"Reflected XSS\",\n\"Missing Content-Security-Policy header\").",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "URL is the full affected URL (scheme + host + path + query).",
+                    "type": "string"
+                },
+                "wasc": {
+                    "description": "WASC lists associated WASC Threat Classification IDs. ZAP reports\nthese natively; Burp and Moku usually leave this empty.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "analyzer.ScanAuth": {
+            "type": "object",
+            "properties": {
+                "extra": {
+                    "description": "Extra holds scheme-specific parameters (e.g. form field selectors for\nType==\"form\"). Keys and semantics are scanner-defined.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "description": "Type selects the authentication scheme the scanner should use.\nSupported values: \"none\", \"basic\", \"bearer\", \"form\".",
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "analyzer.ScanProfile": {
+            "type": "string",
+            "enum": [
+                "quick",
+                "balanced",
+                "thorough"
+            ],
+            "x-enum-varnames": [
+                "ProfileQuick",
+                "ProfileBalanced",
+                "ProfileThorough"
+            ]
+        },
+        "analyzer.ScanProgress": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string"
+                },
+                "percent": {
+                    "type": "integer"
+                },
+                "phase": {
+                    "type": "string"
+                }
+            }
+        },
+        "analyzer.ScanResult": {
+            "type": "object",
+            "properties": {
+                "backend": {
+                    "description": "Backend identifies which adapter produced this result, mirroring the\nvalue returned by Analyzer.Name().",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/analyzer.Backend"
+                        }
+                    ]
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error carries a human-readable failure message. Populated only when\nStatus == StatusFailed.",
+                    "type": "string"
+                },
+                "findings": {
+                    "description": "Findings is the unified, backend-agnostic list of results. MUST be\nnon-nil (possibly empty) once Status is StatusCompleted. This is what\nconsumers read.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/analyzer.Finding"
+                    }
+                },
+                "job_id": {
+                    "description": "JobID is the backend-local scan identifier (Burp's task_id, ZAP's\nscan ID, Moku's UUID).",
+                    "type": "string"
+                },
+                "progress": {
+                    "description": "Progress is an optional mid-run progress snapshot. Backends MAY\npopulate this while Status is StatusRunning. Consumers MUST tolerate\na nil Progress at any status.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/analyzer.ScanProgress"
+                        }
+                    ]
+                },
+                "raw_data": {
+                    "description": "RawData is a backend-specific escape hatch. Keys MUST be namespaced\nby backend name (e.g. \"burp.task_id\", \"zap.scan_id\",\n\"moku.exposure_score\"). Reading RawData explicitly couples the caller\nto a specific backend and is NOT part of the LSP contract.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "status": {
+                    "$ref": "#/definitions/analyzer.ScanStatus"
+                },
+                "submitted_at": {
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "Summary aggregates per-severity counts. Mirrors Burp's issue_counts\nand ZAP's per-risk totals. MUST be non-nil once Status is\nStatusCompleted and its counts MUST sum to len(Findings).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/analyzer.ScanSummary"
+                        }
+                    ]
+                },
+                "url": {
+                    "description": "URL is the target that was scanned.",
+                    "type": "string"
+                }
+            }
+        },
+        "analyzer.ScanScope": {
+            "type": "object",
+            "properties": {
+                "exclude_hosts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "exclude_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "include_hosts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "include_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "analyzer.ScanStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "completed",
+                "failed",
+                "canceled"
+            ],
+            "x-enum-varnames": [
+                "StatusPending",
+                "StatusRunning",
+                "StatusCompleted",
+                "StatusFailed",
+                "StatusCanceled"
+            ]
+        },
+        "analyzer.ScanSummary": {
+            "type": "object",
+            "properties": {
+                "critical": {
+                    "type": "integer"
+                },
+                "high": {
+                    "type": "integer"
+                },
+                "info": {
+                    "type": "integer"
+                },
+                "low": {
+                    "type": "integer"
+                },
+                "medium": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "analyzer.Severity": {
+            "type": "string",
+            "enum": [
+                "info",
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "x-enum-varnames": [
+                "SeverityInfo",
+                "SeverityLow",
+                "SeverityMedium",
+                "SeverityHigh",
+                "SeverityCritical"
+            ]
+        },
         "api.EnumerationConfig": {
             "type": "object",
             "properties": {
@@ -763,6 +1235,14 @@ const docTemplate = `{
                 },
                 "project": {
                     "type": "string"
+                },
+                "scan_result": {
+                    "description": "ScanResult is populated when Type == \"scan\" and the analyzer pipeline\ncompleted. It carries the unified industry-shaped Findings list.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/analyzer.ScanResult"
+                        }
+                    ]
                 },
                 "security_overview": {
                     "$ref": "#/definitions/assessor.SecurityDiffOverview"
@@ -1631,6 +2111,29 @@ const docTemplate = `{
                 }
             }
         },
+        "server.AnalyzerCapabilitiesResponse": {
+            "type": "object",
+            "properties": {
+                "backend": {
+                    "$ref": "#/definitions/analyzer.Backend"
+                },
+                "capabilities": {
+                    "$ref": "#/definitions/analyzer.Capabilities"
+                }
+            }
+        },
+        "server.AnalyzerHealthResponse": {
+            "type": "object",
+            "properties": {
+                "backend": {
+                    "$ref": "#/definitions/analyzer.Backend"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "ok"
+                }
+            }
+        },
         "server.CreateProjectRequest": {
             "type": "object",
             "properties": {
@@ -1713,6 +2216,67 @@ const docTemplate = `{
                     "example": "*"
                 }
             }
+        },
+        "server.StartScanJobRequest": {
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "$ref": "#/definitions/analyzer.ScanAuth"
+                },
+                "max_duration": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/time.Duration"
+                        }
+                    ],
+                    "example": 300000000000
+                },
+                "profile": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/analyzer.ScanProfile"
+                        }
+                    ],
+                    "example": "balanced"
+                },
+                "raw_options": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "scope": {
+                    "$ref": "#/definitions/analyzer.ScanScope"
+                },
+                "url": {
+                    "type": "string",
+                    "example": "https://example.com/"
+                }
+            }
+        },
+        "time.Duration": {
+            "type": "integer",
+            "format": "int64",
+            "enum": [
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000
+            ],
+            "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour"
+            ]
         }
     }
 }`

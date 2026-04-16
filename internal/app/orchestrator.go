@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/api"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/enumerator"
@@ -60,6 +61,9 @@ type Job struct {
 	Events           chan JobEvent                  `json:"-"`
 	SecurityOverview *assessor.SecurityDiffOverview `json:"security_overview,omitempty"`
 	EnumeratedURLs   []string                       `json:"enumerated_urls,omitempty"`
+	// ScanResult is populated when Type == "scan" and the analyzer pipeline
+	// completed. It carries the unified industry-shaped Findings list.
+	ScanResult *analyzer.ScanResult `json:"scan_result,omitempty"`
 }
 
 func cloneJob(job *Job) *Job {
@@ -265,6 +269,24 @@ func (o *Orchestrator) setJobResult(jobID string, overview *assessor.SecurityDif
 	})
 }
 
+// setScanJobResult records the analyzer's ScanResult on the Job and emits a
+// result event. Separate from setJobResult because scan jobs carry a
+// different payload type than fetch/enumerate jobs.
+func (o *Orchestrator) setScanJobResult(jobID string, scan *analyzer.ScanResult) {
+	o.jobsMu.Lock()
+	if j, ok := o.jobs[jobID]; ok {
+		j.Status = JobDone
+		j.ScanResult = scan
+	}
+	o.jobsMu.Unlock()
+
+	o.emitJobEvent(jobID, JobEvent{
+		JobID:  jobID,
+		Type:   JobEventResult,
+		Status: JobDone,
+	})
+}
+
 func (o *Orchestrator) progressCallback(jobID string) utils.ProgressCallback {
 	return func(processed, total int) {
 		o.emitJobEvent(jobID, JobEvent{
@@ -380,6 +402,96 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 	}()
 
 	return jobSnapshot, nil
+}
+
+// StartScanJob kicks off a vulnerability scan for project/site using whatever
+// analyzer backend the site was configured with. Mirrors StartFetchJob /
+// StartEnumerateJob: returns immediately with a Job snapshot and runs the
+// scan in a goroutine, emitting JobEvents as state transitions.
+func (o *Orchestrator) StartScanJob(ctx context.Context, projectIdentifier, websiteSlug string, req *analyzer.ScanRequest) (*Job, error) {
+	if req == nil {
+		return nil, fmt.Errorf("StartScanJob: nil request")
+	}
+	if req.URL == "" {
+		return nil, fmt.Errorf("StartScanJob: empty URL")
+	}
+
+	o.closedMu.Lock()
+	closed := o.closed
+	o.closedMu.Unlock()
+	if closed {
+		return nil, fmt.Errorf("orchestrator is closed")
+	}
+	o.ensureJobMaps()
+
+	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
+	if err != nil {
+		return nil, err
+	}
+	comps, err := o.siteComponentsFor(ctx, web)
+	if err != nil {
+		return nil, err
+	}
+	if comps.Analyzer == nil {
+		return nil, fmt.Errorf("StartScanJob: site components have no analyzer")
+	}
+
+	job := o.newJob("scan", projectIdentifier, websiteSlug)
+	jobID := job.ID
+	o.setJob(job)
+
+	jobCtx, cancel := context.WithCancel(ctx)
+	o.setCancel(jobID, cancel)
+
+	o.emitJobEvent(jobID, JobEvent{
+		JobID:  jobID,
+		Type:   JobEventStatus,
+		Status: JobPending,
+	})
+	jobSnapshot := cloneJob(job)
+
+	go func() {
+		defer o.finishJob(jobID)
+		o.setJobStatus(jobID, JobRunning, nil)
+
+		result, err := comps.Analyzer.ScanAndWait(jobCtx, req, o.cfg.AnalyzerCfg.DefaultPoll)
+		if err != nil {
+			select {
+			case <-jobCtx.Done():
+				o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
+			default:
+				o.setJobStatus(jobID, JobFailed, err)
+			}
+			return
+		}
+
+		select {
+		case <-jobCtx.Done():
+			o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
+		default:
+			o.setScanJobResult(jobID, result)
+		}
+	}()
+
+	return jobSnapshot, nil
+}
+
+// GetAnalyzer returns the analyzer.Analyzer instance for project/site. Used
+// by HTTP handlers that need to expose Capabilities / Health without going
+// through the job pipeline.
+func (o *Orchestrator) GetAnalyzer(ctx context.Context, projectIdentifier, websiteSlug string) (analyzer.Analyzer, error) {
+	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
+	if err != nil {
+		return nil, err
+	}
+	comps, err := o.siteComponentsFor(ctx, web)
+	if err != nil {
+		return nil, err
+	}
+	if comps.Analyzer == nil {
+		return nil, fmt.Errorf("no analyzer configured for site %s/%s", projectIdentifier, websiteSlug)
+	}
+	return comps.Analyzer, nil
 }
 
 func (o *Orchestrator) CancelJob(jobID string) {

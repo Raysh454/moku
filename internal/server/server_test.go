@@ -695,3 +695,95 @@ func TestServer_FilterWorkflow_E2E(t *testing.T) {
 		t.Error("expected 'total' in stats response")
 	}
 }
+
+// ─── Analyzer plugin HTTP surface ──────────────────────────────────────
+
+// setupAnalyzerSite creates a project + website used by the analyzer handler
+// tests. Matches the pattern used by the fetch/enumerate handler tests.
+func setupAnalyzerSite(t *testing.T, s http.Handler) {
+	t.Helper()
+	doJSON(t, s, "POST", "/projects", `{"slug":"ap","name":"Analyzer Project","description":"desc"}`)
+	doJSON(t, s, "POST", "/projects/ap/websites", `{"slug":"aw","origin":"http://example.com"}`)
+}
+
+// TestHandleStartScanJob_Returns202 asserts the happy path: a well-formed
+// scan request returns 202 Accepted with a scan-typed Job.
+func TestHandleStartScanJob_Returns202(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+	setupAnalyzerSite(t, s)
+
+	rec := doJSON(t, s, "POST", "/projects/ap/websites/aw/jobs/scan", `{"url":"http://example.com/"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	var job app.Job
+	decodeJSON(t, rec, &job)
+	if job.ID == "" {
+		t.Error("job.ID empty")
+	}
+	if job.Type != "scan" {
+		t.Errorf("job.Type = %q, want %q", job.Type, "scan")
+	}
+}
+
+// TestHandleStartScanJob_MissingURL_Returns400 asserts input validation at
+// the HTTP layer.
+func TestHandleStartScanJob_MissingURL_Returns400(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+	setupAnalyzerSite(t, s)
+
+	rec := doJSON(t, s, "POST", "/projects/ap/websites/aw/jobs/scan", `{}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+// TestHandleGetAnalyzerCapabilities_ReturnsBackend asserts the capabilities
+// endpoint reports which backend is wired to a site.
+func TestHandleGetAnalyzerCapabilities_ReturnsBackend(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+	setupAnalyzerSite(t, s)
+
+	rec := doJSON(t, s, "GET", "/projects/ap/websites/aw/analyzer/capabilities", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp struct {
+		Backend      string         `json:"backend"`
+		Capabilities map[string]any `json:"capabilities"`
+	}
+	decodeJSON(t, rec, &resp)
+	if resp.Backend != "moku" {
+		t.Errorf("Backend = %q, want %q (default backend)", resp.Backend, "moku")
+	}
+	if _, ok := resp.Capabilities["async"]; !ok {
+		t.Errorf(`Capabilities missing "async" field; got keys=%v`, resp.Capabilities)
+	}
+}
+
+// TestHandleGetAnalyzerHealth_ReturnsStatus asserts the health endpoint
+// returns a status string.
+func TestHandleGetAnalyzerHealth_ReturnsStatus(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+	setupAnalyzerSite(t, s)
+
+	rec := doJSON(t, s, "GET", "/projects/ap/websites/aw/analyzer/health", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp struct {
+		Backend string `json:"backend"`
+		Status  string `json:"status"`
+	}
+	decodeJSON(t, rec, &resp)
+	if resp.Status == "" {
+		t.Error("Status is empty")
+	}
+	if resp.Backend != "moku" {
+		t.Errorf("Backend = %q, want %q", resp.Backend, "moku")
+	}
+}

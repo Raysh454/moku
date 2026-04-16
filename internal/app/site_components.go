@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/fetcher"
 	"github.com/raysh454/moku/internal/indexer"
@@ -19,6 +20,11 @@ type SiteComponents struct {
 	Index     indexer.EndpointIndex
 	Fetcher   *fetcher.Fetcher
 	WebClient webclient.WebClient
+	// Analyzer is the vulnerability-scanner plugin selected by
+	// cfg.AnalyzerCfg.Backend. Every site gets its own Analyzer instance so
+	// per-site state (Moku's in-memory job registry, Burp/ZAP HTTP client
+	// pools) stays isolated.
+	Analyzer analyzer.Analyzer
 }
 
 // Build components for a given website (registry.Website).
@@ -62,11 +68,24 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		return nil, fmt.Errorf("new fetcher: %w", err)
 	}
 
+	an, err := analyzer.NewAnalyzer(cfg.AnalyzerCfg, analyzer.Dependencies{
+		Logger:     logger,
+		WebClient:  wc,
+		Assessor:   a,
+		HTTPClient: wc,
+	})
+	if err != nil {
+		tr.Close()
+		_ = wc.Close()
+		return nil, fmt.Errorf("new analyzer: %w", err)
+	}
+
 	return &SiteComponents{
 		Tracker:   tr,
 		Index:     ix,
 		Fetcher:   f,
 		WebClient: wc,
+		Analyzer:  an,
 	}, nil
 }
 
@@ -75,11 +94,20 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 // Any ongoing fetch operations will be stopped.
 func (sc *SiteComponents) Close() error {
 	var firstErr error
-	if err := sc.WebClient.Close(); err != nil {
-		firstErr = fmt.Errorf("close webclient: %w", err)
+	if sc.Analyzer != nil {
+		if err := sc.Analyzer.Close(); err != nil {
+			firstErr = fmt.Errorf("close analyzer: %w", err)
+		}
 	}
-	if err := sc.Tracker.Close(); err != nil && firstErr == nil {
-		firstErr = fmt.Errorf("close tracker: %w", err)
+	if sc.WebClient != nil {
+		if err := sc.WebClient.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("close webclient: %w", err)
+		}
+	}
+	if sc.Tracker != nil {
+		if err := sc.Tracker.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("close tracker: %w", err)
+		}
 	}
 	return firstErr
 }

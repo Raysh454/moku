@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/filter"
 	"github.com/raysh454/moku/internal/indexer"
@@ -253,6 +254,118 @@ func (d *DummyAssessor) ScoreSnapshot(_ context.Context, _ *models.Snapshot, _ s
 }
 
 func (d *DummyAssessor) Close() error { return nil }
+
+// ─── Analyzer ──────────────────────────────────────────────────────────
+
+// DummyAnalyzer implements analyzer.Analyzer for orchestrator/server tests.
+// By default it echoes a StatusCompleted result with empty findings. Tests
+// that need specific behavior set the matching *Func field to override.
+type DummyAnalyzer struct {
+	NameVal         analyzer.Backend
+	CapabilitiesVal analyzer.Capabilities
+
+	// Optional overrides — leave nil to use default behavior.
+	SubmitFunc      func(ctx context.Context, req *analyzer.ScanRequest) (string, error)
+	GetFunc         func(ctx context.Context, jobID string) (*analyzer.ScanResult, error)
+	ScanAndWaitFunc func(ctx context.Context, req *analyzer.ScanRequest, opts analyzer.PollOptions) (*analyzer.ScanResult, error)
+	HealthFunc      func(ctx context.Context) (string, error)
+	CloseFunc       func() error
+
+	mu        sync.Mutex
+	jobs      map[string]*analyzer.ScanResult
+	submitted int
+}
+
+func (d *DummyAnalyzer) Name() analyzer.Backend {
+	if d.NameVal == "" {
+		return analyzer.BackendMoku
+	}
+	return d.NameVal
+}
+
+func (d *DummyAnalyzer) Capabilities() analyzer.Capabilities {
+	return d.CapabilitiesVal
+}
+
+func (d *DummyAnalyzer) SubmitScan(ctx context.Context, req *analyzer.ScanRequest) (string, error) {
+	if d.SubmitFunc != nil {
+		return d.SubmitFunc(ctx, req)
+	}
+	if req == nil {
+		return "", errors.New("DummyAnalyzer.SubmitScan: nil request")
+	}
+	if req.URL == "" {
+		return "", errors.New("DummyAnalyzer.SubmitScan: empty URL")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.submitted++
+	jobID := "dummy-job"
+	if d.jobs == nil {
+		d.jobs = make(map[string]*analyzer.ScanResult)
+	}
+	now := time.Now()
+	d.jobs[jobID] = &analyzer.ScanResult{
+		JobID:       jobID,
+		Backend:     d.Name(),
+		Status:      analyzer.StatusCompleted,
+		URL:         req.URL,
+		SubmittedAt: now,
+		CompletedAt: &now,
+		Findings:    []analyzer.Finding{},
+		Summary:     &analyzer.ScanSummary{},
+	}
+	return jobID, nil
+}
+
+func (d *DummyAnalyzer) GetScan(ctx context.Context, jobID string) (*analyzer.ScanResult, error) {
+	if d.GetFunc != nil {
+		return d.GetFunc(ctx, jobID)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if jobID == "" {
+		return nil, errors.New("DummyAnalyzer.GetScan: empty job ID")
+	}
+	res, ok := d.jobs[jobID]
+	if !ok {
+		return nil, errors.New("DummyAnalyzer.GetScan: unknown job ID")
+	}
+	return res, nil
+}
+
+func (d *DummyAnalyzer) ScanAndWait(ctx context.Context, req *analyzer.ScanRequest, opts analyzer.PollOptions) (*analyzer.ScanResult, error) {
+	if d.ScanAndWaitFunc != nil {
+		return d.ScanAndWaitFunc(ctx, req, opts)
+	}
+	jobID, err := d.SubmitScan(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return d.GetScan(ctx, jobID)
+}
+
+func (d *DummyAnalyzer) Health(ctx context.Context) (string, error) {
+	if d.HealthFunc != nil {
+		return d.HealthFunc(ctx)
+	}
+	return "ok", nil
+}
+
+func (d *DummyAnalyzer) Close() error {
+	if d.CloseFunc != nil {
+		return d.CloseFunc()
+	}
+	return nil
+}
+
+// SubmitCount reports how many times SubmitScan was invoked. Safe for
+// concurrent use.
+func (d *DummyAnalyzer) SubmitCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.submitted
+}
 
 // ─── EndpointIndex ─────────────────────────────────────────────────────
 
