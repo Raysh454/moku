@@ -55,9 +55,15 @@ func NewAnalyzer(cfg Config, deps Dependencies) (Analyzer, error) {
 		}
 		return NewMokuAnalyzer(cfg.Moku, cfg.DefaultPoll, deps.WebClient, deps.Assessor, deps.Logger)
 	case BackendBurp:
-		return nil, fmt.Errorf("analyzer: burp backend not yet implemented")
+		if deps.HTTPClient == nil {
+			return nil, fmt.Errorf("analyzer: burp backend requires HTTPClient")
+		}
+		return NewBurpAnalyzer(cfg.Burp, cfg.DefaultPoll, deps.HTTPClient, deps.Logger)
 	case BackendZAP:
-		return nil, fmt.Errorf("analyzer: zap backend not yet implemented")
+		if deps.HTTPClient == nil {
+			return nil, fmt.Errorf("analyzer: zap backend requires HTTPClient")
+		}
+		return NewZAPAnalyzer(cfg.ZAP, cfg.DefaultPoll, deps.HTTPClient, deps.Logger)
 	default:
 		return nil, fmt.Errorf("analyzer: unknown backend %q (supported: moku, burp, zap)", backend)
 	}
