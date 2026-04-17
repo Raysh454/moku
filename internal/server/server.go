@@ -30,12 +30,13 @@ import (
 
 // Server is the HTTP + WebSocket API surface for Moku.
 type Server struct {
-	cfg          Config
-	orchestrator *app.Orchestrator
-	router       chi.Router
-	upgrader     websocket.Upgrader
-	logger       logging.Logger
-	registryDB   *sql.DB
+	cfg            Config
+	orchestrator   *app.Orchestrator
+	router         chi.Router
+	upgrader       websocket.Upgrader
+	logger         logging.Logger
+	registryDB     *sql.DB
+	allowedOrigins []string
 }
 
 // NewServer creates a new Server with its own Orchestrator.
@@ -81,21 +82,23 @@ func NewServer(cfg Config) (*Server, error) {
 
 	r := chi.NewRouter()
 	s := &Server{
-		cfg:          cfg,
-		orchestrator: orch,
-		router:       r,
-		logger:       logger,
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				// TODO: tighten for production
-				return true
-			},
-		},
-		registryDB: db,
+		cfg:            cfg,
+		orchestrator:   orch,
+		router:         r,
+		logger:         logger,
+		registryDB:     db,
+		allowedOrigins: resolveAllowedOrigins(cfg),
 	}
+	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkWebSocketOrigin}
 
 	s.routes()
 	return s, nil
+}
+
+// checkWebSocketOrigin enforces the configured origin allowlist on WebSocket
+// upgrades. Non-browser clients (no Origin header) are always allowed.
+func (s *Server) checkWebSocketOrigin(r *http.Request) bool {
+	return isOriginAllowed(r.Header.Get("Origin"), s.allowedOrigins)
 }
 
 // Orchestrator returns the underlying orchestrator for advanced use (tests, etc.).
@@ -188,12 +191,33 @@ func (s *Server) routes() {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Max-Age", "86400")
+		s.applyAllowOriginHeader(w, r)
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// applyAllowOriginHeader writes the appropriate Access-Control-Allow-Origin
+// header based on the configured allowlist. With no allowlist (or "*"), the
+// response keeps the permissive dev default. With a concrete allowlist, the
+// caller's Origin is reflected only if it matches; otherwise no header is
+// written at all (browsers will then block the response).
+func (s *Server) applyAllowOriginHeader(w http.ResponseWriter, r *http.Request) {
+	if isPermissiveAllowlist(s.allowedOrigins) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		return
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return
+	}
+	if !isOriginAllowed(origin, s.allowedOrigins) {
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
 }
 
 func (s *Server) optionsHandler(methods string) http.HandlerFunc {
