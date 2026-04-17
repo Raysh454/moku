@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/raysh454/moku/internal/logging"
@@ -24,7 +23,6 @@ type spiderHelper struct {
 	root    *utils.URLTools
 	depth   map[string]int
 	results []string
-	re      *regexp.Regexp //TODO: Need a better way to parse urls
 }
 
 // NewSpider creates a new Spider with the given webclient and logger.
@@ -47,7 +45,6 @@ func newSpiderHelper(spider *Spider, root string) (*spiderHelper, error) {
 		root:    rootUrl,
 		depth:   map[string]int{root: 0},
 		results: []string{root},
-		re:      regexp.MustCompile(`https?://[^\s"'<>]+`),
 	}, nil
 }
 
@@ -89,7 +86,7 @@ func (sh *spiderHelper) extractLinksHTML(node *html.Node, baseUrl string, links 
 		}
 
 		if node.Data == "script" && !hasSrc && node.FirstChild != nil && node.FirstChild.Type == html.TextNode {
-			cLinks = append(cLinks, sh.re.FindAllString(node.FirstChild.Data, -1)...)
+			cLinks = append(cLinks, findURLsInText(node.FirstChild.Data)...)
 		}
 
 		rLinks, err := sh.resolveFullUrls(baseUrl, cLinks)
@@ -136,7 +133,7 @@ func (sh *spiderHelper) crawlPage(ctx context.Context, target string) ([]string,
 			fmt.Fprintf(os.Stderr, "extractLinksHTML: %v\n", err)
 		}
 	} else {
-		links = sh.re.FindAllString(bodyStr, -1)
+		links = findURLsInText(bodyStr)
 	}
 
 	return links, nil
