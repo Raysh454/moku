@@ -1044,9 +1044,8 @@ definitions:
       auth:
         $ref: '#/definitions/analyzer.ScanAuth'
       max_duration:
-        allOf:
-        - $ref: '#/definitions/time.Duration'
         example: 300000000000
+        type: integer
       profile:
         allOf:
         - $ref: '#/definitions/analyzer.ScanProfile'
@@ -1061,27 +1060,6 @@ definitions:
         example: https://example.com/
         type: string
     type: object
-  time.Duration:
-    enum:
-    - -9223372036854775808
-    - 9223372036854775807
-    - 1
-    - 1000
-    - 1000000
-    - 1000000000
-    - 60000000000
-    - 3600000000000
-    format: int64
-    type: integer
-    x-enum-varnames:
-    - minDuration
-    - maxDuration
-    - Nanosecond
-    - Microsecond
-    - Millisecond
-    - Second
-    - Minute
-    - Hour
 info:
   contact: {}
 paths:
