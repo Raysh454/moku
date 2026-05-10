@@ -6,5 +6,6 @@ coverage.html
 test-results/
 ui/node_modules/
 ui/dist/
+frontend/node_modules
 .claude
 CLAUDE.md
