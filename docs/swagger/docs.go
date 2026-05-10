@@ -2224,11 +2224,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/analyzer.ScanAuth"
                 },
                 "max_duration": {
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/time.Duration"
-                        }
-                    ],
+                    "type": "integer",
                     "example": 300000000000
                 },
                 "profile": {
@@ -2253,30 +2249,6 @@ const docTemplate = `{
                     "example": "https://example.com/"
                 }
             }
-        },
-        "time.Duration": {
-            "type": "integer",
-            "format": "int64",
-            "enum": [
-                -9223372036854775808,
-                9223372036854775807,
-                1,
-                1000,
-                1000000,
-                1000000000,
-                60000000000,
-                3600000000000
-            ],
-            "x-enum-varnames": [
-                "minDuration",
-                "maxDuration",
-                "Nanosecond",
-                "Microsecond",
-                "Millisecond",
-                "Second",
-                "Minute",
-                "Hour"
-            ]
         }
     }
 }`

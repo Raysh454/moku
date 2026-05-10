@@ -1,0 +1,542 @@
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { api, createEnumerateSocket, createFetchSocket } from "../src/api/client";
+import type { Job, JobEvent } from "../src/api/types";
+import type {
+  Domain,
+  Endpoint,
+  EnumerateRequest,
+  FetchRequest,
+  Project,
+  Snapshot,
+} from "../types/project";
+import { projectService } from "../services/projectService";
+
+interface ProjectContextType {
+  projects: Project[];
+  activeProject: Project | null;
+  selectedDomain: Domain | null;
+  selectedEndpoint: Endpoint | null;
+  selectedSnapshot: Snapshot | null;
+  jobs: Job[];
+  isLoading: boolean;
+  isBusy: boolean;
+  errorMessage: string;
+  noticeMessage: string;
+  settingsOpen: boolean;
+
+  refreshProjects: () => Promise<void>;
+  refreshActiveProject: () => Promise<void>;
+  refreshJobs: () => Promise<void>;
+  setActiveProjectById: (id: string) => Promise<void>;
+  setSelectedDomain: (domain: Domain | null) => void;
+  setSelectedEndpoint: (endpoint: Endpoint | null) => void;
+  setSelectedSnapshot: (snapshot: Snapshot | null) => void;
+  selectEndpoint: (domainId: string, endpointId: string) => Promise<void>;
+  selectSnapshotVersion: (versionId: string) => Promise<void>;
+  createNewProject: (data: Partial<Project>) => Promise<Project>;
+  createWebsiteForActiveProject: (payload: { slug: string; origin: string }) => Promise<void>;
+  runEnumerateForDomain: (domainId: string, request: EnumerateRequest) => Promise<void>;
+  runFetchForDomain: (domainId: string, request: FetchRequest) => Promise<void>;
+  clearMessage: () => void;
+  openSettings: () => void;
+  closeSettings: () => void;
+}
+
+const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const setEndpointInProject = (
+  project: Project,
+  domainId: string,
+  endpointId: string,
+  updater: (endpoint: Endpoint) => Endpoint,
+): Project => ({
+  ...project,
+  domains: project.domains.map((domain) =>
+    domain.id !== domainId
+      ? domain
+      : {
+          ...domain,
+          endpoints: domain.endpoints.map((endpoint) =>
+            endpoint.id === endpointId ? updater(endpoint) : endpoint,
+          ),
+        },
+  ),
+});
+
+export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [selectedDomain, setSelectedDomainState] = useState<Domain | null>(null);
+  const [selectedEndpoint, setSelectedEndpointState] = useState<Endpoint | null>(null);
+  const [selectedSnapshot, setSelectedSnapshotState] = useState<Snapshot | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isBusy, setIsBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [noticeMessage, setNoticeMessage] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const clearMessage = useCallback(() => {
+    setErrorMessage("");
+    setNoticeMessage("");
+  }, []);
+
+  const setError = useCallback((message: string) => {
+    setErrorMessage(message);
+    setNoticeMessage("");
+  }, []);
+
+  const setNotice = useCallback((message: string) => {
+    setNoticeMessage(message);
+    setErrorMessage("");
+  }, []);
+
+  const refreshJobs = useCallback(async () => {
+    try {
+      setJobs(await api.listJobs());
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to refresh jobs");
+    }
+  }, [setError]);
+
+  const refreshProjects = useCallback(async () => {
+    setIsLoading(true);
+    clearMessage();
+    try {
+      const data = await projectService.getProjects();
+      setProjects(data);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to refresh projects");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [clearMessage, setError]);
+
+  const refreshActiveProject = useCallback(async () => {
+    if (!activeProject) return;
+    setIsBusy(true);
+    clearMessage();
+    try {
+      const domains = await projectService.refreshProjectDomains(activeProject);
+      const refreshedProject: Project = { ...activeProject, domains };
+      setActiveProject(refreshedProject);
+      setProjects((prev) => prev.map((project) => (project.id === refreshedProject.id ? refreshedProject : project)));
+
+      const nextDomain = domains.find((domain) => domain.id === selectedDomain?.id) || domains[0] || null;
+      setSelectedDomainState(nextDomain);
+
+      const nextEndpoint =
+        nextDomain?.endpoints.find((endpoint) => endpoint.id === selectedEndpoint?.id) ||
+        nextDomain?.endpoints[0] ||
+        null;
+      setSelectedEndpointState(nextEndpoint);
+      setSelectedSnapshotState(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to refresh workspace data");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [activeProject, clearMessage, selectedDomain?.id, selectedEndpoint?.id, setError]);
+
+  const loadLatestSnapshotForSelection = useCallback(
+    async (project: Project, domain: Domain, endpoint: Endpoint) => {
+      const latestSnapshot = await projectService.loadLatestSnapshot(
+        project.slug,
+        domain.slug,
+        endpoint,
+        domain.versions,
+      );
+
+      const withLoadedSnapshot = setEndpointInProject(project, domain.id, endpoint.id, (currentEndpoint) => {
+        const existing = currentEndpoint.snapshots.filter((snapshot) => snapshot.versionId !== latestSnapshot.versionId);
+        return {
+          ...currentEndpoint,
+          snapshots: [...existing, latestSnapshot].sort((left, right) => left.version - right.version),
+        };
+      });
+
+      setActiveProject(withLoadedSnapshot);
+      setProjects((prev) => prev.map((item) => (item.id === withLoadedSnapshot.id ? withLoadedSnapshot : item)));
+
+      const loadedDomain = withLoadedSnapshot.domains.find((item) => item.id === domain.id) || null;
+      const loadedEndpoint = loadedDomain?.endpoints.find((item) => item.id === endpoint.id) || null;
+
+      setSelectedDomainState(loadedDomain);
+      setSelectedEndpointState(loadedEndpoint);
+      setSelectedSnapshotState(latestSnapshot);
+    },
+    [],
+  );
+
+  const setActiveProjectById = useCallback(
+    async (id: string) => {
+      setIsLoading(true);
+      clearMessage();
+      try {
+        const project = await projectService.getProjectById(id);
+        if (!project) {
+          setError("Project not found");
+          return;
+        }
+
+        setActiveProject(project);
+        setProjects((prev) => prev.map((item) => (item.id === project.id ? project : item)));
+
+        const firstDomain = project.domains[0] || null;
+        const firstEndpoint = firstDomain?.endpoints[0] || null;
+        setSelectedDomainState(firstDomain);
+        setSelectedEndpointState(firstEndpoint);
+        setSelectedSnapshotState(null);
+
+        if (firstDomain && firstEndpoint) {
+          await loadLatestSnapshotForSelection(project, firstDomain, firstEndpoint);
+        }
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to load project");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [clearMessage, loadLatestSnapshotForSelection, setError],
+  );
+
+  const selectEndpoint = useCallback(
+    async (domainId: string, endpointId: string) => {
+      if (!activeProject) return;
+      const domain = activeProject.domains.find((item) => item.id === domainId);
+      const endpoint = domain?.endpoints.find((item) => item.id === endpointId);
+      if (!domain || !endpoint) return;
+
+      setIsBusy(true);
+      clearMessage();
+      try {
+        await loadLatestSnapshotForSelection(activeProject, domain, endpoint);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to load endpoint details");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [activeProject, clearMessage, loadLatestSnapshotForSelection, setError],
+  );
+
+  const selectSnapshotVersion = useCallback(
+    async (versionId: string) => {
+      if (!activeProject || !selectedDomain || !selectedEndpoint || !versionId) return;
+      setIsBusy(true);
+      clearMessage();
+      try {
+        const snapshot = await projectService.loadSnapshotByVersion(
+          activeProject.slug,
+          selectedDomain.slug,
+          selectedEndpoint,
+          versionId,
+          selectedDomain.versions,
+        );
+
+        const updatedProject = setEndpointInProject(
+          activeProject,
+          selectedDomain.id,
+          selectedEndpoint.id,
+          (endpoint) => ({
+            ...endpoint,
+            snapshots: [
+              ...endpoint.snapshots.filter((item) => item.versionId !== snapshot.versionId),
+              snapshot,
+            ].sort((left, right) => left.version - right.version),
+          }),
+        );
+        setActiveProject(updatedProject);
+        setProjects((prev) => prev.map((item) => (item.id === updatedProject.id ? updatedProject : item)));
+
+        const domain = updatedProject.domains.find((item) => item.id === selectedDomain.id) || null;
+        const endpoint = domain?.endpoints.find((item) => item.id === selectedEndpoint.id) || null;
+        setSelectedDomainState(domain);
+        setSelectedEndpointState(endpoint);
+        setSelectedSnapshotState(snapshot);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : `Failed to load version ${versionId}`);
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [activeProject, clearMessage, selectedDomain, selectedEndpoint, setError],
+  );
+
+  const createNewProject = useCallback(
+    async (data: Partial<Project>) => {
+      setIsLoading(true);
+      clearMessage();
+      try {
+        const created = await projectService.createProject(data);
+        setProjects((prev) => [created, ...prev]);
+        setNotice(`Created project "${created.name}"`);
+        return created;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [clearMessage, setNotice],
+  );
+
+  const createWebsiteForActiveProject = useCallback(
+    async (payload: { slug: string; origin: string }) => {
+      if (!activeProject) return;
+      setIsBusy(true);
+      clearMessage();
+      try {
+        const domain = await projectService.createWebsite(activeProject.slug, payload);
+        const updatedProject = { ...activeProject, domains: [...activeProject.domains, domain] };
+        setActiveProject(updatedProject);
+        setProjects((prev) => prev.map((item) => (item.id === updatedProject.id ? updatedProject : item)));
+        setSelectedDomainState(domain);
+        setSelectedEndpointState(domain.endpoints[0] || null);
+        setSelectedSnapshotState(null);
+        setNotice(`Added website "${domain.hostname}"`);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to create website");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [activeProject, clearMessage, setError, setNotice],
+  );
+
+  const waitForJobCompletion = useCallback(
+    async (jobId: string): Promise<Job> => {
+      for (let attempts = 0; attempts < 360; attempts += 1) {
+        const job = await api.getJob(jobId);
+        setJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
+        if (job.status === "done") return job;
+        if (job.status === "failed" || job.status === "canceled") {
+          throw new Error(job.error || `Job ${job.status}`);
+        }
+        await wait(500);
+      }
+      throw new Error("Timed out waiting for job completion");
+    },
+    [],
+  );
+
+  const runWebSocketJob = useCallback(
+    async (
+      setup: () => {
+        socket: WebSocket;
+        onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => void;
+        send: () => void;
+      },
+      successMessage: string,
+    ) =>
+      new Promise<void>((resolve, reject) => {
+        const { socket, onMessage, send } = setup();
+
+        socket.onerror = () => reject(new Error("WebSocket connection failed"));
+        socket.onopen = () => send();
+
+        onMessage((payload) => {
+          if ("error" in payload && payload.error) {
+            socket.close();
+            reject(new Error(payload.error));
+            return;
+          }
+
+          if ("type" in payload) {
+            const event = payload as JobEvent;
+            if (event.status === "done" || event.type === "result") {
+              socket.close();
+              resolve();
+            } else if (event.status === "failed" || event.status === "canceled") {
+              socket.close();
+              reject(new Error(event.error || "Job failed"));
+            }
+            return;
+          }
+
+          const job = payload as Job;
+          setJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
+        });
+      }).then(() => {
+        setNotice(successMessage);
+      }),
+    [setNotice],
+  );
+
+  const runEnumerateForDomain = useCallback(
+    async (domainId: string, request: EnumerateRequest) => {
+      if (!activeProject) return;
+      const domain = activeProject.domains.find((item) => item.id === domainId);
+      if (!domain) return;
+
+      setIsBusy(true);
+      clearMessage();
+      try {
+        if (request.mode === "ws") {
+          await runWebSocketJob(
+            () => {
+              const { socket, onMessage, sendConfig } = createEnumerateSocket(
+                activeProject.slug,
+                domain.slug,
+                request.config,
+              );
+              return { socket, onMessage, send: sendConfig };
+            },
+            "Enumeration job completed",
+          );
+        } else {
+          const started = await api.startEnumerate(activeProject.slug, domain.slug, request.config);
+          setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
+          await waitForJobCompletion(started.id);
+          setNotice("Enumeration job completed");
+        }
+
+        await refreshActiveProject();
+        await refreshJobs();
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to start enumeration");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [
+      activeProject,
+      clearMessage,
+      refreshActiveProject,
+      refreshJobs,
+      runWebSocketJob,
+      setError,
+      setNotice,
+      waitForJobCompletion,
+    ],
+  );
+
+  const runFetchForDomain = useCallback(
+    async (domainId: string, request: FetchRequest) => {
+      if (!activeProject) return;
+      const domain = activeProject.domains.find((item) => item.id === domainId);
+      if (!domain) return;
+
+      setIsBusy(true);
+      clearMessage();
+      try {
+        if (request.mode === "ws") {
+          await runWebSocketJob(
+            () => {
+              const { socket, onMessage, sendRequest } = createFetchSocket(activeProject.slug, domain.slug, {
+                status: request.status,
+                limit: request.limit,
+                config: request.config,
+              });
+              return { socket, onMessage, send: sendRequest };
+            },
+            "Fetch job completed",
+          );
+        } else {
+          const started = await api.startFetch(activeProject.slug, domain.slug, {
+            status: request.status,
+            limit: request.limit,
+            config: request.config,
+          });
+          setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
+          await waitForJobCompletion(started.id);
+          setNotice("Fetch job completed");
+        }
+
+        await refreshActiveProject();
+        await refreshJobs();
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to start fetch");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [
+      activeProject,
+      clearMessage,
+      refreshActiveProject,
+      refreshJobs,
+      runWebSocketJob,
+      setError,
+      setNotice,
+      waitForJobCompletion,
+    ],
+  );
+
+  useEffect(() => {
+    void Promise.all([refreshProjects(), refreshJobs()]);
+  }, [refreshJobs, refreshProjects]);
+
+  const value = useMemo<ProjectContextType>(
+    () => ({
+      projects,
+      activeProject,
+      selectedDomain,
+      selectedEndpoint,
+      selectedSnapshot,
+      jobs,
+      isLoading,
+      isBusy,
+      errorMessage,
+      noticeMessage,
+      settingsOpen,
+      refreshProjects,
+      refreshActiveProject,
+      refreshJobs,
+      setActiveProjectById,
+      setSelectedDomain: setSelectedDomainState,
+      setSelectedEndpoint: setSelectedEndpointState,
+      setSelectedSnapshot: setSelectedSnapshotState,
+      selectEndpoint,
+      selectSnapshotVersion,
+      createNewProject,
+      createWebsiteForActiveProject,
+      runEnumerateForDomain,
+      runFetchForDomain,
+      clearMessage,
+      openSettings: () => setSettingsOpen(true),
+      closeSettings: () => setSettingsOpen(false),
+    }),
+    [
+      projects,
+      activeProject,
+      selectedDomain,
+      selectedEndpoint,
+      selectedSnapshot,
+      jobs,
+      isLoading,
+      isBusy,
+      errorMessage,
+      noticeMessage,
+      settingsOpen,
+      refreshProjects,
+      refreshActiveProject,
+      refreshJobs,
+      setActiveProjectById,
+      selectEndpoint,
+      selectSnapshotVersion,
+      createNewProject,
+      createWebsiteForActiveProject,
+      runEnumerateForDomain,
+      runFetchForDomain,
+      clearMessage,
+    ],
+  );
+
+  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
+};
+
+export const useProject = () => {
+  const context = useContext(ProjectContext);
+  if (!context) {
+    throw new Error("useProject must be used within a ProjectProvider");
+  }
+  return context;
+};

@@ -56,7 +56,7 @@ type StartScanJobRequest struct {
 	Profile     analyzer.ScanProfile `json:"profile,omitempty" example:"balanced"`
 	Scope       *analyzer.ScanScope  `json:"scope,omitempty"`
 	Auth        *analyzer.ScanAuth   `json:"auth,omitempty"`
-	MaxDuration time.Duration        `json:"max_duration,omitempty" example:"300000000000"`
+	MaxDuration time.Duration        `json:"max_duration,omitempty" swaggertype:"primitive,integer" example:"300000000000"`
 	RawOptions  map[string]string    `json:"raw_options,omitempty"`
 }
 
