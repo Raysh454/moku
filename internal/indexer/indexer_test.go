@@ -493,6 +493,105 @@ func TestGetEndpointStats(t *testing.T) {
 	}
 }
 
+func TestMarkPendingBatch_DoesNotOverrideFiltered(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+
+	ctx := context.Background()
+	urls := []string{
+		"http://example.com/filtered.jpg",
+		"http://example.com/normal.html",
+	}
+	canonicals, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	if err := ix.MarkFilteredBatch(ctx, []string{canonicals[0]}, map[string]string{canonicals[0]: "extension:.jpg"}); err != nil {
+		t.Fatalf("MarkFilteredBatch error: %v", err)
+	}
+	if err := ix.MarkPendingBatch(ctx, canonicals); err != nil {
+		t.Fatalf("MarkPendingBatch error: %v", err)
+	}
+
+	filtered, err := ix.GetFilteredEndpoints(ctx, 100)
+	if err != nil {
+		t.Fatalf("GetFilteredEndpoints error: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered endpoint, got %d", len(filtered))
+	}
+	if filtered[0].CanonicalURL != canonicals[0] {
+		t.Fatalf("expected filtered endpoint %s, got %s", canonicals[0], filtered[0].CanonicalURL)
+	}
+}
+
+func TestMarkFetchedBatch_DoesNotOverrideFiltered(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+
+	ctx := context.Background()
+	urls := []string{
+		"http://example.com/filtered.jpg",
+		"http://example.com/normal.html",
+	}
+	canonicals, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	if err := ix.MarkFilteredBatch(ctx, []string{canonicals[0]}, map[string]string{canonicals[0]: "extension:.jpg"}); err != nil {
+		t.Fatalf("MarkFilteredBatch error: %v", err)
+	}
+	if err := ix.MarkFetchedBatch(ctx, canonicals, "v1", time.Now()); err != nil {
+		t.Fatalf("MarkFetchedBatch error: %v", err)
+	}
+
+	filtered, err := ix.GetFilteredEndpoints(ctx, 100)
+	if err != nil {
+		t.Fatalf("GetFilteredEndpoints error: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered endpoint, got %d", len(filtered))
+	}
+	if filtered[0].CanonicalURL != canonicals[0] {
+		t.Fatalf("expected filtered endpoint %s, got %s", canonicals[0], filtered[0].CanonicalURL)
+	}
+
+	fetched, err := ix.ListEndpoints(ctx, "fetched", 100)
+	if err != nil {
+		t.Fatalf("ListEndpoints fetched error: %v", err)
+	}
+	foundNormalFetched := false
+	for _, endpoint := range fetched {
+		if endpoint.CanonicalURL == canonicals[1] {
+			foundNormalFetched = true
+		}
+		if endpoint.CanonicalURL == canonicals[0] {
+			t.Fatalf("filtered endpoint %s must not be marked fetched", canonicals[0])
+		}
+	}
+	if !foundNormalFetched {
+		t.Fatalf("expected non-filtered endpoint %s to be fetched", canonicals[1])
+	}
+}
+
 func TestListEndpointsFiltered_PatternMatching(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

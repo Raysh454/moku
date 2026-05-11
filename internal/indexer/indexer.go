@@ -141,7 +141,7 @@ func (ix *Index) AddEndpoints(ctx context.Context, rawUrls []string, source stri
 }
 
 func (ix *Index) MarkPending(ctx context.Context, canonical string) error {
-	_, err := ix.db.ExecContext(ctx, `UPDATE endpoints SET status = ? WHERE canonical_url = ?`, "pending", canonical)
+	_, err := ix.db.ExecContext(ctx, `UPDATE endpoints SET status = ? WHERE canonical_url = ? AND status != 'filtered'`, "pending", canonical)
 	return err
 }
 
@@ -163,13 +163,14 @@ func (ix *Index) MarkPendingBatch(ctx context.Context, canonicals []string) erro
 		UPDATE endpoints
 		SET status = ?
 		WHERE canonical_url IN (` + strings.Join(placeholders, ",") + `)
+		AND status != 'filtered'
 	`
 	_, err := ix.db.ExecContext(ctx, q, args...)
 	return err
 }
 
 func (ix *Index) MarkFetched(ctx context.Context, canonical string, versionID string, fetchedAt time.Time) error {
-	_, err := ix.db.ExecContext(ctx, `UPDATE endpoints SET last_fetched_version = ?, last_fetched_at = ?, status = ? WHERE canonical_url = ?`, versionID, fetchedAt.Unix(), "fetched", canonical)
+	_, err := ix.db.ExecContext(ctx, `UPDATE endpoints SET last_fetched_version = ?, last_fetched_at = ?, status = ? WHERE canonical_url = ? AND status != 'filtered'`, versionID, fetchedAt.Unix(), "fetched", canonical)
 	return err
 }
 
@@ -192,6 +193,7 @@ func (ix *Index) MarkFetchedBatch(ctx context.Context, canonicals []string, vers
 			last_fetched_at     = ?,
 			status              = ?
 		WHERE canonical_url IN (` + strings.Join(placeholders, ",") + `)
+		AND status != 'filtered'
 	`
 	_, err := ix.db.ExecContext(ctx, q, args...)
 	return err

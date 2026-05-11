@@ -703,6 +703,15 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 		return nil, err
 	}
 
+	filterCfg, err := o.registry.LoadFilterConfig(ctx, web.ID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("loading filter config: %w", err)
+	}
+	fetchOpts := &fetcher.FetchOptions{
+		FilterConfig:      filterCfg,
+		FilterStatusCodes: len(filterCfg.SkipStatusCodes) > 0,
+	}
+
 	// Use custom fetcher if config provided
 	fetcher := comps.Fetcher
 	if cfg != nil && cfg.Concurrency > 0 {
@@ -723,7 +732,7 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 	}
 
 	if !headExists {
-		if err := fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
+		if err := fetcher.FetchFromIndexWithOptions(ctx, status, limit, fetchOpts, cb); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -735,7 +744,7 @@ func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentif
 	}
 
 	o.logger.Info("Starting fetch of website endpoints", logging.Field{Key: "website_id", Value: web.ID}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit}, logging.Field{Key: "previous_head_id", Value: prevHeadID})
-	if err := fetcher.FetchFromIndex(ctx, status, limit, cb); err != nil {
+	if err := fetcher.FetchFromIndexWithOptions(ctx, status, limit, fetchOpts, cb); err != nil {
 		return nil, err
 	}
 

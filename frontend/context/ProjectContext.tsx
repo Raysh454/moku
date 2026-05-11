@@ -54,8 +54,6 @@ interface ProjectContextType {
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 const ACTIVE_PROJECT_STORAGE_KEY = "moku.activeProjectId";
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const setEndpointInProject = (
   project: Project,
   domainId: string,
@@ -406,22 +404,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [activeProject, clearMessage, setError, setNotice],
   );
 
-  const waitForJobCompletion = useCallback(
-    async (jobId: string): Promise<Job> => {
-      for (let attempts = 0; attempts < 360; attempts += 1) {
-        const job = await api.getJob(jobId);
-        setJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
-        if (job.status === "done") return job;
-        if (job.status === "failed" || job.status === "canceled") {
-          throw new Error(job.error || `Job ${job.status}`);
-        }
-        await wait(500);
-      }
-      throw new Error("Timed out waiting for job completion");
-    },
-    [],
-  );
-
   const runWebSocketJob = useCallback(
     async (
       setup: () => {
@@ -489,8 +471,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           const started = await api.startEnumerate(activeProject.slug, domain.slug, request.config);
           setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
-          await waitForJobCompletion(started.id);
-          setNotice("Enumeration job completed");
+          setNotice("Enumeration job started. Use Job Queue refresh to check updates.");
+          return;
         }
 
         await refreshActiveProject();
@@ -509,7 +491,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       runWebSocketJob,
       setError,
       setNotice,
-      waitForJobCompletion,
     ],
   );
 
@@ -541,8 +522,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             config: request.config,
           });
           setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
-          await waitForJobCompletion(started.id);
-          setNotice("Fetch job completed");
+          setNotice("Fetch job started. Use Job Queue refresh to check updates.");
+          return;
         }
 
         await refreshActiveProject();
@@ -561,7 +542,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       runWebSocketJob,
       setError,
       setNotice,
-      waitForJobCompletion,
     ],
   );
 

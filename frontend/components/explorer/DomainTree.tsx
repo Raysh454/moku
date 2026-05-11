@@ -65,7 +65,7 @@ const buildEnumerationConfig = (state: DomainMenuState): EnumerationConfig => {
   return config;
 };
 
-export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) => {
+const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) => {
   const {
     activeProject,
     selectedEndpoint,
@@ -189,7 +189,7 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
     notify({
       kind: "info",
       title: `Starting fetch for ${domain.hostname}`,
-      message: `${state.fetchMode.toUpperCase()} • status=${request.status} • limit=${request.limit === 0 ? "no-limit" : request.limit}`,
+      message: `${state.fetchMode.toUpperCase()} • status=${request.status === "*" ? "all-non-filtered" : request.status} • limit=${request.limit === 0 ? "no-limit" : request.limit}`,
     });
 
     await runFetchForDomain(domain.id, request);
@@ -557,7 +557,7 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
                         }
                         className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"
                       >
-                        <option value="*">all</option>
+                        <option value="*">all (excluding filtered)</option>
                         <option value="new">new</option>
                         <option value="pending">pending</option>
                         <option value="fetched">fetched</option>
@@ -734,3 +734,6 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
     </div>
   );
 };
+
+export { DomainTree };
+export default DomainTree;
