@@ -58,12 +58,7 @@ func (s *Server) handleCreateFilterRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var rule *filter.Rule
-	if req.Priority != nil {
-		rule, err = s.orchestrator.Registry().AddFilterRuleWithPriority(r.Context(), ws.ID, ruleType, req.RuleValue, *req.Priority)
-	} else {
-		rule, err = s.orchestrator.Registry().AddFilterRule(r.Context(), ws.ID, ruleType, req.RuleValue)
-	}
+	rule, err := s.orchestrator.Registry().AddFilterRule(r.Context(), ws.ID, ruleType, req.RuleValue)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

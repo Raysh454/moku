@@ -563,9 +563,6 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 	if body.Status == "" {
 		body.Status = "new"
 	}
-	if body.Limit <= 0 {
-		body.Limit = 100
-	}
 
 	job, err := s.orchestrator.StartFetchJob(context.Background(), project, site, body.Status, body.Limit, body.Config)
 	if err != nil {

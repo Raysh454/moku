@@ -61,7 +61,6 @@ export function FilterSettingsModal({
 
   const [newRuleType, setNewRuleType] = useState<RuleType>("extension");
   const [newRuleValue, setNewRuleValue] = useState("");
-  const [newRulePriority, setNewRulePriority] = useState(100);
 
   const [skipExtensionsInput, setSkipExtensionsInput] = useState("");
   const [skipPatternsInput, setSkipPatternsInput] = useState("");
@@ -143,7 +142,6 @@ export function FilterSettingsModal({
       const created = await api.createFilterRule(projectSlug, siteSlug, {
         rule_type: newRuleType,
         rule_value: newRuleValue.trim(),
-        priority: newRulePriority,
       });
       const nextRules = [...rules, created];
       setRules(nextRules);
@@ -161,7 +159,6 @@ export function FilterSettingsModal({
     siteSlug,
     newRuleType,
     newRuleValue,
-    newRulePriority,
     rules,
     syncEditState,
     loadAll,
@@ -399,18 +396,7 @@ export function FilterSettingsModal({
                     className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
                   />
                 </div>
-                <div className="col-span-2">
-                  <label className="text-[10px] text-helper uppercase tracking-wider font-bold mb-1 block">
-                    Priority
-                  </label>
-                  <input
-                    type="number"
-                    value={newRulePriority}
-                    onChange={(event) => setNewRulePriority(Number(event.target.value) || 100)}
-                    className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="col-span-1 flex items-end">
+                <div className="col-span-3 flex items-end">
                   <button
                     className="w-full h-10 rounded-lg bg-success text-black text-xs font-black uppercase tracking-wider hover:brightness-110 disabled:opacity-50"
                     onClick={() => void createRule()}
@@ -600,4 +586,3 @@ export function FilterSettingsModal({
     </div>
   );
 }
-
