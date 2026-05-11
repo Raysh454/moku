@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { Sidebar } from "../../components/layout/Sidebar";
 import { Topbar } from "../../components/layout/Topbar";
 import { Statusbar } from "../../components/layout/Statusbar";
@@ -35,44 +36,71 @@ const WorkspacePage: React.FC = () => {
     selectedDomain,
     selectedEndpoint,
     selectedSnapshot,
-    selectSnapshotVersion,
     settingsOpen,
     closeSettings,
     refreshActiveProject,
+    isLoading,
   } = useProject();
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("Preview");
-  const [isVersionDropdownOpen, setIsVersionDropdownOpen] = useState(false);
   const [baseVersionId, setBaseVersionId] = useState("");
   const [headVersionId, setHeadVersionId] = useState("");
   const [viewMode, setViewMode] = useState<RenderedViewMode>("preview");
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [comparisonError, setComparisonError] = useState("");
   const [isComparing, setIsComparing] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [showHeadHeaders, setShowHeadHeaders] = useState(false);
 
   const availableSnapshots = useMemo(
     () => sortByVersionDescending(selectedEndpoint?.snapshots || []),
     [selectedEndpoint?.snapshots],
   );
 
+  const pagesFetchedByVersion = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!selectedDomain) return counts;
+
+    for (const endpoint of selectedDomain.endpoints) {
+      if (!endpoint.lastFetchedVersion) continue;
+      counts[endpoint.lastFetchedVersion] = (counts[endpoint.lastFetchedVersion] || 0) + 1;
+    }
+
+    return counts;
+  }, [selectedDomain]);
+
+  const versionMetaById = useMemo(() => {
+    const map = new Map<string, { fetchedAt?: string; pagesFetched: number; versionNumber?: number }>();
+
+    for (const snapshot of availableSnapshots) {
+      map.set(snapshot.versionId, {
+        fetchedAt: snapshot.createdAt,
+        pagesFetched: pagesFetchedByVersion[snapshot.versionId] || 0,
+        versionNumber: snapshot.version,
+      });
+    }
+
+    if (selectedDomain) {
+      for (const version of selectedDomain.versions) {
+        const existing = map.get(version.id);
+        map.set(version.id, {
+          fetchedAt: existing?.fetchedAt || version.timestamp,
+          pagesFetched: existing?.pagesFetched ?? pagesFetchedByVersion[version.id] ?? 0,
+          versionNumber: existing?.versionNumber,
+        });
+      }
+    }
+
+    return map;
+  }, [availableSnapshots, pagesFetchedByVersion, selectedDomain]);
+
+  const baseVersionMeta = baseVersionId ? versionMetaById.get(baseVersionId) : undefined;
+  const headVersionMeta = headVersionId ? versionMetaById.get(headVersionId) : undefined;
+
   const activeSnapshot = comparison?.head || selectedSnapshot;
   const baseSnapshot = comparison?.base || null;
   const activeDiff = activeSnapshot?.diff;
   const activeSecurityDiff = activeSnapshot?.securityDiff;
   const activeScoreResult = activeSnapshot?.scoreResult;
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsVersionDropdownOpen(false);
-      }
-    };
-
-    if (!isVersionDropdownOpen) return undefined;
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isVersionDropdownOpen]);
 
   useEffect(() => {
     setComparison(null);
@@ -88,22 +116,18 @@ const WorkspacePage: React.FC = () => {
     setBaseVersionId(older?.versionId || "");
   }, [selectedEndpoint?.id, selectedSnapshot?.versionId, selectedSnapshot, availableSnapshots]);
 
-  if (!activeProject) {
+  useEffect(() => {
+    setShowHeadHeaders(false);
+  }, [activeSnapshot?.id]);
+
+  if (isLoading) {
     return (
       <div className="h-screen bg-bg flex items-center justify-center text-slate-500 font-medium italic uppercase tracking-widest">
         Loading Workspace...
       </div>
     );
   }
-
-  const selectVersionFromDropdown = async (event: React.MouseEvent, snapshot: Snapshot) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setComparison(null);
-    setComparisonError("");
-    setIsVersionDropdownOpen(false);
-    await selectSnapshotVersion(snapshot.versionId);
-  };
+  if (!activeProject) return <Navigate to="/" replace />;
 
   const compareVersions = async () => {
     if (!activeProject || !selectedDomain || !selectedEndpoint || !baseVersionId || !headVersionId) {
@@ -113,7 +137,6 @@ const WorkspacePage: React.FC = () => {
     setIsComparing(true);
     setComparisonError("");
     try {
-      await selectSnapshotVersion(headVersionId);
       const result = await projectService.loadComparison(
         activeProject.slug,
         selectedDomain.slug,
@@ -133,6 +156,15 @@ const WorkspacePage: React.FC = () => {
 
   const headerDiff = activeDiff?.headers_diff;
   const diffChunks = activeDiff?.body_diff?.chunks || [];
+  const statusCode = activeSnapshot?.statusCode || 0;
+  const statusToneClass =
+    statusCode >= 200 && statusCode < 300
+      ? "text-success border-success/40 bg-success/10"
+      : statusCode >= 400
+        ? "text-danger border-danger/40 bg-danger/10"
+        : statusCode >= 300
+          ? "text-warning border-warning/40 bg-warning/10"
+          : "text-helper border-border bg-bg/50";
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-bg">
@@ -147,69 +179,6 @@ const WorkspacePage: React.FC = () => {
                 <span className="font-mono text-[13px] text-slate-400 opacity-80">
                   {selectedEndpoint ? selectedEndpoint.path : "/"}
                 </span>
-
-                {selectedEndpoint && availableSnapshots.length > 0 && (
-                  <div className="relative inline-block" ref={dropdownRef}>
-                    <button
-                      type="button"
-                      onClick={() => setIsVersionDropdownOpen((open) => !open)}
-                      className={`flex items-center gap-2.5 px-4 py-2 border rounded-xl transition-all group ${
-                        isVersionDropdownOpen
-                          ? "bg-accent border-accent text-white shadow-lg shadow-accent/20"
-                          : "bg-white/5 border-border/50 text-accent hover:bg-white/10 hover:border-border"
-                      }`}
-                    >
-                      <span className={`text-[12px] font-black uppercase tracking-widest ${isVersionDropdownOpen ? "text-white" : "text-accent"}`}>
-                        Build v{selectedSnapshot?.version || "0"}
-                      </span>
-                      <svg
-                        className={`w-3 h-3 transition-transform duration-300 ${isVersionDropdownOpen ? "rotate-180 text-white" : "text-helper group-hover:text-slate-300"}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-
-                    {isVersionDropdownOpen && (
-                      <div className="absolute top-full left-0 mt-3 w-72 bg-[#131326] border border-[#1f1f35] rounded-2xl shadow-[0_30px_70px_rgba(0,0,0,0.9)] z-[999] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                        <div className="px-3 py-2 border-b border-[#1f1f35]/50 bg-white/5 flex items-center justify-between">
-                          <span className="text-[9px] font-bold text-[#475569] uppercase tracking-wider">Builds</span>
-                          <span className="text-[9px] text-accent font-black bg-accent/10 px-1.5 py-0.5 rounded">
-                            {availableSnapshots.length}
-                          </span>
-                        </div>
-                        <div className="max-h-[200px] overflow-y-auto p-2">
-                          {availableSnapshots.map((snapshot) => {
-                            const isSelected = selectedSnapshot?.versionId === snapshot.versionId;
-                            return (
-                              <button
-                                key={snapshot.versionId}
-                                type="button"
-                                onClick={(event) => void selectVersionFromDropdown(event, snapshot)}
-                                className={`w-full flex items-center justify-between px-4 py-2 rounded-lg text-left transition-all mb-1 group/item border ${
-                                  isSelected
-                                    ? "bg-accent border-accent/20 text-white shadow-md shadow-accent/10"
-                                    : "text-slate-400 border-transparent hover:bg-white/5 hover:text-white"
-                                }`}
-                              >
-                                <span className={`text-[13px] font-black tracking-tight ${isSelected ? "text-white" : "text-slate-200 group-hover/item:text-accent"}`}>
-                                  Version {snapshot.version}
-                                </span>
-                                {isSelected && (
-                                  <span className="text-[8px] font-black bg-white/20 px-2 py-0.5 rounded-md text-white tracking-widest uppercase border border-white/10">
-                                    CURRENT
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
 
@@ -277,6 +246,34 @@ const WorkspacePage: React.FC = () => {
                       </button>
                     </div>
                   </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="bg-bg/50 border border-border rounded-xl p-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-helper mb-2">Base details</p>
+                      <div className="space-y-1 text-xs">
+                        <p className="text-slate-200">
+                          <span className="text-helper">Fetched at:</span>{" "}
+                          {baseVersionMeta?.fetchedAt ? new Date(baseVersionMeta.fetchedAt).toLocaleString() : "—"}
+                        </p>
+                        <p className="text-slate-200">
+                          <span className="text-helper">Pages fetched:</span> {baseVersionMeta?.pagesFetched ?? 0}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="bg-bg/50 border border-border rounded-xl p-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-helper mb-2">Head details</p>
+                      <div className="space-y-1 text-xs">
+                        <p className="text-slate-200">
+                          <span className="text-helper">Fetched at:</span>{" "}
+                          {headVersionMeta?.fetchedAt ? new Date(headVersionMeta.fetchedAt).toLocaleString() : "—"}
+                        </p>
+                        <p className="text-slate-200">
+                          <span className="text-helper">Pages fetched:</span> {headVersionMeta?.pagesFetched ?? 0}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {comparisonError && <p className="mt-3 text-sm text-danger">{comparisonError}</p>}
                 </section>
 
@@ -295,6 +292,46 @@ const WorkspacePage: React.FC = () => {
                           Select base/head versions and click Compare to view change-focused diff.
                         </span>
                       )}
+                    </div>
+
+                    <div className="bg-bg/50 border border-border rounded-xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.18em] text-helper">
+                          Head request details
+                        </h4>
+                        <span className={`text-xs font-semibold tabular-nums px-2 py-1 rounded-md border ${statusToneClass}`}>
+                          {activeSnapshot.statusCode || "—"}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowHeadHeaders((open) => !open)}
+                          className="w-full flex items-center justify-between rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs hover:border-slate-500 transition-colors"
+                        >
+                          <span className="font-bold uppercase tracking-[0.14em] text-helper">
+                            Response headers ({Object.keys(activeSnapshot.headers || {}).length})
+                          </span>
+                          <span className="text-slate-300">{showHeadHeaders ? "Hide" : "Show"}</span>
+                        </button>
+
+                        {showHeadHeaders && (
+                          <div className="max-h-48 overflow-y-auto custom-scrollbar rounded-lg border border-border bg-bg/60">
+                            {Object.keys(activeSnapshot.headers || {}).length === 0 ? (
+                              <p className="px-3 py-2 text-xs text-slate-500">No headers available</p>
+                            ) : (
+                              <div className="divide-y divide-border/50">
+                                {Object.entries(activeSnapshot.headers || {}).map(([name, values]) => (
+                                  <div key={name} className="px-3 py-2 text-xs">
+                                    <span className="text-slate-100 font-semibold">{name}:</span>{" "}
+                                    <span className="text-slate-300">{values.join(", ") || "—"}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <RenderedDiffViews
@@ -375,8 +412,7 @@ const WorkspacePage: React.FC = () => {
                         <ul className="space-y-1 text-xs text-slate-300">
                           {Object.entries(headerDiff?.changed || {}).map(([key, change]) => (
                             <li key={key}>
-                              <span className="font-semibold">{key}:</span> {change.from.join(", ")} →{" "}
-                              {change.to.join(", ")}
+                              <span className="font-semibold">{key}:</span> {change.from.join(", ")} → {change.to.join(", ")}
                             </li>
                           ))}
                           {Object.keys(headerDiff?.changed || {}).length === 0 && <li className="text-slate-500">None</li>}
@@ -435,4 +471,3 @@ const WorkspacePage: React.FC = () => {
 };
 
 export default WorkspacePage;
-

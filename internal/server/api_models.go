@@ -85,7 +85,6 @@ type ErrorResponse struct {
 type CreateFilterRuleRequest struct {
 	RuleType  string `json:"rule_type" example:"extension" enum:"extension,pattern,status_code"`
 	RuleValue string `json:"rule_value" example:".jpg"`
-	Priority  *int   `json:"priority,omitempty" example:"50"`
 }
 
 // UpdateFilterRuleRequest represents the payload for updating a filter rule.

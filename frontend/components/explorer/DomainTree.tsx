@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useProject } from "../../context/ProjectContext";
+import { useNotifications } from "../../context/NotificationContext";
 import type { Domain, Endpoint, EnumerateRequest, FetchRequest, JobTransport } from "../../types/project";
 import type { EnumerationConfig } from "../../src/api/types";
 
@@ -7,7 +8,7 @@ interface DomainTreeProps {
   isCollapsed?: boolean;
 }
 
-type DomainMenuSection = "enumerate" | "fetch" | null;
+type DomainMenuSection = "enumerate" | "fetch" | "endpoints" | null;
 
 type DomainMenuState = {
   enumMode: JobTransport;
@@ -23,6 +24,8 @@ type DomainMenuState = {
   fetchStatus: string;
   fetchLimit: number;
   fetchConcurrency: number;
+  endpointStatus: string;
+  endpointLimit: number;
 };
 
 const defaultMenuState = (): DomainMenuState => ({
@@ -36,9 +39,11 @@ const defaultMenuState = (): DomainMenuState => ({
   waybackMachine: true,
   commonCrawl: true,
   fetchMode: "rest",
-  fetchStatus: "new",
-  fetchLimit: 100,
+  fetchStatus: "*",
+  fetchLimit: 0,
   fetchConcurrency: 4,
+  endpointStatus: "",
+  endpointLimit: 0,
 });
 
 const buildEnumerationConfig = (state: DomainMenuState): EnumerationConfig => {
@@ -65,16 +70,22 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
     activeProject,
     selectedEndpoint,
     selectEndpoint,
+    loadDomainEndpoints,
+    addEndpointsForDomain,
     runEnumerateForDomain,
     runFetchForDomain,
     isBusy,
   } = useProject();
+  const { notify } = useNotifications();
 
   const [expandedDomains, setExpandedDomains] = useState<Record<string, boolean>>({});
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<DomainMenuSection>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const [domainMenuState, setDomainMenuState] = useState<Record<string, DomainMenuState>>({});
+  const [showAddEndpointsModal, setShowAddEndpointsModal] = useState(false);
+  const [addEndpointsDomainId, setAddEndpointsDomainId] = useState<string | null>(null);
+  const [newEndpointsInput, setNewEndpointsInput] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -154,6 +165,13 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
       mode: state.enumMode,
       config: buildEnumerationConfig(state),
     };
+
+    notify({
+      kind: "info",
+      title: `Starting enumeration for ${domain.hostname}`,
+      message: `${state.enumMode.toUpperCase()} job queued`,
+    });
+
     await runEnumerateForDomain(domain.id, request);
   };
 
@@ -161,13 +179,78 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
     const state = domainMenuState[domain.id] || defaultMenuState();
     const request: FetchRequest = {
       mode: state.fetchMode,
-      status: state.fetchStatus || "new",
-      limit: state.fetchLimit || 100,
+      status: state.fetchStatus || "*",
+      limit: Math.max(0, Number.isFinite(state.fetchLimit) ? state.fetchLimit : 0),
       config: {
         concurrency: state.fetchConcurrency || 4,
       },
     };
+
+    notify({
+      kind: "info",
+      title: `Starting fetch for ${domain.hostname}`,
+      message: `${state.fetchMode.toUpperCase()} • status=${request.status} • limit=${request.limit === 0 ? "no-limit" : request.limit}`,
+    });
+
     await runFetchForDomain(domain.id, request);
+  };
+
+  const loadEndpoints = async (domain: Domain) => {
+    const state = domainMenuState[domain.id] || defaultMenuState();
+    await loadDomainEndpoints(
+      domain.id,
+      state.endpointStatus,
+      Math.max(0, Number.isFinite(state.endpointLimit) ? state.endpointLimit : 0),
+    );
+    notify({
+      kind: "success",
+      title: `Endpoints loaded for ${domain.hostname}`,
+      message: `status=${state.endpointStatus || "non-filtered"} • limit=${state.endpointLimit === 0 ? "no-limit" : state.endpointLimit}`,
+    });
+  };
+
+  const openAddEndpoints = (domainId: string) => {
+    setAddEndpointsDomainId(domainId);
+    setNewEndpointsInput("");
+    setShowAddEndpointsModal(true);
+  };
+
+  const submitAddEndpoints = async () => {
+    if (!activeProject) return;
+    if (!addEndpointsDomainId) return;
+    const domain = activeProject.domains.find((item) => item.id === addEndpointsDomainId);
+    if (!domain) return;
+
+    const urls = newEndpointsInput
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (urls.length === 0) {
+      notify({
+        kind: "warning",
+        title: "No endpoints provided",
+        message: "Add at least one endpoint URL on a new line.",
+      });
+      return;
+    }
+
+    const added = await addEndpointsForDomain(domain.id, urls, "manual");
+    if (added > 0) {
+      const state = domainMenuState[domain.id] || defaultMenuState();
+      await loadDomainEndpoints(
+        domain.id,
+        state.endpointStatus,
+        Math.max(0, Number.isFinite(state.endpointLimit) ? state.endpointLimit : 0),
+      );
+      setShowAddEndpointsModal(false);
+      setAddEndpointsDomainId(null);
+      setNewEndpointsInput("");
+      notify({
+        kind: "success",
+        title: `Added ${added} endpoint${added === 1 ? "" : "s"}`,
+        message: `${domain.hostname} updated`,
+      });
+    }
   };
 
   const endpointLabel = (endpoint: Endpoint): string => {
@@ -261,7 +344,7 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
             left: `${menuPos.left}px`,
             zIndex: 9999,
           }}
-          className="w-[600px] bg-card border border-border rounded-xl shadow-[0_15px_40px_rgba(0,0,0,0.6)] animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
+          className="w-[620px] bg-card border border-border rounded-xl shadow-[0_15px_40px_rgba(0,0,0,0.6)] animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
         >
           <div className="grid grid-cols-2">
             <div className="p-1.5 border-r border-border">
@@ -277,6 +360,13 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
                 className={`w-full flex items-center justify-between px-3 py-2 text-[12px] font-semibold rounded-lg transition-all ${activeSection === "fetch" ? "bg-white/10 text-white" : "text-slate-300 hover:text-white hover:bg-white/5"}`}
               >
                 <span>Fetch</span>
+                <span className="text-[10px] opacity-70">❯</span>
+              </button>
+              <button
+                onMouseEnter={() => setActiveSection("endpoints")}
+                className={`w-full flex items-center justify-between px-3 py-2 text-[12px] font-semibold rounded-lg transition-all ${activeSection === "endpoints" ? "bg-white/10 text-white" : "text-slate-300 hover:text-white hover:bg-white/5"}`}
+              >
+                <span>Endpoints</span>
                 <span className="text-[10px] opacity-70">❯</span>
               </button>
             </div>
@@ -467,25 +557,25 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
                         }
                         className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"
                       >
+                        <option value="*">all</option>
                         <option value="new">new</option>
                         <option value="pending">pending</option>
                         <option value="fetched">fetched</option>
                         <option value="failed">failed</option>
                         <option value="filtered">filtered</option>
-                        <option value="*">all</option>
                       </select>
                     </label>
                     <label className="text-[11px] text-slate-300 flex flex-col gap-1">
                       Limit
                       <input
                         type="number"
-                        min={1}
-                        max={2000}
+                        min={0}
+                        max={20000}
                         value={currentMenuState.fetchLimit}
                         onChange={(event) =>
                           updateDomainMenuState(openMenuId, (state) => ({
                             ...state,
-                            fetchLimit: Number(event.target.value) || 100,
+                            fetchLimit: Math.max(0, Number(event.target.value) || 0),
                           }))
                         }
                         className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"
@@ -509,6 +599,8 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
                     </label>
                   </div>
 
+                  <p className="text-[10px] text-slate-500">Limit 0 means no limit (fetch all matching endpoints).</p>
+
                   <button
                     className="w-full bg-success text-black rounded px-3 py-2 text-[12px] font-semibold hover:brightness-110 disabled:opacity-50"
                     disabled={isBusy}
@@ -522,6 +614,119 @@ export const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) =
                   </button>
                 </>
               )}
+
+              {activeSection === "endpoints" && (
+                <>
+                  <label className="text-[11px] text-slate-300 flex flex-col gap-1">
+                    Endpoints to load
+                    <select
+                      value={currentMenuState.endpointStatus}
+                      onChange={(event) =>
+                        updateDomainMenuState(openMenuId, (state) => ({
+                          ...state,
+                          endpointStatus: event.target.value,
+                        }))
+                      }
+                      className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"
+                    >
+                      <option value="">All (excluding filtered)</option>
+                      <option value="*">All (including filtered)</option>
+                      <option value="new">new</option>
+                      <option value="pending">pending</option>
+                      <option value="fetched">fetched</option>
+                      <option value="failed">failed</option>
+                      <option value="filtered">filtered</option>
+                    </select>
+                  </label>
+
+                  <label className="text-[11px] text-slate-300 flex flex-col gap-1">
+                    Limit
+                    <input
+                      type="number"
+                      min={0}
+                      max={50000}
+                      value={currentMenuState.endpointLimit}
+                      onChange={(event) =>
+                        updateDomainMenuState(openMenuId, (state) => ({
+                          ...state,
+                          endpointLimit: Math.max(0, Number(event.target.value) || 0),
+                        }))
+                      }
+                      className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"
+                    />
+                  </label>
+
+                  <p className="text-[10px] text-slate-500">
+                    Default is all non-filtered endpoints. Limit 0 means no limit.
+                  </p>
+
+                  <button
+                    className="w-full bg-accent text-white rounded px-3 py-2 text-[12px] font-semibold hover:brightness-110 disabled:opacity-50"
+                    disabled={isBusy}
+                    onClick={() => {
+                      const domain = activeProject.domains.find((item) => item.id === openMenuId);
+                      if (!domain) return;
+                      void loadEndpoints(domain);
+                    }}
+                  >
+                    Load Endpoints
+                  </button>
+
+                  <button
+                    className="w-full bg-bg border border-border text-slate-200 rounded px-3 py-2 text-[12px] font-semibold hover:border-slate-500 disabled:opacity-50"
+                    disabled={isBusy}
+                    onClick={() => {
+                      openAddEndpoints(openMenuId);
+                    }}
+                  >
+                    Add Endpoints
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddEndpointsModal && addEndpointsDomainId && (
+        <div className="fixed inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+              <div>
+                <h3 className="text-[11px] font-black uppercase tracking-[0.22em] text-helper">Add Endpoints</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Paste endpoint URLs, one per line.
+                </p>
+              </div>
+              <button
+                className="h-8 px-3 text-[11px] uppercase tracking-widest border border-border rounded-lg text-slate-300 hover:text-white hover:border-slate-500"
+                onClick={() => {
+                  setShowAddEndpointsModal(false);
+                  setAddEndpointsDomainId(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <textarea
+                value={newEndpointsInput}
+                onChange={(event) => setNewEndpointsInput(event.target.value)}
+                rows={10}
+                placeholder={"https://example.com/\nhttps://example.com/login\nhttps://example.com/admin"}
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm font-mono text-slate-200 resize-y min-h-[220px]"
+              />
+              <div className="flex justify-end">
+                <button
+                  className="h-10 px-5 rounded-lg bg-success text-black text-xs font-black uppercase tracking-[0.18em] hover:brightness-110 disabled:opacity-50"
+                  disabled={isBusy}
+                  onClick={() => {
+                    void submitAddEndpoints();
+                  }}
+                >
+                  Add Endpoints
+                </button>
+              </div>
             </div>
           </div>
         </div>

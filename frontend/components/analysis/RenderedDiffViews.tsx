@@ -10,13 +10,7 @@ import DOMTreeView from "./DOMTreeView";
 import { diffDomTrees, getChangeSummary, parseHtmlToTree } from "./DOMParser";
 import { AttackSurfaceChangesPanel } from "./AttackSurfaceChangesPanel";
 
-export type RenderedViewMode =
-  | "preview"
-  | "side-by-side"
-  | "overlay"
-  | "dom-tree"
-  | "security-focus"
-  | "timeline";
+export type RenderedViewMode = "preview" | "side-by-side" | "dom-tree" | "security-focus";
 
 type RenderedDiffViewsProps = {
   baseSnapshot?: Snapshot | null;
@@ -95,8 +89,6 @@ export default function RenderedDiffViews({
 }: RenderedDiffViewsProps) {
   const [activeChangeIndex, setActiveChangeIndex] = useState<number | null>(null);
   const [hoveredChange, setHoveredChange] = useState<AttackSurfaceChange | null>(null);
-  const [overlayOpacity, setOverlayOpacity] = useState(0.5);
-  const [timelineStep, setTimelineStep] = useState(0);
   const [showOnlyChanged, setShowOnlyChanged] = useState(false);
   const [showHighlights, setShowHighlights] = useState(true);
   const [showTextHighlights, setShowTextHighlights] = useState(true);
@@ -208,15 +200,11 @@ export default function RenderedDiffViews({
     [activeChangeIndex],
   );
 
-  const timelineChanges = securityDiff?.attack_surface_changes || [];
-
   const viewModes: { id: RenderedViewMode; label: string; icon: string }[] = [
     { id: "preview", label: "Preview", icon: "👁" },
     { id: "side-by-side", label: "Side by Side", icon: "⟷" },
-    { id: "overlay", label: "Overlay", icon: "▣" },
     { id: "dom-tree", label: "DOM Tree", icon: "🌳" },
     { id: "security-focus", label: "Security", icon: "🔒" },
-    { id: "timeline", label: "Timeline", icon: "📖" },
   ];
 
   return (
@@ -233,10 +221,7 @@ export default function RenderedDiffViews({
             <span className="viewModeLabel">{mode.label}</span>
           </button>
         ))}
-        {(viewMode === "preview" ||
-          viewMode === "side-by-side" ||
-          viewMode === "overlay" ||
-          viewMode === "timeline") && (
+        {(viewMode === "preview" || viewMode === "side-by-side") && (
           <>
             <label className="highlightToggle">
               <input
@@ -258,7 +243,7 @@ export default function RenderedDiffViews({
         )}
       </div>
 
-      {securityDiff?.attack_surface_changes && viewMode !== "timeline" && (
+      {securityDiff?.attack_surface_changes && (
         <AttackSurfaceChangesPanel
           changes={securityDiff.attack_surface_changes}
           activeChangeIndex={activeChangeIndex}
@@ -308,48 +293,6 @@ export default function RenderedDiffViews({
           </div>
         )}
 
-        {viewMode === "overlay" && (
-          <div className="overlayMode">
-            <div className="overlayControls">
-              <span>Base</span>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={overlayOpacity}
-                onChange={(event) => setOverlayOpacity(parseFloat(event.target.value))}
-                className="overlaySlider"
-              />
-              <span>Head</span>
-              <span className="overlayValue">{Math.round(overlayOpacity * 100)}%</span>
-            </div>
-            <div className="overlayFrames">
-              <RenderedFrame
-                html={baseHtml || "<p>No base version</p>"}
-                title="Base"
-                highlights={removedHighlights}
-                activeHighlight={activeHighlight}
-                showHighlights={showHighlights}
-                textChanges={removedTextChanges}
-                showTextHighlights={showTextHighlights}
-                className="overlayFrameBase"
-              />
-              <div className="overlayFrameHead" style={{ opacity: overlayOpacity }}>
-                <RenderedFrame
-                  html={headHtml}
-                  title="Head"
-                  highlights={addedChangedHighlights}
-                  activeHighlight={activeHighlight}
-                  showHighlights={showHighlights}
-                  textChanges={addedModifiedTextChanges}
-                  showTextHighlights={showTextHighlights}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
         {viewMode === "dom-tree" && (
           <div className="domTreeMode">
             <div className="domTreeControls">
@@ -376,52 +319,6 @@ export default function RenderedDiffViews({
         {viewMode === "security-focus" && (
           <div className="securityFocusMode">
             <SecurityElementsView securityDiff={securityDiff} />
-          </div>
-        )}
-
-        {viewMode === "timeline" && (
-          <div className="timelineMode">
-            <div className="timelineControls">
-              <button
-                disabled={timelineStep === 0}
-                onClick={() => setTimelineStep((step) => Math.max(0, step - 1))}
-              >
-                ← Previous
-              </button>
-              <span className="timelineProgress">
-                Change {timelineStep + 1} of {timelineChanges.length || 1}
-              </span>
-              <button
-                disabled={timelineStep >= timelineChanges.length - 1}
-                onClick={() =>
-                  setTimelineStep((step) => Math.min(timelineChanges.length - 1, step + 1))
-                }
-              >
-                Next →
-              </button>
-            </div>
-
-            {timelineChanges.length > 0 ? (
-              <div className="timelineCard">
-                <div className="timelineChangeHeader">
-                  <span className={`changeKindBadge kind-${timelineChanges[timelineStep].kind.split("_")[0]}`}>
-                    {timelineChanges[timelineStep].kind.replace(/_/g, " ")}
-                  </span>
-                </div>
-                <p className="timelineChangeDetail">{timelineChanges[timelineStep].detail}</p>
-                <RenderedFrame
-                  html={headHtml}
-                  highlights={changeToHighlight(timelineChanges[timelineStep])}
-                  activeHighlight={changeToHighlight(timelineChanges[timelineStep])[0]}
-                  showHighlights={showHighlights}
-                  textChanges={textChanges}
-                  showTextHighlights={showTextHighlights}
-                  className="timelineFrame"
-                />
-              </div>
-            ) : (
-              <p className="noChanges">No attack surface changes to display</p>
-            )}
           </div>
         )}
       </div>

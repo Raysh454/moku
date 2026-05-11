@@ -1,5 +1,6 @@
 import type {
   ApplyFiltersResponse,
+  AddedEndpointsResponse,
   Endpoint,
   EndpointDetails,
   EndpointStatsResponse,
@@ -130,9 +131,15 @@ export const api = {
   createFilterRule: (
     project: string,
     site: string,
-    payload: { rule_type: RuleType; rule_value: string; priority?: number },
+    payload: { rule_type: RuleType; rule_value: string },
   ) =>
     request<FilterRule>(`/projects/${project}/websites/${site}/filters`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  addEndpoints: (project: string, site: string, payload: { urls: string[]; source?: string }) =>
+    request<AddedEndpointsResponse>(`/projects/${project}/websites/${site}/endpoints`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),

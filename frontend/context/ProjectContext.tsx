@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { api, createEnumerateSocket, createFetchSocket } from "../src/api/client";
-import type { Job, JobEvent } from "../src/api/types";
+import type { Endpoint as ApiEndpoint, Job, JobEvent, Version } from "../src/api/types";
 import type {
   Domain,
   Endpoint,
@@ -42,6 +42,8 @@ interface ProjectContextType {
   selectSnapshotVersion: (versionId: string) => Promise<void>;
   createNewProject: (data: Partial<Project>) => Promise<Project>;
   createWebsiteForActiveProject: (payload: { slug: string; origin: string }) => Promise<void>;
+  loadDomainEndpoints: (domainId: string, status: string, limit: number) => Promise<void>;
+  addEndpointsForDomain: (domainId: string, urls: string[], source?: string) => Promise<number>;
   runEnumerateForDomain: (domainId: string, request: EnumerateRequest) => Promise<void>;
   runFetchForDomain: (domainId: string, request: FetchRequest) => Promise<void>;
   clearMessage: () => void;
@@ -50,6 +52,7 @@ interface ProjectContextType {
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
+const ACTIVE_PROJECT_STORAGE_KEY = "moku.activeProjectId";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -71,6 +74,39 @@ const setEndpointInProject = (
         },
   ),
 });
+
+const createSnapshotStubs = (endpoint: Endpoint, versions: Version[]): Endpoint["snapshots"] =>
+  versions.map((version, index) => ({
+    id: `${endpoint.id}:${version.id}`,
+    versionId: version.id,
+    version: versions.length - index,
+    versionLabel: version.id,
+    statusCode: 0,
+    url: endpoint.url,
+    body: "",
+    headers: {},
+    createdAt: version.timestamp,
+    metadata: {
+      contentLength: 0,
+      loadTime: 0,
+    },
+  }));
+
+const toProjectEndpoint = (raw: ApiEndpoint, versions: Version[]): Endpoint => {
+  const endpoint: Endpoint = {
+    id: raw.id,
+    url: raw.url,
+    canonicalUrl: raw.canonical_url,
+    path: raw.path,
+    status: raw.status,
+    source: raw.source,
+    meta: raw.meta,
+    lastFetchedVersion: raw.last_fetched_version,
+    snapshots: [],
+  };
+  endpoint.snapshots = createSnapshotStubs(endpoint, versions);
+  return endpoint;
+};
 
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -184,10 +220,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const project = await projectService.getProjectById(id);
         if (!project) {
+          window.localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
           setError("Project not found");
           return;
         }
 
+        window.localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, project.id);
         setActiveProject(project);
         setProjects((prev) => prev.map((item) => (item.id === project.id ? project : item)));
 
@@ -304,6 +342,63 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setNotice(`Added website "${domain.hostname}"`);
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to create website");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [activeProject, clearMessage, setError, setNotice],
+  );
+
+  const loadDomainEndpoints = useCallback(
+    async (domainId: string, status: string, limit: number) => {
+      if (!activeProject) return;
+      const domain = activeProject.domains.find((item) => item.id === domainId);
+      if (!domain) return;
+
+      setIsBusy(true);
+      clearMessage();
+      try {
+        const endpointsRaw = await api.listEndpoints(activeProject.slug, domain.slug, status, limit);
+        const endpoints = endpointsRaw.map((endpoint) => toProjectEndpoint(endpoint, domain.versions));
+        const updatedProject: Project = {
+          ...activeProject,
+          domains: activeProject.domains.map((item) => (item.id === domain.id ? { ...item, endpoints } : item)),
+        };
+        setActiveProject(updatedProject);
+        setProjects((prev) => prev.map((item) => (item.id === updatedProject.id ? updatedProject : item)));
+
+        const nextDomain = updatedProject.domains.find((item) => item.id === domain.id) || null;
+        if (selectedDomain?.id === domain.id) {
+          const nextEndpoint =
+            endpoints.find((endpoint) => endpoint.id === selectedEndpoint?.id) || endpoints[0] || null;
+          setSelectedDomainState(nextDomain);
+          setSelectedEndpointState(nextEndpoint);
+          setSelectedSnapshotState(null);
+        }
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to load endpoints");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [activeProject, clearMessage, selectedDomain?.id, selectedEndpoint?.id, setError],
+  );
+
+  const addEndpointsForDomain = useCallback(
+    async (domainId: string, urls: string[], source = "manual") => {
+      if (!activeProject) return 0;
+      const domain = activeProject.domains.find((item) => item.id === domainId);
+      if (!domain) return 0;
+
+      setIsBusy(true);
+      clearMessage();
+      try {
+        const result = await api.addEndpoints(activeProject.slug, domain.slug, { urls, source });
+        setNotice(`${result.added} endpoint${result.added === 1 ? "" : "s"} added`);
+        return result.added;
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to add endpoints");
+        return 0;
       } finally {
         setIsBusy(false);
       }
@@ -471,8 +566,54 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   useEffect(() => {
-    void Promise.all([refreshProjects(), refreshJobs()]);
-  }, [refreshJobs, refreshProjects]);
+    let cancelled = false;
+    const initialize = async () => {
+      setIsLoading(true);
+      clearMessage();
+      try {
+        const [projectsData, jobsData] = await Promise.all([projectService.getProjects(), api.listJobs()]);
+        if (cancelled) return;
+        setProjects(projectsData);
+        setJobs(jobsData);
+
+        const shouldRestoreWorkspace = window.location.hash.startsWith("#/workspace");
+        const storedProjectId = window.localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY);
+        if (!shouldRestoreWorkspace || !storedProjectId) return;
+
+        const restoredProject = await projectService.getProjectById(storedProjectId);
+        if (cancelled) return;
+
+        if (!restoredProject) {
+          window.localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+          return;
+        }
+
+        setActiveProject(restoredProject);
+        setProjects((prev) => prev.map((item) => (item.id === restoredProject.id ? restoredProject : item)));
+
+        const firstDomain = restoredProject.domains[0] || null;
+        const firstEndpoint = firstDomain?.endpoints[0] || null;
+        setSelectedDomainState(firstDomain);
+        setSelectedEndpointState(firstEndpoint);
+        setSelectedSnapshotState(null);
+
+        if (firstDomain && firstEndpoint) {
+          await loadLatestSnapshotForSelection(restoredProject, firstDomain, firstEndpoint);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setError(error instanceof Error ? error.message : "Failed to initialize workspace data");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, [clearMessage, loadLatestSnapshotForSelection, setError]);
 
   const value = useMemo<ProjectContextType>(
     () => ({
@@ -498,6 +639,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       selectSnapshotVersion,
       createNewProject,
       createWebsiteForActiveProject,
+      loadDomainEndpoints,
+      addEndpointsForDomain,
       runEnumerateForDomain,
       runFetchForDomain,
       clearMessage,
@@ -524,6 +667,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       selectSnapshotVersion,
       createNewProject,
       createWebsiteForActiveProject,
+      loadDomainEndpoints,
+      addEndpointsForDomain,
       runEnumerateForDomain,
       runFetchForDomain,
       clearMessage,

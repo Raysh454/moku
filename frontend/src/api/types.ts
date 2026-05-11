@@ -253,3 +253,7 @@ export type ApplyFiltersResponse = {
 export type UnfilterEndpointsResponse = {
   unfiltered: number;
 };
+
+export type AddedEndpointsResponse = {
+  added: number;
+};

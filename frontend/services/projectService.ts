@@ -105,7 +105,7 @@ const toProject = (raw: { id: string; slug: string; name: string; description: s
 
 const loadDomain = async (projectSlug: string, site: { id: string; slug: string; origin: string }): Promise<Domain> => {
   const [endpointsRaw, versions] = await Promise.all([
-    api.listEndpoints(projectSlug, site.slug, "*", 500),
+    api.listEndpoints(projectSlug, site.slug, "", 500),
     api.listVersions(projectSlug, site.slug, 100),
   ]);
 
