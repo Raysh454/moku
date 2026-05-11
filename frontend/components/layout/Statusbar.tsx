@@ -70,15 +70,6 @@ export const Statusbar: React.FC = () => {
               <span className="text-helper">Last Scan:</span>
               <span className="text-slate-300 tabular-nums">{new Date(selectedSnapshot.createdAt).toLocaleTimeString()}</span>
             </div>
-            <div className="h-3 w-px bg-border/50"></div>
-            <div className="flex items-center gap-2">
-              <span className="text-helper">Health:</span>
-              <span
-                className={`font-semibold tabular-nums ${(selectedSnapshot.scoreResult?.normalized || 0) > 80 ? "text-success" : "text-danger"}`}
-              >
-                {selectedSnapshot.scoreResult?.normalized || "N/A"}%
-              </span>
-            </div>
           </>
         )}
 

@@ -3,6 +3,7 @@ package fetcher
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,6 +73,17 @@ func (f *Fetcher) FetchFromIndexWithOptions(ctx context.Context, status string, 
 	}
 	if err != nil {
 		return err
+	}
+
+	if status == "*" || strings.EqualFold(status, "all") {
+		unfiltered := make([]indexer.Endpoint, 0, len(eps))
+		for _, endpoint := range eps {
+			if endpoint.Status == "filtered" {
+				continue
+			}
+			unfiltered = append(unfiltered, endpoint)
+		}
+		eps = unfiltered
 	}
 
 	urls := make([]string, 0, len(eps))

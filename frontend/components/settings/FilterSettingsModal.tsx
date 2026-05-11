@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../src/api/client";
+import { useNotifications } from "../../context/NotificationContext";
 import type {
   Endpoint,
   EndpointStatsResponse,
@@ -48,6 +49,7 @@ export function FilterSettingsModal({
   onClose,
   onChanged,
 }: FilterSettingsModalProps) {
+  const { notify } = useNotifications();
   const [activeTab, setActiveTab] = useState<Tab>("rules");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -81,7 +83,7 @@ export function FilterSettingsModal({
     });
   }, []);
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (showToast = false) => {
     if (!projectSlug || !siteSlug) return;
     setLoading(true);
     setError("");
@@ -102,12 +104,21 @@ export function FilterSettingsModal({
       setSkipExtensionsInput((configData.skip_extensions || []).join(", "));
       setSkipPatternsInput((configData.skip_patterns || []).join(", "));
       setSkipStatusCodesInput((configData.skip_status_codes || []).join(", "));
+      if (showToast) {
+        notify({
+          kind: "info",
+          title: "Filter settings refreshed",
+          message: `${projectSlug} / ${siteSlug}`,
+        });
+      }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load filter settings");
+      const message = loadError instanceof Error ? loadError.message : "Failed to load filter settings";
+      setError(message);
+      notify({ kind: "error", title: "Failed to load filter settings", message });
     } finally {
       setLoading(false);
     }
-  }, [projectSlug, siteSlug, syncEditState]);
+  }, [projectSlug, siteSlug, syncEditState, notify]);
 
   useEffect(() => {
     if (!canLoad) return;
@@ -132,6 +143,7 @@ export function FilterSettingsModal({
     if (!projectSlug || !siteSlug) return;
     if (!newRuleValue.trim()) {
       setError("Rule value is required");
+      notify({ kind: "warning", title: "Rule value is required" });
       return;
     }
 
@@ -149,8 +161,15 @@ export function FilterSettingsModal({
       setNewRuleValue("");
       setMessage("Rule created");
       await loadAll();
+      notify({
+        kind: "success",
+        title: "Rule created",
+        message: `${newRuleType}: ${created.rule_value}`,
+      });
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Failed to create rule");
+      const message = createError instanceof Error ? createError.message : "Failed to create rule";
+      setError(message);
+      notify({ kind: "error", title: "Failed to create rule", message });
     } finally {
       setLoading(false);
     }
@@ -162,6 +181,7 @@ export function FilterSettingsModal({
     rules,
     syncEditState,
     loadAll,
+    notify,
   ]);
 
   const toggleRule = useCallback(
@@ -175,11 +195,18 @@ export function FilterSettingsModal({
         setRules(nextRules);
         syncEditState(nextRules);
         setMessage(`Rule ${updated.enabled ? "enabled" : "disabled"}`);
+        notify({
+          kind: "success",
+          title: `Rule ${updated.enabled ? "enabled" : "disabled"}`,
+          message: `${updated.rule_type}: ${updated.rule_value}`,
+        });
       } catch (toggleError) {
-        setError(toggleError instanceof Error ? toggleError.message : "Failed to toggle rule");
+        const message = toggleError instanceof Error ? toggleError.message : "Failed to toggle rule";
+        setError(message);
+        notify({ kind: "error", title: "Failed to toggle rule", message });
       }
     },
-    [projectSlug, siteSlug, rules, syncEditState],
+    [projectSlug, siteSlug, rules, syncEditState, notify],
   );
 
   const saveRule = useCallback(
@@ -196,11 +223,18 @@ export function FilterSettingsModal({
         setRules(nextRules);
         syncEditState(nextRules);
         setMessage("Rule updated");
+        notify({
+          kind: "success",
+          title: "Rule updated",
+          message: `${updated.rule_type}: ${updated.rule_value}`,
+        });
       } catch (saveError) {
-        setError(saveError instanceof Error ? saveError.message : "Failed to update rule");
+        const message = saveError instanceof Error ? saveError.message : "Failed to update rule";
+        setError(message);
+        notify({ kind: "error", title: "Failed to update rule", message });
       }
     },
-    [projectSlug, siteSlug, ruleEdits, rules, syncEditState],
+    [projectSlug, siteSlug, ruleEdits, rules, syncEditState, notify],
   );
 
   const deleteRule = useCallback(
@@ -216,11 +250,18 @@ export function FilterSettingsModal({
         setRules(nextRules);
         syncEditState(nextRules);
         setMessage("Rule deleted");
+        notify({
+          kind: "success",
+          title: "Rule deleted",
+          message: `${rule.rule_type}: ${rule.rule_value}`,
+        });
       } catch (deleteError) {
-        setError(deleteError instanceof Error ? deleteError.message : "Failed to delete rule");
+        const message = deleteError instanceof Error ? deleteError.message : "Failed to delete rule";
+        setError(message);
+        notify({ kind: "error", title: "Failed to delete rule", message });
       }
     },
-    [projectSlug, siteSlug, rules, syncEditState],
+    [projectSlug, siteSlug, rules, syncEditState, notify],
   );
 
   const saveConfig = useCallback(async () => {
@@ -236,12 +277,19 @@ export function FilterSettingsModal({
       });
       setConfig(updated);
       setMessage("Config updated");
+      notify({
+        kind: "success",
+        title: "Filter config updated",
+        message: `${updated.skip_status_codes?.length || 0} status codes, ${updated.skip_patterns?.length || 0} patterns`,
+      });
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to update config");
+      const message = saveError instanceof Error ? saveError.message : "Failed to update config";
+      setError(message);
+      notify({ kind: "error", title: "Failed to update config", message });
     } finally {
       setLoading(false);
     }
-  }, [projectSlug, siteSlug, skipExtensionsInput, skipPatternsInput, skipStatusCodesInput]);
+  }, [projectSlug, siteSlug, skipExtensionsInput, skipPatternsInput, skipStatusCodesInput, notify]);
 
   const applyFilters = useCallback(async () => {
     if (!projectSlug || !siteSlug) return;
@@ -254,12 +302,19 @@ export function FilterSettingsModal({
       setMessage(result.message || `${result.filtered} endpoints filtered`);
       await loadAll();
       await onChanged?.();
+      notify({
+        kind: "success",
+        title: "Filters applied",
+        message: `${result.filtered} endpoint${result.filtered === 1 ? "" : "s"} filtered`,
+      });
     } catch (applyError) {
-      setError(applyError instanceof Error ? applyError.message : "Failed to apply filters");
+      const message = applyError instanceof Error ? applyError.message : "Failed to apply filters";
+      setError(message);
+      notify({ kind: "error", title: "Failed to apply filters", message });
     } finally {
       setLoading(false);
     }
-  }, [projectSlug, siteSlug, loadAll, onChanged]);
+  }, [projectSlug, siteSlug, loadAll, onChanged, notify]);
 
   const unfilter = useCallback(
     async (canonicalUrls: string[], all = false) => {
@@ -272,13 +327,20 @@ export function FilterSettingsModal({
         setMessage(`${result.unfiltered} endpoints unfiltered`);
         await Promise.all([refreshFilteredEndpoints(), loadAll()]);
         await onChanged?.();
+        notify({
+          kind: "success",
+          title: all ? "All endpoints unfiltered" : "Endpoint unfiltered",
+          message: `${result.unfiltered} restored`,
+        });
       } catch (unfilterError) {
-        setError(unfilterError instanceof Error ? unfilterError.message : "Failed to unfilter endpoints");
+        const message = unfilterError instanceof Error ? unfilterError.message : "Failed to unfilter endpoints";
+        setError(message);
+        notify({ kind: "error", title: "Failed to unfilter endpoints", message });
       } finally {
         setLoading(false);
       }
     },
-    [projectSlug, siteSlug, refreshFilteredEndpoints, loadAll, onChanged],
+    [projectSlug, siteSlug, refreshFilteredEndpoints, loadAll, onChanged, notify],
   );
 
   const statEntries = useMemo(() => Object.entries(stats?.by_status || {}), [stats]);
@@ -323,7 +385,7 @@ export function FilterSettingsModal({
           <div className="ml-auto flex items-center gap-2">
             <button
               className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-widest bg-bg border border-border text-slate-300 hover:text-white"
-              onClick={() => void loadAll()}
+              onClick={() => void loadAll(true)}
               disabled={loading || !hasSelection}
             >
               Refresh

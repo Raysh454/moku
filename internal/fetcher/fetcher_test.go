@@ -1013,6 +1013,43 @@ func TestFetchWithOptions_MultipleStatusCodesFiltered(t *testing.T) {
 	}
 }
 
+func TestFetchFromIndexWithOptions_AllSkipsAlreadyFiltered(t *testing.T) {
+	ctx := context.Background()
+
+	tr := &DummyTracker{}
+	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{
+		ListedEndpoints: []indexer.Endpoint{
+			{CanonicalURL: "http://example.com/filtered", Status: "filtered"},
+			{CanonicalURL: "http://example.com/new", Status: "new"},
+		},
+	}
+	wc := &DummyWebClient{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	opts := &fetcher.FetchOptions{FilterConfig: &filter.Config{}}
+	if err := f.FetchFromIndexWithOptions(ctx, "*", 100, opts, nil); err != nil {
+		t.Fatalf("FetchFromIndexWithOptions error: %v", err)
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if len(idx.PendingBatches) == 0 {
+		t.Fatal("expected MarkPendingBatch to be called")
+	}
+	batch := idx.PendingBatches[0]
+	for _, canonical := range batch {
+		if canonical == "http://example.com/filtered" {
+			t.Fatalf("filtered endpoint should be skipped for status='*', got batch: %v", batch)
+		}
+	}
+}
+
 //
 // ───────────────────────────────────────────────
 //   Benchmark Tests
