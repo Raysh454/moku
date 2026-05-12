@@ -19,11 +19,13 @@ export const Statusbar: React.FC = () => {
 
   const filteredJobs = useMemo(
     () =>
-      jobs.filter((job) => {
+      jobs
+        .filter((job) => {
         if (projectFilter && job.project !== projectFilter) return false;
         if (siteFilter && job.website !== siteFilter) return false;
         return true;
-      }),
+      })
+        .sort((left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()),
     [jobs, projectFilter, siteFilter],
   );
 

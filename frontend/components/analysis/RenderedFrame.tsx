@@ -238,6 +238,19 @@ export default function RenderedFrame({
             try { eval(e.data.script); } catch(err) { console.error(err); }
           }
         });
+        document.addEventListener('click', function(event) {
+          const target = event.target;
+          if (!target || !target.closest) return;
+          const anchor = target.closest('a[href]');
+          if (!anchor) return;
+          const href = anchor.getAttribute('href') || '';
+          if (href.startsWith('#')) {
+            const el = document.querySelector(href);
+            if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          event.preventDefault();
+          event.stopPropagation();
+        }, true);
       `;
       doc.body?.appendChild(script);
 
