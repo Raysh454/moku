@@ -15,6 +15,7 @@ import type {
   UnfilterEndpointsResponse,
   Version,
   Website,
+  SecurityDiffOverview,
 } from "./types";
 
 const envApiBase = import.meta.env.VITE_API_BASE_URL;
@@ -122,6 +123,16 @@ export const api = {
 
   listVersions: (project: string, site: string, limit = 100) =>
     requestList<Version>(`/projects/${project}/websites/${site}/versions?limit=${limit}`),
+
+  getSecurityOverview: (project: string, site: string, baseVersionId: string, headVersionId: string) => {
+    let path = `/projects/${project}/websites/${site}/security/overview?head_version_id=${encodeURIComponent(
+      headVersionId,
+    )}`;
+    if (baseVersionId) {
+      path += `&base_version_id=${encodeURIComponent(baseVersionId)}`;
+    }
+    return request<SecurityDiffOverview>(path);
+  },
 
   listFilterRules: async (project: string, site: string) => {
     const payload = await request<{ rules: FilterRule[] }>(`/projects/${project}/websites/${site}/filters`);

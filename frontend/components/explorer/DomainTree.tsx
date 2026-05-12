@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { useProject } from "../../context/ProjectContext";
 import { useNotifications } from "../../context/NotificationContext";
 import type { Domain, Endpoint, EnumerateRequest, FetchRequest, JobTransport } from "../../types/project";
-import type { EnumerationConfig } from "../../src/api/types";
+import type { EnumerationConfig, SecurityDiffOverviewEntry } from "../../src/api/types";
 
 interface DomainTreeProps {
   isCollapsed?: boolean;
+  domainOverviews?: Map<string, SecurityDiffOverviewEntry[]>;
 }
 
 type DomainMenuSection = "enumerate" | "fetch" | "endpoints" | null;
@@ -65,7 +66,7 @@ const buildEnumerationConfig = (state: DomainMenuState): EnumerationConfig => {
   return config;
 };
 
-const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) => {
+const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOverviews }) => {
   const {
     activeProject,
     selectedEndpoint,
@@ -262,6 +263,54 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) => {
     }
   };
 
+  const normalizePath = (p: string) => {
+    if (!p) return "";
+    let normalized = p;
+    if (normalized.endsWith("/") && normalized.length > 1) {
+      normalized = normalized.slice(0, -1);
+    }
+    // Also handle root path consistency: "/" vs ""
+    if (normalized === "/") return "";
+    return normalized;
+  };
+
+  const getSortedEndpoints = (domain: Domain): Endpoint[] => {
+    const overview = domainOverviews?.get(domain.slug);
+    if (!overview || !Array.isArray(overview)) {
+      return domain.endpoints;
+    }
+
+    const endpointsByPath = new Map<string, SecurityDiffOverviewEntry>();
+    for (const entry of overview) {
+      endpointsByPath.set(normalizePath(entry.url), entry);
+    }
+
+    return [...domain.endpoints].sort((a, b) => {
+      const overviewA = endpointsByPath.get(normalizePath(a.path));
+      const overviewB = endpointsByPath.get(normalizePath(b.path));
+
+      // Primary sort: posture score (higher first)
+      const scoreA = overviewA?.score_head ?? -1;
+      const scoreB = overviewB?.score_head ?? -1;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+
+      // Secondary sort: exposure delta (higher first = worse regression)
+      const exposureA = overviewA?.exposure_delta ?? 0;
+      const exposureB = overviewB?.exposure_delta ?? 0;
+      if (exposureA !== exposureB) return exposureB - exposureA;
+
+      // Fallback: original order
+      return domain.endpoints.indexOf(a) - domain.endpoints.indexOf(b);
+    });
+  };
+
+  const getOverviewForEndpoint = (domain: Domain, endpoint: Endpoint): SecurityDiffOverviewEntry | undefined => {
+    const overview = domainOverviews?.get(domain.slug);
+    if (!overview || !Array.isArray(overview)) return undefined;
+    const normalizedTarget = normalizePath(endpoint.path);
+    return overview.find((entry) => normalizePath(entry.url) === normalizedTarget);
+  };
+
   const currentMenuState = openMenuId ? domainMenuState[openMenuId] || defaultMenuState() : defaultMenuState();
 
   return (
@@ -312,23 +361,53 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false }) => {
 
             {!isCollapsed && isExpanded && domain.endpoints.length > 0 && (
               <div className="mt-0 animate-in slide-in-from-left-2 duration-200">
-                {domain.endpoints.map((endpoint, idx) => {
-                  const isSelected = selectedEndpoint?.id === endpoint.id;
-                  const isLast = idx === domain.endpoints.length - 1;
-                  return (
-                    <div key={endpoint.id} className="relative">
-                      <div
-                        onClick={() => void selectEndpoint(domain.id, endpoint.id)}
-                        className={`group flex items-center px-10 py-1.5 cursor-pointer transition-all ${isSelected ? "text-accent" : "text-slate-500 hover:text-slate-300"}`}
-                      >
-                        <span className="font-mono text-slate-800 mr-2 select-none">{isLast ? "└" : "├"}</span>
-                        <span className={`text-[12px] font-medium tracking-tight truncate ${isSelected ? "font-bold" : ""}`}>
-                          {endpointLabel(endpoint)}
-                        </span>
+                {(() => {
+                  const sortedEndpoints = getSortedEndpoints(domain);
+                  return sortedEndpoints.map((endpoint, idx) => {
+                    const isSelected = selectedEndpoint?.id === endpoint.id;
+                    const isLast = idx === sortedEndpoints.length - 1;
+                    const overview = getOverviewForEndpoint(domain, endpoint);
+                    return (
+                      <div key={endpoint.id} className="relative">
+                        <div
+                          onClick={() => void selectEndpoint(domain.id, endpoint.id)}
+                          className={`group flex items-center justify-between px-10 py-1.5 cursor-pointer transition-all ${isSelected ? "text-accent" : "text-slate-500 hover:text-slate-300"}`}
+                        >
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <span className="font-mono text-slate-800 select-none">{isLast ? "└" : "├"}</span>
+                            <span className={`text-[12px] font-medium tracking-tight truncate ${isSelected ? "font-bold" : ""}`}>
+                              {endpointLabel(endpoint)}
+                            </span>
+                          </div>
+                          {overview && (
+                            <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                              {overview.score_head !== undefined && (
+                                <div
+                                  title={`Risk: ${overview.score_base.toFixed(2)} → ${overview.score_head.toFixed(2)} (Delta: ${overview.score_delta > 0 ? "+" : ""}${overview.score_delta.toFixed(2)})`}
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                                    overview.score_delta > 0
+                                      ? "bg-danger/20 text-danger"
+                                      : overview.score_delta < 0
+                                        ? "bg-success/20 text-success"
+                                        : "bg-accent/20 text-accent"
+                                  }`}
+                                >
+                                  {overview.score_base !== undefined && (
+                                    <>
+                                      <span>{overview.score_base.toFixed(2)}</span>
+                                      <span className="opacity-50">→</span>
+                                    </>
+                                  )}
+                                  <span>{overview.score_head.toFixed(2)}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>

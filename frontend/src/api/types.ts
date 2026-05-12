@@ -54,6 +54,8 @@ export type SecurityDiffOverviewEntry = {
   score_base: number;
   score_head: number;
   score_delta: number;
+  exposure_delta: number;
+  hardening_delta: number;
   attack_surface_changed: boolean;
   num_attack_surface_changes: number;
   regressed: boolean;

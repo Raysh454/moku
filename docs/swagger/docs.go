@@ -699,6 +699,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/projects/{project}/websites/{site}/security/overview": {
+            "get": {
+                "description": "Returns security overview entries for all endpoints between base and head versions.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Endpoints"
+                ],
+                "summary": "Get security diff overview for two versions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project slug",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Website slug",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Base version ID (optional)",
+                        "name": "base_version_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Head version ID",
+                        "name": "head_version_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assessor.SecurityDiffOverview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project}/websites/{site}/versions": {
             "get": {
                 "description": "Returns a list of versions (commits) for the website, ordered by most recent first.",
@@ -1508,6 +1569,12 @@ const docTemplate = `{
                 },
                 "base_snapshot_id": {
                     "type": "string"
+                },
+                "exposure_delta": {
+                    "type": "number"
+                },
+                "hardening_delta": {
+                    "type": "number"
                 },
                 "head_snapshot_id": {
                     "type": "string"

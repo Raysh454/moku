@@ -688,6 +688,33 @@ func (o *Orchestrator) ListVersions(ctx context.Context, projectIdentifier, webs
 	return comps.Tracker.ListVersions(ctx, limit)
 }
 
+func (o *Orchestrator) GetWebsiteSecurityDiffOverview(
+	ctx context.Context,
+	projectIdentifier,
+	websiteSlug,
+	baseVersionID,
+	headVersionID string,
+) (*assessor.SecurityDiffOverview, error) {
+	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
+	if err != nil {
+		return nil, err
+	}
+	comps, err := o.siteComponentsFor(ctx, web)
+	if err != nil {
+		return nil, err
+	}
+	if headVersionID == "" {
+		return nil, fmt.Errorf("head version is required")
+	}
+	o.logger.Info(
+		"Getting security overview",
+		logging.Field{Key: "website_id", Value: web.ID},
+		logging.Field{Key: "base_version_id", Value: baseVersionID},
+		logging.Field{Key: "head_version_id", Value: headVersionID},
+	)
+	return comps.Tracker.GetSecurityDiffOverview(ctx, baseVersionID, headVersionID)
+}
+
 func (o *Orchestrator) FetchWebsiteEndpoints(ctx context.Context, projectIdentifier, websiteSlug, status string, limit int, cfg *api.FetchConfig, cb utils.ProgressCallback) (*assessor.SecurityDiffOverview, error) {
 	if status == "" {
 		status = "*"

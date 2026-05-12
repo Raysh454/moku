@@ -292,8 +292,8 @@ func (scoreTracker *SQLiteScoreTracker) GetSecurityDiff(ctx context.Context, bas
 
 // GetSecurityDiffOverview computes a security-focused diff overview between two versions.
 func (scoreTracker *SQLiteScoreTracker) GetSecurityDiffOverview(ctx context.Context, baseID, headID string) (*assessor.SecurityDiffOverview, error) {
-	if headID == "" || baseID == "" {
-		return nil, errors.New("headID/baseID is required")
+	if headID == "" {
+		return nil, errors.New("headID is required")
 	}
 
 	// Get all score results for head version.
@@ -302,10 +302,14 @@ func (scoreTracker *SQLiteScoreTracker) GetSecurityDiffOverview(ctx context.Cont
 		return nil, fmt.Errorf("get head scores: %w", err)
 	}
 
-	// Get all score results for base version.
-	baseScores, err := scoreTracker.GetScoreResultsFromVersionID(ctx, baseID)
-	if err != nil {
-		return nil, fmt.Errorf("get base scores: %w", err)
+	// Get all score results for base version (optional - empty baseID means no base for comparison).
+	var baseScores []*assessor.ScoreResult
+	if baseID != "" {
+		var err error
+		baseScores, err = scoreTracker.GetScoreResultsFromVersionID(ctx, baseID)
+		if err != nil {
+			return nil, fmt.Errorf("get base scores: %w", err)
+		}
 	}
 
 	// Index base and head by URL for easy matching.

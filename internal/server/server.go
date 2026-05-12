@@ -121,6 +121,7 @@ func (s *Server) routes() {
 	r.Options("/projects/{project}/websites", s.optionsHandler("GET, POST"))
 	r.Options("/projects/{project}/websites/{site}/endpoints", s.optionsHandler("GET, POST"))
 	r.Options("/projects/{project}/websites/{site}/endpoints/details", s.optionsHandler("GET"))
+	r.Options("/projects/{project}/websites/{site}/security/overview", s.optionsHandler("GET"))
 	r.Options("/projects/{project}/websites/{site}/jobs/fetch", s.optionsHandler("POST"))
 	r.Options("/projects/{project}/websites/{site}/jobs/enumerate", s.optionsHandler("POST"))
 	r.Options("/projects/{project}/websites/{site}/jobs/scan", s.optionsHandler("POST"))
@@ -143,6 +144,7 @@ func (s *Server) routes() {
 	r.Post("/projects/{project}/websites/{site}/endpoints", s.handleAddWebsiteEndpoints)
 	r.Get("/projects/{project}/websites/{site}/endpoints", s.handleListWebsiteEndpoints)
 	r.Get("/projects/{project}/websites/{site}/endpoints/details", s.handleGetEndpointDetails)
+	r.Get("/projects/{project}/websites/{site}/security/overview", s.handleGetSecurityOverview)
 
 	// Versions
 	r.Get("/projects/{project}/websites/{site}/versions", s.handleListVersions)
@@ -501,6 +503,39 @@ func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request
 
 	s.logger.Info("got endpoint details", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "url", Value: url})
 	writeJSON(w, http.StatusOK, details)
+}
+
+// handleGetSecurityOverview godoc
+// @Summary Get security diff overview for two versions
+// @Description Returns security overview entries for all endpoints between base and head versions.
+// @Tags Endpoints
+// @Produce json
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Param base_version_id query string false "Base version ID (optional)"
+// @Param head_version_id query string true "Head version ID"
+// @Success 200 {object} assessor.SecurityDiffOverview
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site}/security/overview [get]
+func (s *Server) handleGetSecurityOverview(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	site := chi.URLParam(r, "site")
+	baseVersionID := r.URL.Query().Get("base_version_id")
+	headVersionID := r.URL.Query().Get("head_version_id")
+	if headVersionID == "" {
+		writeError(w, http.StatusBadRequest, "missing head_version_id query parameter")
+		return
+	}
+
+	overview, err := s.orchestrator.GetWebsiteSecurityDiffOverview(r.Context(), project, site, baseVersionID, headVersionID)
+	if err != nil {
+		s.logger.Warn("getting security overview", logging.Field{Key: "error", Value: err.Error()})
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, overview)
 }
 
 // handleListVersions godoc

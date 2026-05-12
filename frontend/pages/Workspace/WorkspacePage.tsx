@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Sidebar } from "../../components/layout/Sidebar";
 import { Topbar } from "../../components/layout/Topbar";
@@ -63,19 +63,22 @@ const WorkspacePage: React.FC = () => {
     closeSettings,
     refreshActiveProject,
     isLoading,
+    compareBaseVersionId,
+    compareHeadVersionId,
+    compareSecurityOverview,
+    compareIsLoading,
+    setCompareVersions,
   } = useProject();
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("Preview");
-  const [baseVersionId, setBaseVersionId] = useState("");
-  const [headVersionId, setHeadVersionId] = useState("");
   const [viewMode, setViewMode] = useState<RenderedViewMode>("preview");
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [comparisonError, setComparisonError] = useState("");
-  const [isComparing, setIsComparing] = useState(false);
   const [showHeadHeaders, setShowHeadHeaders] = useState(false);
   const [basePreviewSnapshot, setBasePreviewSnapshot] = useState<Snapshot | null>(null);
   const [versionOptions, setVersionOptions] = useState<Version[]>(selectedDomain?.versions || []);
   const [isRefreshingVersions, setIsRefreshingVersions] = useState(false);
+  const syncedEndpointIdRef = React.useRef<string | null>(null);
 
   const availableSnapshots = useMemo(
     () => {
@@ -167,8 +170,8 @@ const WorkspacePage: React.FC = () => {
     return map;
   }, [availableSnapshots, pagesFetchedByVersion, selectedDomain, versionOptions]);
 
-  const baseVersionMeta = baseVersionId ? versionMetaById.get(baseVersionId) : undefined;
-  const headVersionMeta = headVersionId ? versionMetaById.get(headVersionId) : undefined;
+  const baseVersionMeta = compareBaseVersionId ? versionMetaById.get(compareBaseVersionId) : undefined;
+  const headVersionMeta = compareHeadVersionId ? versionMetaById.get(compareHeadVersionId) : undefined;
 
   const activeSnapshot = comparison?.head || selectedSnapshot;
   const baseSnapshot = comparison?.base || basePreviewSnapshot || null;
@@ -182,30 +185,28 @@ const WorkspacePage: React.FC = () => {
     setComparison(null);
     setComparisonError("");
     if (!selectedSnapshot) {
-      setHeadVersionId("");
-      setBaseVersionId("");
+      setCompareVersions("", "");
       return;
     }
 
-    setHeadVersionId((current) => {
-      if (current && availableSnapshots.some((snapshot) => snapshot.versionId === current)) {
-        return current;
-      }
-      return selectedSnapshot.versionId;
-    });
+    let nextHeadVersionId = compareHeadVersionId;
+    if (!nextHeadVersionId || !availableSnapshots.some((snapshot) => snapshot.versionId === nextHeadVersionId)) {
+      nextHeadVersionId = selectedSnapshot.versionId;
+    }
 
-    setBaseVersionId((current) => {
-      if (
-        current &&
-        current !== selectedSnapshot.versionId &&
-        availableSnapshots.some((snapshot) => snapshot.versionId === current)
-      ) {
-        return current;
-      }
+    let nextBaseVersionId = compareBaseVersionId;
+    if (
+      !nextBaseVersionId ||
+      nextBaseVersionId === selectedSnapshot.versionId ||
+      !availableSnapshots.some((snapshot) => snapshot.versionId === nextBaseVersionId)
+    ) {
       const older = availableSnapshots.find((snapshot) => snapshot.versionId !== selectedSnapshot.versionId);
-      return older?.versionId || "";
-    });
-  }, [selectedEndpoint?.id, selectedSnapshot?.versionId]);
+      nextBaseVersionId = older?.versionId || "";
+    }
+
+    setCompareVersions(nextBaseVersionId, nextHeadVersionId);
+    syncedEndpointIdRef.current = selectedEndpoint?.id || null;
+  }, [selectedEndpoint?.id, selectedSnapshot?.versionId, availableSnapshots, compareHeadVersionId, compareBaseVersionId, setCompareVersions]);
 
   useEffect(() => {
     setVersionOptions(selectedDomain?.versions || []);
@@ -226,18 +227,18 @@ const WorkspacePage: React.FC = () => {
     const endpoint = selectedEndpoint;
 
     const loadBaseSnapshot = async () => {
-      if (!projectSlug || !siteSlug || !endpoint || !baseVersionId) {
+      if (!projectSlug || !siteSlug || !endpoint || !compareBaseVersionId) {
         setBasePreviewSnapshot(null);
         return;
       }
 
-      if (comparison?.base?.versionId === baseVersionId) {
+      if (comparison?.base?.versionId === compareBaseVersionId) {
         setBasePreviewSnapshot(comparison.base);
         return;
       }
 
       const existingLoaded = availableSnapshots.find(
-        (snapshot) => snapshot.versionId === baseVersionId && snapshot.body,
+        (snapshot) => snapshot.versionId === compareBaseVersionId && snapshot.body,
       );
       if (existingLoaded) {
         setBasePreviewSnapshot(existingLoaded);
@@ -249,7 +250,7 @@ const WorkspacePage: React.FC = () => {
           projectSlug,
           siteSlug,
           endpoint,
-          baseVersionId,
+          compareBaseVersionId,
           versionOptions,
         );
         if (!cancelled) setBasePreviewSnapshot(loaded);
@@ -265,12 +266,64 @@ const WorkspacePage: React.FC = () => {
   }, [
     activeProject?.slug,
     availableSnapshots,
-    baseVersionId,
+    compareBaseVersionId,
     comparison?.base,
     selectedDomain?.slug,
     selectedEndpoint,
     versionOptions,
   ]);
+
+  useEffect(() => {
+    setVersionOptions(selectedDomain?.versions || []);
+  }, [selectedDomain?.id, selectedDomain?.versions]);
+
+  useEffect(() => {
+    setShowHeadHeaders(false);
+  }, [activeSnapshot?.id]);
+
+  const compareVersions = useCallback(async () => {
+    if (!activeProject || !selectedDomain || !selectedEndpoint || !compareBaseVersionId || !compareHeadVersionId) {
+      return;
+    }
+
+    // Ensure the versions actually belong to the currently selected domain to avoid cross-domain leaks
+    const validVersionIds = new Set(selectedDomain.versions.map((v) => v.id));
+    if (!validVersionIds.has(compareBaseVersionId) || !validVersionIds.has(compareHeadVersionId)) {
+      return;
+    }
+
+    // Ensure the versions in context are actually intended for this endpoint
+    if (syncedEndpointIdRef.current !== selectedEndpoint.id) {
+      return;
+    }
+
+    // Ensure both versions exist for the current endpoint to avoid race conditions when switching endpoints
+    const hasBase = availableSnapshots.some((s) => s.versionId === compareBaseVersionId);
+    const hasHead = availableSnapshots.some((s) => s.versionId === compareHeadVersionId);
+    if (!hasBase || !hasHead) {
+      return;
+    }
+
+    setComparisonError("");
+    try {
+      const result = await projectService.loadComparison(
+        activeProject.slug,
+        selectedDomain.slug,
+        selectedEndpoint,
+        compareBaseVersionId,
+        compareHeadVersionId,
+        versionOptions,
+      );
+      setComparison(result);
+    } catch (error) {
+      setComparisonError(error instanceof Error ? error.message : "Failed to compare versions");
+      setComparison(null);
+    }
+  }, [activeProject, selectedDomain, selectedEndpoint, compareBaseVersionId, compareHeadVersionId, versionOptions, availableSnapshots]);
+
+  useEffect(() => {
+    void compareVersions();
+  }, [compareVersions]);
 
   const refreshVersionOptions = async () => {
     if (!activeProject || !selectedDomain || isRefreshingVersions) return;
@@ -291,31 +344,6 @@ const WorkspacePage: React.FC = () => {
     );
   }
   if (!activeProject) return <Navigate to="/" replace />;
-
-  const compareVersions = async () => {
-    if (!activeProject || !selectedDomain || !selectedEndpoint || !baseVersionId || !headVersionId) {
-      return;
-    }
-
-    setIsComparing(true);
-    setComparisonError("");
-    try {
-      const result = await projectService.loadComparison(
-        activeProject.slug,
-        selectedDomain.slug,
-        selectedEndpoint,
-        baseVersionId,
-        headVersionId,
-        versionOptions,
-      );
-      setComparison(result);
-    } catch (error) {
-      setComparisonError(error instanceof Error ? error.message : "Failed to compare versions");
-      setComparison(null);
-    } finally {
-      setIsComparing(false);
-    }
-  };
 
   const headerDiff = activeDiff?.headers_diff;
   const diffChunks = activeDiff?.body_diff?.chunks || [];
@@ -364,14 +392,14 @@ const WorkspacePage: React.FC = () => {
             {activeSnapshot ? (
               <div className="max-w-7xl mx-auto w-full pb-20 space-y-6">
                 <section className="bg-card border border-border rounded-2xl p-5">
-                  <div className="grid grid-cols-12 gap-3 items-end">
-                    <div className="col-span-5">
+                  <div className="grid grid-cols-2 gap-6 items-end">
+                    <div>
                         <label className="text-[10px] font-bold text-helper uppercase tracking-[0.2em] mb-1 block">
                           Base version (older)
                         </label>
                         <select
-                          value={baseVersionId}
-                          onChange={(event) => setBaseVersionId(event.target.value)}
+                          value={compareBaseVersionId}
+                          onChange={(event) => setCompareVersions(event.target.value, compareHeadVersionId)}
                           onFocus={() => void refreshVersionOptions()}
                           onMouseDown={() => void refreshVersionOptions()}
                           className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm"
@@ -384,13 +412,13 @@ const WorkspacePage: React.FC = () => {
                         ))}
                       </select>
                     </div>
-                    <div className="col-span-5">
+                    <div>
                         <label className="text-[10px] font-bold text-helper uppercase tracking-[0.2em] mb-1 block">
                           Head version (newer)
                         </label>
                         <select
-                          value={headVersionId}
-                          onChange={(event) => setHeadVersionId(event.target.value)}
+                          value={compareHeadVersionId}
+                          onChange={(event) => setCompareVersions(compareBaseVersionId, event.target.value)}
                           onFocus={() => void refreshVersionOptions()}
                           onMouseDown={() => void refreshVersionOptions()}
                           className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm"
@@ -403,21 +431,16 @@ const WorkspacePage: React.FC = () => {
                         ))}
                       </select>
                     </div>
-                    <div className="col-span-2">
-                      <button
-                        className="w-full h-[42px] rounded-lg bg-accent text-white text-[11px] font-black uppercase tracking-widest hover:brightness-110 disabled:opacity-50"
-                        onClick={() => void compareVersions()}
-                        disabled={isComparing || !baseVersionId || !headVersionId || baseVersionId === headVersionId}
-                      >
-                        {isComparing ? "Comparing..." : "Compare"}
-                      </button>
-                    </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <div className="bg-bg/50 border border-border rounded-xl p-3">
                       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-helper mb-2">Base details</p>
                       <div className="space-y-1 text-xs">
+                        <p className="text-slate-200">
+                          <span className="text-helper">Version ID:</span>{" "}
+                          <span className="font-mono text-[10px] opacity-80">{compareBaseVersionId || "—"}</span>
+                        </p>
                         <p className="text-slate-200">
                           <span className="text-helper">Fetched at:</span>{" "}
                           {baseVersionMeta?.fetchedAt ? new Date(baseVersionMeta.fetchedAt).toLocaleString() : "—"}
@@ -430,6 +453,10 @@ const WorkspacePage: React.FC = () => {
                     <div className="bg-bg/50 border border-border rounded-xl p-3">
                       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-helper mb-2">Head details</p>
                       <div className="space-y-1 text-xs">
+                        <p className="text-slate-200">
+                          <span className="text-helper">Version ID:</span>{" "}
+                          <span className="font-mono text-[10px] opacity-80">{compareHeadVersionId || "—"}</span>
+                        </p>
                         <p className="text-slate-200">
                           <span className="text-helper">Fetched at:</span>{" "}
                           {headVersionMeta?.fetchedAt ? new Date(headVersionMeta.fetchedAt).toLocaleString() : "—"}
