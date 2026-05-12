@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { api, createEnumerateSocket, createFetchSocket } from "../src/api/client";
-import type { Endpoint as ApiEndpoint, Job, JobEvent, Version } from "../src/api/types";
+import type { Endpoint as ApiEndpoint, Job, JobEvent, Version, SecurityDiffOverviewEntry } from "../src/api/types";
 import type {
   Domain,
   Endpoint,
@@ -30,6 +30,11 @@ interface ProjectContextType {
   errorMessage: string;
   noticeMessage: string;
   settingsOpen: boolean;
+  compareBaseVersionId: string;
+  compareHeadVersionId: string;
+  compareSecurityOverview: SecurityDiffOverviewEntry[] | null;
+  compareIsLoading: boolean;
+  domainOverviews: Map<string, SecurityDiffOverviewEntry[]>;
 
   refreshProjects: () => Promise<void>;
   refreshActiveProject: () => Promise<void>;
@@ -46,6 +51,7 @@ interface ProjectContextType {
   addEndpointsForDomain: (domainId: string, urls: string[], source?: string) => Promise<number>;
   runEnumerateForDomain: (domainId: string, request: EnumerateRequest) => Promise<void>;
   runFetchForDomain: (domainId: string, request: FetchRequest) => Promise<void>;
+  setCompareVersions: (baseVersionId: string, headVersionId: string) => Promise<void>;
   clearMessage: () => void;
   openSettings: () => void;
   closeSettings: () => void;
@@ -118,6 +124,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [errorMessage, setErrorMessage] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [compareBaseVersionId, setCompareBaseVersionId] = useState("");
+  const [compareHeadVersionId, setCompareHeadVersionId] = useState("");
+  const [compareSecurityOverview, setCompareSecurityOverview] = useState<SecurityDiffOverviewEntry[] | null>(null);
+  const [compareIsLoading, setCompareIsLoading] = useState(false);
+  const [domainOverviews, setDomainOverviews] = useState<Map<string, SecurityDiffOverviewEntry[]>>(new Map());
+
+  const overviewCacheRef = React.useRef<
+    Map<string, { overview: SecurityDiffOverviewEntry[]; timestamp: number }>
+  >(new Map());
 
   const clearMessage = useCallback(() => {
     setErrorMessage("");
@@ -142,6 +157,35 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [setError]);
 
+  const fetchDomainOverviews = useCallback(async (project: Project) => {
+    if (!project.domains.length) return;
+    
+    const newOverviews = new Map<string, SecurityDiffOverviewEntry[]>();
+    
+    for (const domain of project.domains) {
+      if (!domain.versions.length) continue;
+      
+      const headVersionId = domain.versions[0].id;
+      const baseVersionId = domain.versions[1]?.id || "";
+      
+      if (!headVersionId) continue;
+      
+      try {
+        const overview = await api.getSecurityOverview(
+          project.slug,
+          domain.slug,
+          baseVersionId,
+          headVersionId,
+        );
+        newOverviews.set(domain.slug, overview.entries || []);
+      } catch (error) {
+        // Silent fail - overview just won't be available for this domain
+      }
+    }
+
+    setDomainOverviews(newOverviews);
+  }, []);
+
   const refreshProjects = useCallback(async () => {
     setIsLoading(true);
     clearMessage();
@@ -164,6 +208,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const refreshedProject: Project = { ...activeProject, domains };
       setActiveProject(refreshedProject);
       setProjects((prev) => prev.map((project) => (project.id === refreshedProject.id ? refreshedProject : project)));
+
+      // Fetch security overviews for all domains
+      await fetchDomainOverviews(refreshedProject);
 
       const nextDomain = domains.find((domain) => domain.id === selectedDomain?.id) || domains[0] || null;
       setSelectedDomainState(nextDomain);
@@ -232,6 +279,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setSelectedDomainState(firstDomain);
         setSelectedEndpointState(firstEndpoint);
         setSelectedSnapshotState(null);
+
+        if (firstDomain) {
+          void fetchDomainOverviews(project);
+        }
 
         if (firstDomain && firstEndpoint) {
           await loadLatestSnapshotForSelection(project, firstDomain, firstEndpoint);
@@ -545,6 +596,50 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ],
   );
 
+  const setCompareVersions = useCallback(
+    async (baseVersionId: string, headVersionId: string) => {
+      if (!activeProject || !selectedDomain) {
+        return;
+      }
+
+      setCompareBaseVersionId(baseVersionId);
+      setCompareHeadVersionId(headVersionId);
+
+      if (!headVersionId) {
+        setCompareSecurityOverview(null);
+        setCompareIsLoading(false);
+        return;
+      }
+
+      setCompareIsLoading(true);
+
+      const cacheKey = `${selectedDomain.slug}:${baseVersionId}:${headVersionId}`;
+      const cached = overviewCacheRef.current.get(cacheKey);
+      if (cached) {
+        setCompareSecurityOverview(cached.overview);
+        setCompareIsLoading(false);
+        return;
+      }
+
+      try {
+        const overview = await api.getSecurityOverview(
+          activeProject.slug,
+          selectedDomain.slug,
+          baseVersionId || "",
+          headVersionId,
+        );
+        overviewCacheRef.current.set(cacheKey, { overview, timestamp: Date.now() });
+        setCompareSecurityOverview(overview);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to fetch security overview");
+        setCompareSecurityOverview(null);
+      } finally {
+        setCompareIsLoading(false);
+      }
+    },
+    [activeProject, selectedDomain, setError, overviewCacheRef],
+  );
+
   useEffect(() => {
     let cancelled = false;
     const initialize = async () => {
@@ -577,6 +672,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setSelectedEndpointState(firstEndpoint);
         setSelectedSnapshotState(null);
 
+        if (firstDomain) {
+          void fetchDomainOverviews(restoredProject);
+        }
+
         if (firstDomain && firstEndpoint) {
           await loadLatestSnapshotForSelection(restoredProject, firstDomain, firstEndpoint);
         }
@@ -608,6 +707,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       errorMessage,
       noticeMessage,
       settingsOpen,
+      compareBaseVersionId,
+      compareHeadVersionId,
+      compareSecurityOverview,
+      compareIsLoading,
       refreshProjects,
       refreshActiveProject,
       refreshJobs,
@@ -623,7 +726,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       addEndpointsForDomain,
       runEnumerateForDomain,
       runFetchForDomain,
+      setCompareVersions,
       clearMessage,
+      domainOverviews,
       openSettings: () => setSettingsOpen(true),
       closeSettings: () => setSettingsOpen(false),
     }),
@@ -639,6 +744,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       errorMessage,
       noticeMessage,
       settingsOpen,
+      compareBaseVersionId,
+      compareHeadVersionId,
+      compareSecurityOverview,
+      compareIsLoading,
       refreshProjects,
       refreshActiveProject,
       refreshJobs,
@@ -651,7 +760,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       addEndpointsForDomain,
       runEnumerateForDomain,
       runFetchForDomain,
+      setCompareVersions,
       clearMessage,
+      domainOverviews,
     ],
   );
 

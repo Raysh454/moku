@@ -26,7 +26,6 @@ const ProjectCreatePage: React.FC = () => {
       await setActiveProjectById(project.id);
       navigate("/workspace");
     } catch (err) {
-      console.error("Failed to create project", err);
       setIsCreating(false);
     }
   };

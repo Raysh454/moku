@@ -193,6 +193,8 @@ type SecurityDiffOverviewEntry struct {
 	ScoreBase               float64 `json:"score_base"`
 	ScoreHead               float64 `json:"score_head"`
 	ScoreDelta              float64 `json:"score_delta"`
+	ExposureDelta           float64 `json:"exposure_delta"`
+	HardeningDelta          float64 `json:"hardening_delta"`
 	AttackSurfaceChanged    bool    `json:"attack_surface_changed"`
 	NumAttackSurfaceChanges int     `json:"num_attack_surface_changes"`
 	// (scoreDelta > 0) for quick UI signals

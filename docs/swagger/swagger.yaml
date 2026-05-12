@@ -547,6 +547,10 @@ definitions:
         type: boolean
       base_snapshot_id:
         type: string
+      exposure_delta:
+        type: number
+      hardening_delta:
+        type: number
       head_snapshot_id:
         type: string
       num_attack_surface_changes:
@@ -1524,6 +1528,48 @@ paths:
       summary: Start a vulnerability scan job
       tags:
       - Jobs
+  /projects/{project}/websites/{site}/security/overview:
+    get:
+      description: Returns security overview entries for all endpoints between base
+        and head versions.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Base version ID (optional)
+        in: query
+        name: base_version_id
+        type: string
+      - description: Head version ID
+        in: query
+        name: head_version_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assessor.SecurityDiffOverview'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Get security diff overview for two versions
+      tags:
+      - Endpoints
   /projects/{project}/websites/{site}/versions:
     get:
       description: Returns a list of versions (commits) for the website, ordered by

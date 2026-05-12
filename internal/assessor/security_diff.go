@@ -66,6 +66,8 @@ func NewSecurityDiffOverview(diffs []*SecurityDiff) *SecurityDiffOverview {
 			ScoreBase:               d.ScoreBase,
 			ScoreHead:               d.ScoreHead,
 			ScoreDelta:              d.ScoreDelta,
+			ExposureDelta:           d.ExposureDelta,
+			HardeningDelta:          d.HardeningDelta,
 			AttackSurfaceChanged:    d.AttackSurfaceChanged,
 			NumAttackSurfaceChanges: len(d.AttackSurfaceChanges),
 			Regressed:               d.ScoreDelta > 0,

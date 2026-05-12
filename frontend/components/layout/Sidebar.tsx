@@ -3,7 +3,7 @@ import { DomainTree } from "../explorer/DomainTree";
 import { useProject } from "../../context/ProjectContext";
 
 export const Sidebar: React.FC = () => {
-  const { activeProject, createWebsiteForActiveProject, refreshActiveProject, isBusy } = useProject();
+  const { activeProject, createWebsiteForActiveProject, refreshActiveProject, isBusy, domainOverviews } = useProject();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showWebsiteModal, setShowWebsiteModal] = useState(false);
   const [slug, setSlug] = useState("");
@@ -124,7 +124,7 @@ export const Sidebar: React.FC = () => {
           </button>
         </div>
         <div className="flex-1 overflow-hidden">
-          <DomainTree isCollapsed={isCollapsed} />
+          <DomainTree isCollapsed={isCollapsed} domainOverviews={domainOverviews} />
         </div>
       </aside>
 
