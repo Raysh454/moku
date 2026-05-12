@@ -5,6 +5,7 @@ import type {
   SecurityDiff,
 } from "../../src/api/types";
 import type { Snapshot } from "../../types/project";
+import { getSnapshotContentInfo } from "../../lib/contentView";
 import RenderedFrame, { type HighlightedElement, type TextChange } from "./RenderedFrame";
 import DOMTreeView from "./DOMTreeView";
 import { diffDomTrees, getChangeSummary, parseHtmlToTree } from "./DOMParser";
@@ -93,20 +94,10 @@ export default function RenderedDiffViews({
   const [showHighlights, setShowHighlights] = useState(true);
   const [showTextHighlights, setShowTextHighlights] = useState(true);
 
-  const decodeBody = useCallback((body?: string): string => {
-    if (!body) return "<p>No content</p>";
-    try {
-      if (body.startsWith("<") || body.startsWith("!") || body.includes("<!DOCTYPE")) return body;
-      return atob(body);
-    } catch {
-      return body;
-    }
-  }, []);
-
-  const headHtml = useMemo(() => decodeBody(headSnapshot.body), [decodeBody, headSnapshot.body]);
+  const headHtml = useMemo(() => getSnapshotContentInfo(headSnapshot).textBody || "<p>No content</p>", [headSnapshot]);
   const baseHtml = useMemo(
-    () => (baseSnapshot ? decodeBody(baseSnapshot.body) : ""),
-    [baseSnapshot, decodeBody],
+    () => (baseSnapshot ? getSnapshotContentInfo(baseSnapshot).textBody : ""),
+    [baseSnapshot],
   );
 
   const textChanges = useMemo((): TextChange[] => {

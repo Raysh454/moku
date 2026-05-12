@@ -27,6 +27,9 @@ export interface Snapshot {
   metadata: {
     contentLength: number;
     loadTime: number;
+    contentType?: string;
+    bodyEncoding?: "text" | "base64";
+    viewKind?: "html" | "image" | "json" | "text" | "directory" | "binary";
   };
   scoreResult?: ScoreResult;
   securityDiff?: SecurityDiff;

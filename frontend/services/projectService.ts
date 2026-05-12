@@ -1,6 +1,7 @@
 import { api } from "../src/api/client";
 import type { EndpointDetails, Version } from "../src/api/types";
 import type { Domain, Endpoint, Project, Snapshot } from "../types/project";
+import { getSnapshotContentInfo, readHeaderValue } from "../lib/contentView";
 
 const toIso = (unixSeconds: number): string => new Date(unixSeconds * 1000).toISOString();
 
@@ -12,47 +13,46 @@ const slugify = (value: string): string =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 64) || "project";
 
-const decodeBody = (body?: string): string => {
-  if (!body) return "";
-  if (body.startsWith("<") || body.includes("<!DOCTYPE")) {
-    return body;
-  }
-
-  try {
-    return atob(body);
-  } catch {
-    return body;
-  }
-};
-
 const deriveVersionNumber = (versionId: string, versions: Version[]): number => {
   const index = versions.findIndex((version) => version.id === versionId);
   if (index >= 0) return versions.length - index;
-  const tailNum = versionId.match(/(\d+)$/)?.[1];
-  return tailNum ? Number(tailNum) : 0;
+  return 0;
 };
 
 const toSnapshot = (details: EndpointDetails, versions: Version[]): Snapshot => {
-  const decodedBody = decodeBody(details.snapshot.body);
-  const contentLength = details.snapshot.body?.length ?? decodedBody.length;
-  return {
+  const provisional: Snapshot = {
     id: details.snapshot.id,
     versionId: details.snapshot.version_id,
     version: deriveVersionNumber(details.snapshot.version_id, versions),
     versionLabel: details.snapshot.version_id,
     statusCode: details.snapshot.status_code,
     url: details.snapshot.url,
-    body: decodedBody,
+    body: details.snapshot.body || "",
     headers: details.snapshot.headers ?? {},
     createdAt: details.snapshot.created_at,
     metadata: {
-      contentLength,
+      contentLength: details.snapshot.body?.length || 0,
       loadTime: 0,
+      contentType: readHeaderValue(details.snapshot.headers ?? {}, "content-type"),
     },
     scoreResult: details.score_result,
     securityDiff: details.security_diff,
     diff: details.diff,
     details,
+  };
+  const content = getSnapshotContentInfo(provisional);
+  const contentLength = details.snapshot.body?.length ?? content.textBody.length;
+
+  return {
+    ...provisional,
+    body: content.bodyEncoding === "text" ? content.textBody : provisional.body,
+    metadata: {
+      contentLength,
+      loadTime: 0,
+      contentType: content.contentType,
+      bodyEncoding: content.bodyEncoding,
+      viewKind: content.viewKind,
+    },
   };
 };
 

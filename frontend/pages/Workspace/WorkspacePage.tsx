@@ -7,9 +7,14 @@ import { Badge } from "../../components/common/Badge";
 import { useProject } from "../../context/ProjectContext";
 import type { Snapshot } from "../../types/project";
 import { projectService } from "../../services/projectService";
+import { api } from "../../src/api/client";
+import type { Version } from "../../src/api/types";
+import { getSnapshotContentInfo } from "../../lib/contentView";
 import RenderedDiffViews, { type RenderedViewMode } from "../../components/analysis/RenderedDiffViews";
 import { ScoreBreakdownPanel } from "../../components/analysis/ScoreBreakdownPanel";
 import { SecurityDiffPanel } from "../../components/analysis/SecurityDiffPanel";
+import { AttackSurfaceElementsPanel } from "../../components/analysis/AttackSurfaceElementsPanel";
+import { SnapshotContentView } from "../../components/analysis/SnapshotContentView";
 import { FilterSettingsModal } from "../../components/settings/FilterSettingsModal";
 
 type WorkspaceTab = "Preview" | "TextDiff" | "Analysis";
@@ -28,6 +33,24 @@ function sortByVersionDescending(snapshots: Snapshot[]): Snapshot[] {
     unique.push(snapshot);
   }
   return unique.sort((left, right) => right.version - left.version);
+}
+
+function deriveVersionNumber(versionId: string, versions: Version[]): number {
+  const index = versions.findIndex((version) => version.id === versionId);
+  if (index >= 0) return versions.length - index;
+  return 0;
+}
+
+function formatVersionLabel(versionId: string, versionNumber?: number): string {
+  if (versionNumber && versionNumber > 0) return `Version ${versionNumber}`;
+  return `Version ${versionId.slice(0, 8)}`;
+}
+
+function parsePagesFetchedFromMessage(message?: string): number | null {
+  if (!message) return null;
+  const match = message.match(/(\d+)\s+(?:pages?|endpoints?|snapshots?)/i);
+  if (!match) return null;
+  return Number(match[1]);
 }
 
 const WorkspacePage: React.FC = () => {
@@ -50,10 +73,48 @@ const WorkspacePage: React.FC = () => {
   const [comparisonError, setComparisonError] = useState("");
   const [isComparing, setIsComparing] = useState(false);
   const [showHeadHeaders, setShowHeadHeaders] = useState(false);
+  const [basePreviewSnapshot, setBasePreviewSnapshot] = useState<Snapshot | null>(null);
+  const [versionOptions, setVersionOptions] = useState<Version[]>(selectedDomain?.versions || []);
+  const [isRefreshingVersions, setIsRefreshingVersions] = useState(false);
 
   const availableSnapshots = useMemo(
-    () => sortByVersionDescending(selectedEndpoint?.snapshots || []),
-    [selectedEndpoint?.snapshots],
+    () => {
+      const current = selectedEndpoint?.snapshots || [];
+      const map = new Map<string, Snapshot>();
+      for (const snapshot of current) map.set(snapshot.versionId, snapshot);
+
+      const endpointUrl = selectedEndpoint?.url || "";
+      for (const version of versionOptions) {
+        const derivedVersion = deriveVersionNumber(version.id, versionOptions);
+        const existing = map.get(version.id);
+        if (existing) {
+          if (existing.version <= 0 && derivedVersion > 0) {
+            map.set(version.id, {
+              ...existing,
+              version: derivedVersion,
+              versionLabel: existing.versionLabel || version.id,
+              createdAt: existing.createdAt || version.timestamp,
+            });
+          }
+          continue;
+        }
+        map.set(version.id, {
+          id: `${selectedEndpoint?.id || "endpoint"}:${version.id}`,
+          versionId: version.id,
+          version: derivedVersion,
+          versionLabel: version.id,
+          statusCode: 0,
+          url: endpointUrl,
+          body: "",
+          headers: {},
+          createdAt: version.timestamp,
+          metadata: { contentLength: 0, loadTime: 0 },
+        });
+      }
+
+      return sortByVersionDescending(Array.from(map.values()));
+    },
+    [selectedEndpoint?.id, selectedEndpoint?.snapshots, selectedEndpoint?.url, versionOptions],
   );
 
   const pagesFetchedByVersion = useMemo(() => {
@@ -79,6 +140,19 @@ const WorkspacePage: React.FC = () => {
       });
     }
 
+    for (const version of versionOptions) {
+      const parsedCount = parsePagesFetchedFromMessage(version.message);
+      const fallbackCount = pagesFetchedByVersion[version.id] ?? 0;
+      const pagesFetched = parsedCount ?? fallbackCount;
+      const derivedVersionNumber = deriveVersionNumber(version.id, versionOptions);
+      const existing = map.get(version.id);
+      map.set(version.id, {
+        fetchedAt: existing?.fetchedAt || version.timestamp,
+        pagesFetched: existing?.pagesFetched ? Math.max(existing.pagesFetched, pagesFetched) : pagesFetched,
+        versionNumber: existing?.versionNumber || derivedVersionNumber,
+      });
+    }
+
     if (selectedDomain) {
       for (const version of selectedDomain.versions) {
         const existing = map.get(version.id);
@@ -91,16 +165,18 @@ const WorkspacePage: React.FC = () => {
     }
 
     return map;
-  }, [availableSnapshots, pagesFetchedByVersion, selectedDomain]);
+  }, [availableSnapshots, pagesFetchedByVersion, selectedDomain, versionOptions]);
 
   const baseVersionMeta = baseVersionId ? versionMetaById.get(baseVersionId) : undefined;
   const headVersionMeta = headVersionId ? versionMetaById.get(headVersionId) : undefined;
 
   const activeSnapshot = comparison?.head || selectedSnapshot;
-  const baseSnapshot = comparison?.base || null;
+  const baseSnapshot = comparison?.base || basePreviewSnapshot || null;
   const activeDiff = activeSnapshot?.diff;
   const activeSecurityDiff = activeSnapshot?.securityDiff;
   const activeScoreResult = activeSnapshot?.scoreResult;
+  const activeContent = useMemo(() => getSnapshotContentInfo(activeSnapshot), [activeSnapshot]);
+  const canRenderHtmlDiff = activeContent.viewKind === "html";
 
   useEffect(() => {
     setComparison(null);
@@ -111,14 +187,101 @@ const WorkspacePage: React.FC = () => {
       return;
     }
 
-    setHeadVersionId(selectedSnapshot.versionId);
-    const older = availableSnapshots.find((snapshot) => snapshot.versionId !== selectedSnapshot.versionId);
-    setBaseVersionId(older?.versionId || "");
-  }, [selectedEndpoint?.id, selectedSnapshot?.versionId, selectedSnapshot, availableSnapshots]);
+    setHeadVersionId((current) => {
+      if (current && availableSnapshots.some((snapshot) => snapshot.versionId === current)) {
+        return current;
+      }
+      return selectedSnapshot.versionId;
+    });
+
+    setBaseVersionId((current) => {
+      if (
+        current &&
+        current !== selectedSnapshot.versionId &&
+        availableSnapshots.some((snapshot) => snapshot.versionId === current)
+      ) {
+        return current;
+      }
+      const older = availableSnapshots.find((snapshot) => snapshot.versionId !== selectedSnapshot.versionId);
+      return older?.versionId || "";
+    });
+  }, [selectedEndpoint?.id, selectedSnapshot?.versionId]);
+
+  useEffect(() => {
+    setVersionOptions(selectedDomain?.versions || []);
+  }, [selectedDomain?.id, selectedDomain?.versions]);
 
   useEffect(() => {
     setShowHeadHeaders(false);
   }, [activeSnapshot?.id]);
+
+  useEffect(() => {
+    setBasePreviewSnapshot(null);
+  }, [selectedEndpoint?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const projectSlug = activeProject?.slug;
+    const siteSlug = selectedDomain?.slug;
+    const endpoint = selectedEndpoint;
+
+    const loadBaseSnapshot = async () => {
+      if (!projectSlug || !siteSlug || !endpoint || !baseVersionId) {
+        setBasePreviewSnapshot(null);
+        return;
+      }
+
+      if (comparison?.base?.versionId === baseVersionId) {
+        setBasePreviewSnapshot(comparison.base);
+        return;
+      }
+
+      const existingLoaded = availableSnapshots.find(
+        (snapshot) => snapshot.versionId === baseVersionId && snapshot.body,
+      );
+      if (existingLoaded) {
+        setBasePreviewSnapshot(existingLoaded);
+        return;
+      }
+
+      try {
+        const loaded = await projectService.loadSnapshotByVersion(
+          projectSlug,
+          siteSlug,
+          endpoint,
+          baseVersionId,
+          versionOptions,
+        );
+        if (!cancelled) setBasePreviewSnapshot(loaded);
+      } catch {
+        if (!cancelled) setBasePreviewSnapshot(null);
+      }
+    };
+
+    void loadBaseSnapshot();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeProject?.slug,
+    availableSnapshots,
+    baseVersionId,
+    comparison?.base,
+    selectedDomain?.slug,
+    selectedEndpoint,
+    versionOptions,
+  ]);
+
+  const refreshVersionOptions = async () => {
+    if (!activeProject || !selectedDomain || isRefreshingVersions) return;
+    setIsRefreshingVersions(true);
+    try {
+      const versions = await api.listVersions(activeProject.slug, selectedDomain.slug, 100);
+      setVersionOptions(versions);
+    } finally {
+      setIsRefreshingVersions(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -143,7 +306,7 @@ const WorkspacePage: React.FC = () => {
         selectedEndpoint,
         baseVersionId,
         headVersionId,
-        selectedDomain.versions,
+        versionOptions,
       );
       setComparison(result);
     } catch (error) {
@@ -203,35 +366,39 @@ const WorkspacePage: React.FC = () => {
                 <section className="bg-card border border-border rounded-2xl p-5">
                   <div className="grid grid-cols-12 gap-3 items-end">
                     <div className="col-span-5">
-                      <label className="text-[10px] font-bold text-helper uppercase tracking-[0.2em] mb-1 block">
-                        Base version (older)
-                      </label>
-                      <select
-                        value={baseVersionId}
-                        onChange={(event) => setBaseVersionId(event.target.value)}
-                        className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm"
-                      >
-                        <option value="">Select base version</option>
+                        <label className="text-[10px] font-bold text-helper uppercase tracking-[0.2em] mb-1 block">
+                          Base version (older)
+                        </label>
+                        <select
+                          value={baseVersionId}
+                          onChange={(event) => setBaseVersionId(event.target.value)}
+                          onFocus={() => void refreshVersionOptions()}
+                          onMouseDown={() => void refreshVersionOptions()}
+                          className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm"
+                        >
+                          <option value="">Select base version</option>
                         {availableSnapshots.map((snapshot) => (
                           <option key={`base-${snapshot.versionId}`} value={snapshot.versionId}>
-                            Version {snapshot.version}
+                            {formatVersionLabel(snapshot.versionId, snapshot.version)}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div className="col-span-5">
-                      <label className="text-[10px] font-bold text-helper uppercase tracking-[0.2em] mb-1 block">
-                        Head version (newer)
-                      </label>
-                      <select
-                        value={headVersionId}
-                        onChange={(event) => setHeadVersionId(event.target.value)}
-                        className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm"
-                      >
-                        <option value="">Select head version</option>
+                        <label className="text-[10px] font-bold text-helper uppercase tracking-[0.2em] mb-1 block">
+                          Head version (newer)
+                        </label>
+                        <select
+                          value={headVersionId}
+                          onChange={(event) => setHeadVersionId(event.target.value)}
+                          onFocus={() => void refreshVersionOptions()}
+                          onMouseDown={() => void refreshVersionOptions()}
+                          className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm"
+                        >
+                          <option value="">Select head version</option>
                         {availableSnapshots.map((snapshot) => (
                           <option key={`head-${snapshot.versionId}`} value={snapshot.versionId}>
-                            Version {snapshot.version}
+                            {formatVersionLabel(snapshot.versionId, snapshot.version)}
                           </option>
                         ))}
                       </select>
@@ -281,11 +448,12 @@ const WorkspacePage: React.FC = () => {
                   <section className="bg-card border border-border rounded-2xl p-5 space-y-5">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-black text-helper uppercase tracking-[0.25em]">
-                        Rendered page diff
+                        {canRenderHtmlDiff ? "Rendered page diff" : "Content preview"}
                       </span>
                       {comparison ? (
                         <Badge variant="active">
-                          v{comparison.base.version} → v{comparison.head.version}
+                          {formatVersionLabel(comparison.base.versionId, comparison.base.version)} →{" "}
+                          {formatVersionLabel(comparison.head.versionId, comparison.head.version)}
                         </Badge>
                       ) : (
                         <span className="text-xs text-slate-500">
@@ -304,6 +472,9 @@ const WorkspacePage: React.FC = () => {
                         </span>
                       </div>
                       <div className="space-y-2">
+                        <p className="text-xs text-slate-400">
+                          content type: <span className="text-slate-300">{activeContent.contentType}</span>
+                        </p>
                         <button
                           type="button"
                           onClick={() => setShowHeadHeaders((open) => !open)}
@@ -334,14 +505,23 @@ const WorkspacePage: React.FC = () => {
                       </div>
                     </div>
 
-                    <RenderedDiffViews
-                      baseSnapshot={baseSnapshot}
-                      headSnapshot={activeSnapshot}
-                      securityDiff={activeSecurityDiff}
-                      diff={activeDiff}
-                      viewMode={viewMode}
-                      onViewModeChange={setViewMode}
-                    />
+                    {canRenderHtmlDiff ? (
+                      <RenderedDiffViews
+                        baseSnapshot={baseSnapshot}
+                        headSnapshot={activeSnapshot}
+                        securityDiff={activeSecurityDiff}
+                        diff={activeDiff}
+                        viewMode={viewMode}
+                        onViewModeChange={setViewMode}
+                      />
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-border bg-bg/40 px-3 py-2 text-xs text-slate-400">
+                          Rendered/DOM/security-highlight diff views are available for HTML content only.
+                        </div>
+                        <SnapshotContentView snapshot={activeSnapshot} />
+                      </div>
+                    )}
                   </section>
                 )}
 
@@ -436,6 +616,13 @@ const WorkspacePage: React.FC = () => {
                         Security diff overview
                       </h3>
                       <SecurityDiffPanel diff={activeSecurityDiff} />
+                    </div>
+
+                    <div className="bg-card border border-border rounded-2xl p-5">
+                      <h3 className="text-[11px] font-black text-helper uppercase tracking-[0.25em] mb-4">
+                        Attack surface elements
+                      </h3>
+                      <AttackSurfaceElementsPanel snapshot={activeSnapshot} />
                     </div>
                   </section>
                 )}
