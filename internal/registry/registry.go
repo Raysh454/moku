@@ -449,3 +449,58 @@ func (r *Registry) UpdateWebsiteLastSeen(ctx context.Context, websiteID string, 
 	)
 	return err
 }
+
+// DeleteWebsite removes a website's DB record and its associated directory.
+func (r *Registry) DeleteWebsite(ctx context.Context, projectIdentifier, websiteSlug string) error {
+	projectID, projectDirName, err := r.getProjectRowByIdentifier(ctx, projectIdentifier)
+	if err != nil {
+		return err
+	}
+
+	websiteSlug = normalizeSlug(websiteSlug)
+
+	// Fetch website to get directory name
+	var websiteID, originDirName string
+	err = r.db.QueryRowContext(ctx,
+		`SELECT id, dir_name FROM websites WHERE project_id = ? AND slug = ?`,
+		projectID, websiteSlug).Scan(&websiteID, &originDirName)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrWebsiteNotFound
+		}
+		return err
+	}
+
+	// Delete from DB
+	_, err = r.db.ExecContext(ctx, `DELETE FROM websites WHERE id = ?`, websiteID)
+	if err != nil {
+		return fmt.Errorf("delete website from DB: %w", err)
+	}
+
+	// Remove directory
+	wdir := r.websiteDir(projectDirName, originDirName)
+	return os.RemoveAll(wdir)
+}
+
+// DeleteProject removes a project's DB record and its associated directory.
+func (r *Registry) DeleteProject(ctx context.Context, identifier string) error {
+	projectID, dirName, err := r.getProjectRowByIdentifier(ctx, identifier)
+	if err != nil {
+		return err
+	}
+
+	// Delete from DB (cascade handles websites/rules if SQL schema was set up correctly,
+	// but here we might need manual cleanup of websites if not)
+	_, err = r.db.ExecContext(ctx, `DELETE FROM websites WHERE project_id = ?`, projectID)
+	if err != nil {
+		return fmt.Errorf("delete websites from DB: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, projectID)
+	if err != nil {
+		return fmt.Errorf("delete project from DB: %w", err)
+	}
+
+	// Remove directory
+	projDir := r.projectDir(dirName)
+	return os.RemoveAll(projDir)
+}

@@ -5,8 +5,9 @@ import React, {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "react";
-import { api, createEnumerateSocket, createFetchSocket } from "../src/api/client";
+import { api } from "../src/api/client";
 import type { Endpoint as ApiEndpoint, Job, JobEvent, Version, SecurityDiffOverviewEntry } from "../src/api/types";
 import type {
   Domain,
@@ -17,6 +18,8 @@ import type {
   Snapshot,
 } from "../types/project";
 import { projectService } from "../services/projectService";
+import { useJobEvents } from "./JobEventContext";
+import { useNotifications } from "./NotificationContext";
 
 interface ProjectContextType {
   projects: Project[];
@@ -47,6 +50,8 @@ interface ProjectContextType {
   selectSnapshotVersion: (versionId: string) => Promise<void>;
   createNewProject: (data: Partial<Project>) => Promise<Project>;
   createWebsiteForActiveProject: (payload: { slug: string; origin: string }) => Promise<void>;
+  deleteProject: (slug: string) => Promise<void>;
+  deleteWebsite: (siteSlug: string) => Promise<void>;
   loadDomainEndpoints: (domainId: string, status: string, limit: number) => Promise<void>;
   addEndpointsForDomain: (domainId: string, urls: string[], source?: string) => Promise<number>;
   runEnumerateForDomain: (domainId: string, request: EnumerateRequest) => Promise<void>;
@@ -130,7 +135,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [compareIsLoading, setCompareIsLoading] = useState(false);
   const [domainOverviews, setDomainOverviews] = useState<Map<string, SecurityDiffOverviewEntry[]>>(new Map());
 
-  const overviewCacheRef = React.useRef<
+  const { subscribe } = useJobEvents();
+  const { notify } = useNotifications();
+
+  const processedEventIdRef = useRef<string>("");
+
+  const overviewCacheRef = useRef<
     Map<string, { overview: SecurityDiffOverviewEntry[]; timestamp: number }>
   >(new Map());
 
@@ -206,8 +216,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const domains = await projectService.refreshProjectDomains(activeProject);
       const refreshedProject: Project = { ...activeProject, domains };
+      
+      // Update global project list and active project
+      setProjects((prev) => prev.map((p) => (p.id === refreshedProject.id ? refreshedProject : p)));
       setActiveProject(refreshedProject);
-      setProjects((prev) => prev.map((project) => (project.id === refreshedProject.id ? refreshedProject : project)));
 
       // Fetch security overviews for all domains
       await fetchDomainOverviews(refreshedProject);
@@ -226,7 +238,71 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } finally {
       setIsBusy(false);
     }
-  }, [activeProject, clearMessage, selectedDomain?.id, selectedEndpoint?.id, setError]);
+  }, [activeProject, clearMessage, selectedDomain?.id, selectedEndpoint?.id, setError, fetchDomainOverviews]);
+
+  // Handle incoming job events from SSE via direct listener
+  useEffect(() => {
+    const onJobEvent = (event: JobEvent) => {
+      // 1. Always update the jobs list state for UI consistency
+      setJobs((prev) => {
+        const exists = prev.some((j) => j.id === event.job_id);
+        if (!exists) {
+          // If it's a new job, we'll likely need a full list refresh eventually
+          void refreshJobs();
+          return prev;
+        }
+
+        return prev.map((j) => {
+          if (j.id !== event.job_id) return j;
+          return {
+            ...j,
+            status: event.status || j.status,
+            error: event.error || j.error,
+            processed: event.processed ?? j.processed,
+            total: event.total ?? j.total,
+          };
+        });
+      });
+
+      // 2. Determine if this event requires a data refresh or notification
+      const eventKey = `${event.job_id}:${event.status}`;
+      if (processedEventIdRef.current === eventKey) return;
+
+      const isTerminal =
+        event.status === "done" || event.status === "failed" || event.status === "canceled";
+
+      if (isTerminal) {
+        processedEventIdRef.current = eventKey;
+
+        const isProjectRelevant = activeProject && event.project === activeProject.slug;
+
+        if (isProjectRelevant) {
+          // Always refresh if the project is relevant to update the job list and data
+          void refreshActiveProject();
+
+          // Notify regardless of which site is selected
+          if (event.status === "done") {
+            notify({
+              kind: "success",
+              title: "Job Completed",
+              message: `${event.type} job finished successfully for ${event.website}`,
+            });
+          } else if (event.status === "failed") {
+            notify({
+              kind: "error",
+              title: "Job Failed",
+              message: event.error || `An error occurred during the ${event.type} job`,
+            });
+          }
+        }
+      }
+    };
+
+    return subscribe(onJobEvent);
+  }, [subscribe, activeProject, selectedDomain, refreshJobs, refreshActiveProject, notify]);
+
+
+
 
   const loadLatestSnapshotForSelection = useCallback(
     async (project: Project, domain: Domain, endpoint: Endpoint) => {
@@ -382,12 +458,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       clearMessage();
       try {
         const domain = await projectService.createWebsite(activeProject.slug, payload);
-        const updatedProject = { ...activeProject, domains: [...activeProject.domains, domain] };
-        setActiveProject(updatedProject);
-        setProjects((prev) => prev.map((item) => (item.id === updatedProject.id ? updatedProject : item)));
-        setSelectedDomainState(domain);
-        setSelectedEndpointState(domain.endpoints[0] || null);
-        setSelectedSnapshotState(null);
+        // Refresh project state from server to ensure consistent data
+        await refreshActiveProject();
         setNotice(`Added website "${domain.hostname}"`);
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to create website");
@@ -395,7 +467,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsBusy(false);
       }
     },
-    [activeProject, clearMessage, setError, setNotice],
+    [activeProject, clearMessage, refreshActiveProject, setError, setNotice],
   );
 
   const loadDomainEndpoints = useCallback(
@@ -455,49 +527,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [activeProject, clearMessage, setError, setNotice],
   );
 
-  const runWebSocketJob = useCallback(
-    async (
-      setup: () => {
-        socket: WebSocket;
-        onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => void;
-        send: () => void;
-      },
-      successMessage: string,
-    ) =>
-      new Promise<void>((resolve, reject) => {
-        const { socket, onMessage, send } = setup();
-
-        socket.onerror = () => reject(new Error("WebSocket connection failed"));
-        socket.onopen = () => send();
-
-        onMessage((payload) => {
-          if ("error" in payload && payload.error) {
-            socket.close();
-            reject(new Error(payload.error));
-            return;
-          }
-
-          if ("type" in payload) {
-            const event = payload as JobEvent;
-            if (event.status === "done" || event.type === "result") {
-              socket.close();
-              resolve();
-            } else if (event.status === "failed" || event.status === "canceled") {
-              socket.close();
-              reject(new Error(event.error || "Job failed"));
-            }
-            return;
-          }
-
-          const job = payload as Job;
-          setJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
-        });
-      }).then(() => {
-        setNotice(successMessage);
-      }),
-    [setNotice],
-  );
-
   const runEnumerateForDomain = useCallback(
     async (domainId: string, request: EnumerateRequest) => {
       if (!activeProject) return;
@@ -507,42 +536,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsBusy(true);
       clearMessage();
       try {
-        if (request.mode === "ws") {
-          await runWebSocketJob(
-            () => {
-              const { socket, onMessage, sendConfig } = createEnumerateSocket(
-                activeProject.slug,
-                domain.slug,
-                request.config,
-              );
-              return { socket, onMessage, send: sendConfig };
-            },
-            "Enumeration job completed",
-          );
-        } else {
-          const started = await api.startEnumerate(activeProject.slug, domain.slug, request.config);
-          setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
-          setNotice("Enumeration job started. Use Job Queue refresh to check updates.");
-          return;
-        }
-
-        await refreshActiveProject();
-        await refreshJobs();
+        const started = await api.startEnumerate(activeProject.slug, domain.slug, request.config);
+        setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
+        setNotice("Enumeration job started");
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to start enumeration");
       } finally {
         setIsBusy(false);
       }
     },
-    [
-      activeProject,
-      clearMessage,
-      refreshActiveProject,
-      refreshJobs,
-      runWebSocketJob,
-      setError,
-      setNotice,
-    ],
+    [activeProject, clearMessage, setError, setNotice],
   );
 
   const runFetchForDomain = useCallback(
@@ -554,46 +557,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsBusy(true);
       clearMessage();
       try {
-        if (request.mode === "ws") {
-          await runWebSocketJob(
-            () => {
-              const { socket, onMessage, sendRequest } = createFetchSocket(activeProject.slug, domain.slug, {
-                status: request.status,
-                limit: request.limit,
-                config: request.config,
-              });
-              return { socket, onMessage, send: sendRequest };
-            },
-            "Fetch job completed",
-          );
-        } else {
-          const started = await api.startFetch(activeProject.slug, domain.slug, {
-            status: request.status,
-            limit: request.limit,
-            config: request.config,
-          });
-          setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
-          setNotice("Fetch job started. Use Job Queue refresh to check updates.");
-          return;
-        }
-
-        await refreshActiveProject();
-        await refreshJobs();
+        const started = await api.startFetch(activeProject.slug, domain.slug, {
+          status: request.status,
+          limit: request.limit,
+          config: request.config,
+        });
+        setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
+        setNotice("Fetch job started");
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to start fetch");
       } finally {
         setIsBusy(false);
       }
     },
-    [
-      activeProject,
-      clearMessage,
-      refreshActiveProject,
-      refreshJobs,
-      runWebSocketJob,
-      setError,
-      setNotice,
-    ],
+    [activeProject, clearMessage, setError, setNotice],
   );
 
   const setCompareVersions = useCallback(
@@ -694,6 +671,45 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [clearMessage, loadLatestSnapshotForSelection, setError]);
 
+  const deleteProject = useCallback(
+    async (slug: string) => {
+      setIsLoading(true);
+      clearMessage();
+      try {
+        await api.deleteProject(slug);
+        setProjects((prev) => prev.filter((item) => item.slug !== slug));
+        if (activeProject?.slug === slug) {
+          setActiveProject(null);
+          window.localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+        }
+        setNotice(`Deleted project "${slug}"`);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to delete project");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [activeProject, clearMessage, setError, setNotice],
+  );
+
+  const deleteWebsite = useCallback(
+    async (siteSlug: string) => {
+      if (!activeProject) return;
+      setIsBusy(true);
+      clearMessage();
+      try {
+        await api.deleteWebsite(activeProject.slug, siteSlug);
+        await refreshActiveProject();
+        setNotice(`Deleted website "${siteSlug}"`);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to delete website");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [activeProject, clearMessage, refreshActiveProject, setError, setNotice],
+  );
+
   const value = useMemo<ProjectContextType>(
     () => ({
       projects,
@@ -722,6 +738,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       selectSnapshotVersion,
       createNewProject,
       createWebsiteForActiveProject,
+      deleteProject,
+      deleteWebsite,
       loadDomainEndpoints,
       addEndpointsForDomain,
       runEnumerateForDomain,
@@ -756,6 +774,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       selectSnapshotVersion,
       createNewProject,
       createWebsiteForActiveProject,
+      deleteProject,
+      deleteWebsite,
       loadDomainEndpoints,
       addEndpointsForDomain,
       runEnumerateForDomain,

@@ -183,7 +183,7 @@ Errors:
 
 ## Jobs (REST)
 
-Jobs represent long‑running operations (fetch and enumerate) associated with a website. Jobs are started via REST and can be monitored over REST or WebSocket.
+Jobs represent long‑running operations (fetch and enumerate) associated with a website. Jobs are started via REST and can be monitored via polling (GET /jobs) or Server-Sent Events (SSE).
 
 ### POST /projects/{project}/websites/{site}/jobs/fetch
 Start a fetch job over endpoints for a website.
@@ -291,47 +291,26 @@ Path params:
 
 Response `204 No Content` – cancellation requested (idempotent; no error if job gone).
 
-## WebSocket Routes
+## Event Streaming (SSE)
 
-WebSocket routes stream job events (status/progress/results) as JSON messages.
+Real-time job events (status/progress/results) are available via a Server-Sent Events (SSE) stream.
 
-### GET /ws/projects/{project}/websites/{site}/fetch
-Open a WebSocket that starts a fetch job and streams its events.
+### GET /jobs/events
+Establish a Server-Sent Events stream for job updates.
 
-Path params:
-- `project` – project slug or id.
-- `site` – website slug.
-
-Query params:
-- `status` (optional) – same semantics as REST fetch job; default `new` if empty.
-- `limit` (optional) – positive integer; default 100; invalid/non‑positive ignored.
+Query params (optional):
+- `project` – filter events by project slug.
+- `site` – filter events by website slug.
+- `job_id` – filter events for a specific job ID.
 
 Behavior:
-- Connection upgrade starts a fetch job internally (same semantics as POST jobs/fetch).
-- First message is the job object; subsequent messages are `JobEvent` JSON objects of shape:
-  ```json
-  {
-    "job_id": "<uuid>",
-    "type": "status|progress|result",
-    "status": "pending|running|done|failed|canceled",   // for status/result events
-    "error": "optional error message",                  // for failure/cancel events
-    "processed": 10,                                     // for progress events
-    "total": 100                                         // for progress events
-  }
+- Establishes a persistent connection (`text/event-stream`).
+- Streams `JobEvent` JSON objects as data packets:
   ```
-- On write error (e.g. client disconnect), the server cancels the job.
-
-### GET /ws/projects/{project}/websites/{site}/enumerate
-Open a WebSocket that starts an enumerate job and streams its events.
-
-Path params:
-- `project` – project slug or id.
-- `site` – website slug.
-
-Behavior:
-- Connection upgrade starts an enumerate job (same semantics as POST jobs/enumerate).
-- First message is the job object; subsequent messages are `JobEvent` JSON objects as above.
-- On write error, the server cancels the job.
+  data: {"job_id":"...","project":"...","website":"...","type":"status|progress|result","status":"...","processed":10,"total":100}
+  ```
+- SSE events include the `project` and `website` context to allow efficient client-side routing.
+- The connection stays open until the client disconnects or the server shuts down.
 
 ## Notes
 

@@ -32,6 +32,8 @@ const (
 
 type JobEvent struct {
 	JobID     string       `json:"job_id"`
+	Project   string       `json:"project,omitempty"`
+	Website   string       `json:"website,omitempty"`
 	Type      JobEventType `json:"type"`
 	Status    JobStatus    `json:"status,omitempty"`
 	Error     string       `json:"error,omitempty"`
@@ -58,7 +60,6 @@ type Job struct {
 	Error            string                         `json:"error,omitempty"`
 	StartedAt        time.Time                      `json:"started_at"`
 	EndedAt          time.Time                      `json:"ended_at"`
-	Events           chan JobEvent                  `json:"-"`
 	SecurityOverview *assessor.SecurityDiffOverview `json:"security_overview,omitempty"`
 	EnumeratedURLs   []string                       `json:"enumerated_urls,omitempty"`
 	// ScanResult is populated when Type == "scan" and the analyzer pipeline
@@ -86,6 +87,9 @@ type Orchestrator struct {
 	jobs             map[string]*Job
 	jobCancels       map[string]context.CancelFunc
 	jobRetentionTime time.Duration
+
+	subsMu      sync.RWMutex
+	subscribers []chan JobEvent
 
 	closedMu sync.Mutex
 	closed   bool
@@ -125,17 +129,52 @@ func (o *Orchestrator) ensureJobMaps() {
 	}
 }
 
+func (o *Orchestrator) Subscribe(ctx context.Context) chan JobEvent {
+	ch := make(chan JobEvent, 100)
+	o.subsMu.Lock()
+	o.subscribers = append(o.subscribers, ch)
+	o.subsMu.Unlock()
+
+	go func() {
+		<-ctx.Done()
+		o.Unsubscribe(ch)
+	}()
+	return ch
+}
+
+func (o *Orchestrator) Unsubscribe(ch chan JobEvent) {
+	o.subsMu.Lock()
+	defer o.subsMu.Unlock()
+	for i, sub := range o.subscribers {
+		if sub == ch {
+			o.subscribers = append(o.subscribers[:i], o.subscribers[i+1:]...)
+			close(ch)
+			break
+		}
+	}
+}
+
 func (o *Orchestrator) emitJobEvent(jobID string, ev JobEvent) {
 	o.jobsMu.Lock()
 	job, ok := o.jobs[jobID]
 	o.jobsMu.Unlock()
-	if !ok || job == nil || job.Events == nil {
+	if !ok || job == nil {
 		return
 	}
 
-	select {
-	case job.Events <- ev:
-	default:
+	// Enrich event with project/website context
+	ev.Project = job.Project
+	ev.Website = job.Website
+	ev.JobID = jobID
+
+	o.subsMu.RLock()
+	defer o.subsMu.RUnlock()
+	for _, sub := range o.subscribers {
+		select {
+		case sub <- ev:
+		default:
+			// Subscriber too slow, skip to avoid blocking orchestrator
+		}
 	}
 }
 
@@ -202,7 +241,6 @@ func (o *Orchestrator) newJob(jobType, project, site string) *Job {
 		Website:   site,
 		Status:    JobPending,
 		StartedAt: time.Now().UTC(),
-		Events:    make(chan JobEvent, 16),
 	}
 }
 
@@ -213,23 +251,9 @@ func (o *Orchestrator) finishJob(jobID string) {
 	}
 
 	o.cleanupFinishedJobsLocked()
-
-	events := o.getJobEvents(jobID)
 	o.jobsMu.Unlock()
 
 	o.deleteCancel(jobID)
-
-	if events != nil {
-		close(events)
-	}
-}
-
-func (o *Orchestrator) getJobEvents(jobID string) chan JobEvent {
-	var events chan JobEvent
-	if j, ok := o.jobs[jobID]; ok && j != nil {
-		events = j.Events
-	}
-	return events
 }
 
 func (o *Orchestrator) setJobStatus(jobID string, status JobStatus, err error) {
@@ -561,6 +585,14 @@ func (o *Orchestrator) CreateWebsite(ctx context.Context, projectIdentifier, slu
 
 func (o *Orchestrator) ListWebsites(ctx context.Context, projectIdentifier string) ([]registry.Website, error) {
 	return o.registry.ListWebsites(ctx, projectIdentifier)
+}
+
+func (o *Orchestrator) DeleteProject(ctx context.Context, identifier string) error {
+	return o.registry.DeleteProject(ctx, identifier)
+}
+
+func (o *Orchestrator) DeleteWebsite(ctx context.Context, projectIdentifier, websiteSlug string) error {
+	return o.registry.DeleteWebsite(ctx, projectIdentifier, websiteSlug)
 }
 
 // GetWebsiteIndexer returns the indexer for a website.

@@ -3,15 +3,22 @@ import { useProject } from "../../context/ProjectContext";
 import { useNavigate } from "react-router-dom";
 import { LoadingSpinner } from "../../components/common/LoadingSpinner";
 import { Badge } from "../../components/common/Badge";
-import { Folder, ChevronRight } from "lucide-react";
+import { Folder, ChevronRight, Trash2 } from "lucide-react";
 
 const ProjectSelectPage: React.FC = () => {
-  const { projects, isLoading, setActiveProjectById } = useProject();
+  const { projects, isLoading, setActiveProjectById, deleteProject } = useProject();
   const navigate = useNavigate();
 
   const handleOpenProject = async (id: string) => {
     await setActiveProjectById(id);
     navigate("/workspace");
+  };
+
+  const handleDeleteProject = async (e: React.MouseEvent, slug: string) => {
+    e.stopPropagation();
+    if (window.confirm(`Are you sure you want to delete project "${slug}"?`)) {
+        await deleteProject(slug);
+    }
   };
 
   if (isLoading && projects.length === 0)
@@ -123,6 +130,13 @@ const ProjectSelectPage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 ml-4">
+                    <button
+                      onClick={(e) => handleDeleteProject(e, project.slug)}
+                      className="p-1.5 text-slate-600 hover:text-danger hover:bg-danger/10 rounded transition-all"
+                      title="Delete project"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                     <ChevronRight
                       className="w-4 h-4 text-slate-600 group-hover:text-accent group-hover:translate-x-0.5 transition-all"
                       strokeWidth={2}

@@ -27,6 +27,46 @@
                 }
             }
         },
+        "/jobs/events": {
+            "get": {
+                "description": "Establishes a Server-Sent Events (SSE) stream for real-time job updates.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Stream all job events via SSE",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by project slug",
+                        "name": "project",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by website slug",
+                        "name": "site",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by specific job ID",
+                        "name": "job_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE Stream",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/jobs/{jobID}": {
             "get": {
                 "description": "Returns the current state of a background job.",
@@ -159,6 +199,35 @@
                 }
             }
         },
+        "/projects/{project}": {
+            "delete": {
+                "description": "Removes a project, its websites, and associated directory.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Delete a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project slug or ID",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project}/websites": {
             "get": {
                 "description": "Retrieves websites scoped to a project slug.",
@@ -238,6 +307,42 @@
                         "schema": {
                             "$ref": "#/definitions/server.ErrorResponse"
                         }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/server.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project}/websites/{site}": {
+            "delete": {
+                "description": "Removes a website and its associated directory.",
+                "tags": [
+                    "Websites"
+                ],
+                "summary": "Delete a website",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project slug",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Website slug",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     },
                     "500": {
                         "description": "Internal Server Error",
@@ -800,97 +905,6 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/server.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/ws/projects/{project}/websites/{site}/enumerate": {
-            "get": {
-                "description": "Upgrades the connection, receives EnumerationConfig as first message, and streams enumeration progress events.",
-                "tags": [
-                    "Jobs"
-                ],
-                "summary": "Stream enumerate job events over WebSocket",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project slug",
-                        "name": "project",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Website slug",
-                        "name": "site",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "101": {
-                        "description": "WebSocket Upgrade",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/server.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/ws/projects/{project}/websites/{site}/fetch": {
-            "get": {
-                "description": "Upgrades the connection and streams fetch progress events.",
-                "tags": [
-                    "Jobs"
-                ],
-                "summary": "Stream fetch job events over WebSocket",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project slug",
-                        "name": "project",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Website slug",
-                        "name": "site",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "default": "new",
-                        "description": "Endpoint status filter",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Maximum endpoints",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "101": {
-                        "description": "WebSocket Upgrade",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/server.ErrorResponse"
                         }

@@ -298,16 +298,12 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
 
 	stmt, err := tx.PrepareContext(ctx,
 		`INSERT INTO filter_rules (id, website_id, rule_type, rule_value, priority, enabled, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
+		_ = tx.Rollback()
 		return fmt.Errorf("prepare statement: %w", err)
 	}
 	defer stmt.Close()
@@ -329,6 +325,7 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 			rule.ID, rule.WebsiteID, rule.RuleType, rule.RuleValue, rule.Priority, rule.Enabled, rule.CreatedAt, rule.UpdatedAt,
 		)
 		if err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("insert extension rule %s: %w", ext, err)
 		}
 	}
@@ -350,6 +347,7 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 			rule.ID, rule.WebsiteID, rule.RuleType, rule.RuleValue, rule.Priority, rule.Enabled, rule.CreatedAt, rule.UpdatedAt,
 		)
 		if err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("insert pattern rule %s: %w", pattern, err)
 		}
 	}
@@ -371,11 +369,13 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 			rule.ID, rule.WebsiteID, rule.RuleType, rule.RuleValue, rule.Priority, rule.Enabled, rule.CreatedAt, rule.UpdatedAt,
 		)
 		if err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("insert status code rule %d: %w", code, err)
 		}
 	}
 
 	if err = tx.Commit(); err != nil {
+		_ = tx.Rollback()
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 

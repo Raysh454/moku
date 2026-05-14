@@ -68,19 +68,16 @@ export interface Project {
   domains: Domain[];
 }
 
-export type JobTransport = "rest" | "ws";
-
 export interface EnumerateRequest {
-  mode: JobTransport;
   config: EnumerationConfig;
 }
 
 export interface FetchRequest {
-  mode: JobTransport;
   status: string;
   limit: number;
   config?: FetchConfig;
 }
+
 
 export interface FilterState {
   rules: FilterRule[];

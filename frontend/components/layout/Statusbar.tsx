@@ -146,9 +146,19 @@ export const Statusbar: React.FC = () => {
                           </div>
                           <span className="text-slate-500 font-mono">{job.id.slice(0, 8)}</span>
                         </div>
-                        <div className="mt-1 text-slate-400">
-                          <span className="mr-3">project: {job.project}</span>
-                          <span>website: {job.website}</span>
+                        {job.processed !== undefined && job.total !== undefined && job.total > 0 && (
+                          <div className="mt-2 h-1.5 w-full bg-border rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-accent transition-all duration-300"
+                              style={{ width: `${Math.min(100, Math.max(0, (job.processed / job.total) * 100))}%` }}
+                            ></div>
+                          </div>
+                        )}
+                        <div className="mt-1 text-slate-400 flex justify-between">
+                          <span>{job.project} / {job.website}</span>
+                          {job.processed !== undefined && job.total !== undefined && job.total > 0 && (
+                            <span className="text-slate-500 font-mono">{Math.floor((job.processed / job.total) * 100)}%</span>
+                          )}
                         </div>
                         <div className="mt-1 text-slate-500">
                           started: {new Date(job.started_at).toLocaleString()}
