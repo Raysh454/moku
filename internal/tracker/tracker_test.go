@@ -120,6 +120,54 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 	}
 }
 
+func TestSQLiteTracker_FinalizeEmptyCommitFails(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "moku-tracker-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &tracker.Config{
+		StoragePath: tmpDir,
+		ProjectID:   "test-project",
+	}
+	tr, err := tracker.NewSQLiteTracker(cfg, logging.NewStdoutLogger("tracker-test"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tr.Close()
+
+	ctx := context.Background()
+	pc, err := tr.BeginCommit(ctx, "Empty commit", "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = tr.FinalizeCommit(ctx, pc)
+	if err == nil {
+		t.Error("expected error when finalizing empty commit, but got nil")
+	}
+
+	// Verify HEAD wasn't updated
+	headExists, err := tr.HEADExists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headExists {
+		t.Error("expected HEAD to not exist for empty commit")
+	}
+
+	versions, err := tr.ListVersions(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) > 0 {
+		t.Errorf("expected 0 versions, but found %d", len(versions))
+	}
+}
+
 func TestSQLiteTracker_List(t *testing.T) {
 	t.Parallel()
 

@@ -298,7 +298,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     };
 
-    return subscribe(onJobEvent);
+    return subscribe(onJobEvent, () => {
+      // Re-fetch jobs on connection to ensure we didn't miss any events while offline
+      void refreshJobs();
+    });
   }, [subscribe, activeProject, selectedDomain, refreshJobs, refreshActiveProject, notify]);
 
 

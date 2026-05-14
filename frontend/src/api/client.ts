@@ -214,6 +214,7 @@ export type JobEventFilters = {
 export const subscribeToJobEvents = (
   onEvent: (event: JobEvent) => void,
   filters?: JobEventFilters,
+  onOpen?: () => void,
 ): (() => void) => {
   const params = new URLSearchParams();
   if (filters?.project) params.set("project", filters.project);
@@ -224,6 +225,10 @@ export const subscribeToJobEvents = (
   const url = `${apiBase}/jobs/events${query}`;
 
   const eventSource = new EventSource(url);
+
+  eventSource.onopen = () => {
+    if (onOpen) onOpen();
+  };
 
   eventSource.onmessage = (event) => {
     try {

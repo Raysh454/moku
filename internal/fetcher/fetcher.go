@@ -99,45 +99,23 @@ func (f *Fetcher) FetchFromIndexWithOptions(ctx context.Context, status string, 
 	f.logger.Info("starting fetch for endpoints", logging.Field{Key: "count", Value: len(urls)})
 
 	// Pass filter options for post-fetch status code filtering
-	f.FetchWithOptions(ctx, urls, opts, cb)
-
-	return nil
+	return f.FetchWithOptions(ctx, urls, opts, cb)
 }
 
 // Fetch retrieves all given HTTP URLs and stores snapshots to the tracker.
-//
-// Implementation uses a worker pool pattern:
-//   - Spawns exactly MaxConcurrency worker goroutines (fixed pool size)
-//   - URLs are fed through a buffered channel (urlQueue) to workers
-//   - Workers fetch pages and send snapshots to a separate batcher goroutine
-//   - The batcher goroutine collects snapshots and commits them in batches
-//
-// This approach ensures a fixed number of goroutines regardless of URL count,
-// minimizing memory overhead and scheduler pressure compared to spawning
-// one goroutine per URL.
-//
-// Flow:
-//  1. Start MaxConcurrency workers listening on urlQueue
-//  2. Start batcher goroutine listening on snapCh
-//  3. Feed URLs to urlQueue (workers process concurrently)
-//  4. Close urlQueue when all URLs are sent
-//  5. Workers exit when urlQueue is drained, close snapCh
-//  6. Batcher finalizes commit and exits
-//
-// Context cancellation is respected at multiple points for graceful shutdown.
-func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.ProgressCallback) {
-	f.FetchWithOptions(ctx, pageUrls, nil, cb)
+func (f *Fetcher) Fetch(ctx context.Context, pageUrls []string, cb utils.ProgressCallback) error {
+	return f.FetchWithOptions(ctx, pageUrls, nil, cb)
 }
 
 // FetchWithOptions retrieves all given HTTP URLs with optional filtering and stores snapshots.
 // If opts.FilterStatusCodes is true, responses matching SkipStatusCodes are filtered out.
-func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts *FetchOptions, cb utils.ProgressCallback) {
+func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts *FetchOptions, cb utils.ProgressCallback) error {
 	var wg sync.WaitGroup
 	// urlQueue is buffered to avoid blocking the main goroutine when feeding URLs.
 	// Buffer size is 2x MaxConcurrency to allow some queueing without contention.
 	urlQueue := make(chan string, f.config.MaxConcurrency*2)
 	snapCh := make(chan *models.Snapshot)
-	batcherDone := make(chan struct{})
+	batcherErr := make(chan error, 1)
 	filterCollectorDone := make(chan struct{})
 
 	// Channel for URLs filtered by status code (for marking in indexer)
@@ -179,7 +157,7 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 
 	// Commit snapshots goroutine using transaction-like API
 	go func() {
-		defer close(batcherDone)
+		defer close(batcherErr)
 
 		// Begin a pending commit for the entire fetch operation
 		pc, err := f.tracker.BeginCommit(ctx, fmt.Sprintf("Fetch %d pages", total), "fetcher")
@@ -188,6 +166,7 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 				f.logger.Error("error while beginning commit",
 					logging.Field{Key: "error", Value: err})
 			}
+			batcherErr <- err
 			return
 		}
 
@@ -240,6 +219,7 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 				if !ok {
 					// Channel closed - finalize the commit
 					if err := addBatch(); err != nil {
+						batcherErr <- err
 						return
 					}
 
@@ -250,6 +230,7 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 							f.logger.Error("error while finalizing commit",
 								logging.Field{Key: "error", Value: err})
 						}
+						batcherErr <- err
 						return
 					}
 
@@ -281,6 +262,7 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 				batch = append(batch, snap)
 				if len(batch) == f.config.CommitSize {
 					if err := addBatch(); err != nil {
+						batcherErr <- err
 						return
 					}
 				}
@@ -383,7 +365,7 @@ cleanup:
 	}
 
 	// Wait for batcher to finish committing all snapshots
-	<-batcherDone
+	return <-batcherErr
 }
 
 // Makes an HTTP GET Request to the given parameter and returns reference Page struct

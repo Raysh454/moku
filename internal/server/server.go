@@ -244,11 +244,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Close shuts down the orchestrator and underlying resources.
 func (s *Server) Close() {
-	if s.registryDB != nil {
-		s.registryDB.Close()
-	}
 	if s.orchestrator != nil {
 		s.orchestrator.Close()
+	}
+	if s.registryDB != nil {
+		s.registryDB.Close()
 	}
 }
 
@@ -840,6 +840,8 @@ func (s *Server) handleJobEventsSSE(w http.ResponseWriter, r *http.Request) {
 
 	// Send headers immediately
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "retry: 1000\n\n") // Tell client to retry every 1s if connection lost
+	fmt.Fprintf(w, ": connected\n\n") // Initial ping to flush the connection
 	flusher.Flush()
 
 	projectFilter := r.URL.Query().Get("project")
@@ -848,10 +850,17 @@ func (s *Server) handleJobEventsSSE(w http.ResponseWriter, r *http.Request) {
 
 	events := s.orchestrator.Subscribe(r.Context())
 
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-ticker.C:
+			// Keep-alive ping
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
 		case ev, ok := <-events:
 			if !ok {
 				return

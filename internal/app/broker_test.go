@@ -124,3 +124,22 @@ func TestOrchestrator_SlowSubscriber(t *testing.T) {
 		t.Error("normal subscriber blocked by slow subscriber")
 	}
 }
+
+func TestOrchestrator_CloseClosesSubscribers(t *testing.T) {
+	o := NewOrchestrator(nil, nil, &testutil.DummyLogger{})
+	ctx := context.Background() // No cancelation here
+
+	sub := o.Subscribe(ctx)
+
+	o.Close()
+
+	// Verify channel is closed
+	select {
+	case _, ok := <-sub:
+		if ok {
+			t.Error("expected channel to be closed after Orchestrator.Close()")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("timed out waiting for channel to close after Orchestrator.Close()")
+	}
+}
