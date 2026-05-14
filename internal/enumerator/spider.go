@@ -179,6 +179,13 @@ func (sh *spiderHelper) run(ctx context.Context, cb utils.ProgressCallback) erro
 					logging.Field{Key: "url", Value: sh.results[currPage]},
 					logging.Field{Key: "error", Value: err})
 			}
+			// If the root page (first page) fails to crawl, treat the entire
+			// enumeration as a failure. For non-root pages, log and continue.
+			if currPage == 0 {
+				// Wrap root-level errors so callers (e.g., Composite) can detect
+				// and treat them as fatal.
+				return fmt.Errorf("%w: %v", ErrRootUnreachable, err)
+			}
 		}
 
 		currDepth := sh.depth[sh.results[currPage]]
@@ -187,7 +194,7 @@ func (sh *spiderHelper) run(ctx context.Context, cb utils.ProgressCallback) erro
 		currPage += 1
 
 		if cb != nil {
-			cb(currPage, len(sh.results))
+			cb(currPage, 0, len(sh.results))
 		}
 	}
 
@@ -201,7 +208,10 @@ func (s *Spider) Enumerate(ctx context.Context, target string, cb utils.Progress
 	}
 
 	if err := helper.run(ctx, cb); err != nil {
-		fmt.Fprintf(os.Stderr, "helper.run failed: %v\n", err)
+		if s.logger != nil {
+			s.logger.Error("spider: enumeration failed", logging.Field{Key: "error", Value: err})
+		}
+		return nil, err
 	}
 	if s.logger != nil {
 		s.logger.Info("spider: enumeration completed", logging.Field{Key: "total_pages", Value: len(helper.results)})

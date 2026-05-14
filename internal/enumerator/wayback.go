@@ -205,7 +205,7 @@ func (w *Wayback) Enumerate(ctx context.Context, target string, cb utils.Progres
 
 	// Progress callback at the end
 	if cb != nil {
-		cb(1, 1)
+		cb(1, 0, 1)
 	}
 
 	return results, nil

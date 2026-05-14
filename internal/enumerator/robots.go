@@ -51,7 +51,7 @@ func (r *Robots) Enumerate(ctx context.Context, target string, cb utils.Progress
 	}
 
 	if cb != nil {
-		cb(1, 1)
+		cb(1, 0, 1)
 	}
 
 	return results, nil

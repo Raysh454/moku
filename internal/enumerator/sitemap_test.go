@@ -220,7 +220,7 @@ func TestSitemap_should_invoke_progress_callback(t *testing.T) {
 	sitemap := enumerator.NewSitemap(wc, nil)
 
 	var callCount int
-	cb := func(processed, total int) {
+	cb := func(processed, failed, total int) {
 		callCount++
 	}
 

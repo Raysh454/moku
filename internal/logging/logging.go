@@ -36,7 +36,11 @@ func (s *StdoutLogger) log(level string, msg string, fields ...Field) {
 		m[k] = v
 	}
 	for _, f := range fields {
-		m[f.Key] = f.Value
+		v := f.Value
+		if err, ok := v.(error); ok {
+			v = err.Error()
+		}
+		m[f.Key] = v
 	}
 	entry := outEntry{
 		Level:     level,

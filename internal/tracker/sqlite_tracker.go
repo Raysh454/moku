@@ -54,7 +54,7 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 	}
 
 	dbPath := filepath.Join(mokuDir, "moku.db")
-	db, err := sql.Open("sqlite", dbPath+"?_busy_timeout=5000")
+	db, err := sql.Open("sqlite", dbPath+"?_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -63,6 +63,10 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set WAL mode: %w", err)
 	}
 
 	if err := applySchema(db); err != nil {

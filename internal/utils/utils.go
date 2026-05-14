@@ -269,4 +269,4 @@ func NewSnapshotFromResponse(resp *webclient.Response) *models.Snapshot {
 	return snap
 }
 
-type ProgressCallback func(processed, total int)
+type ProgressCallback func(processed, failed, total int)

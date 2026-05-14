@@ -65,7 +65,7 @@ func (s *Sitemap) Enumerate(ctx context.Context, target string, cb utils.Progres
 
 		totalProcessed++
 		if cb != nil {
-			cb(totalProcessed, len(sitemapPaths))
+			cb(totalProcessed, 0, len(sitemapPaths))
 		}
 	}
 

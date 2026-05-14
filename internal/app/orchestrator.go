@@ -38,6 +38,7 @@ type JobEvent struct {
 	Status    JobStatus    `json:"status,omitempty"`
 	Error     string       `json:"error,omitempty"`
 	Processed int          `json:"processed,omitempty"`
+	Failed    int          `json:"failed,omitempty"`
 	Total     int          `json:"total,omitempty"`
 }
 
@@ -169,6 +170,9 @@ func (o *Orchestrator) emitJobEvent(jobID string, ev JobEvent) {
 	job, ok := o.jobs[jobID]
 	o.jobsMu.Unlock()
 	if !ok || job == nil {
+		if o.logger != nil {
+			o.logger.Debug("orchestrator: job not found for event emission", logging.Field{Key: "job_id", Value: jobID})
+		}
 		return
 	}
 
@@ -179,11 +183,19 @@ func (o *Orchestrator) emitJobEvent(jobID string, ev JobEvent) {
 
 	o.subsMu.RLock()
 	defer o.subsMu.RUnlock()
+	if len(o.subscribers) == 0 {
+		return
+	}
+
 	for _, sub := range o.subscribers {
 		select {
 		case sub <- ev:
 		default:
-			// Subscriber too slow, skip to avoid blocking orchestrator
+			if o.logger != nil {
+				o.logger.Warn("orchestrator: subscriber buffer full, dropping event",
+					logging.Field{Key: "job_id", Value: jobID},
+					logging.Field{Key: "event_type", Value: ev.Type})
+			}
 		}
 	}
 }
@@ -322,11 +334,12 @@ func (o *Orchestrator) setScanJobResult(jobID string, scan *analyzer.ScanResult)
 }
 
 func (o *Orchestrator) progressCallback(jobID string) utils.ProgressCallback {
-	return func(processed, total int) {
+	return func(processed, failed, total int) {
 		o.emitJobEvent(jobID, JobEvent{
 			JobID:     jobID,
 			Type:      JobEventProgress,
 			Processed: processed,
+			Failed:    failed,
 			Total:     total,
 		})
 	}

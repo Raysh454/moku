@@ -146,6 +146,7 @@ func (t *DummyTracker) AddSnapshots(_ context.Context, pc *models.PendingCommit,
 	cp := append([]*models.Snapshot(nil), snaps...)
 	t.Batches = append(t.Batches, cp)
 	t.AllSnapshots = append(t.AllSnapshots, cp...)
+	pc.SetSnapshotCount(pc.GetSnapshotCount() + len(snaps))
 	return nil
 }
 
@@ -405,6 +406,13 @@ func (d *DummyEndpointIndex) MarkFailed(_ context.Context, canonical string, _ s
 	return d.MarkFailedErr
 }
 
+func (d *DummyEndpointIndex) MarkFailedBatch(_ context.Context, canonicals []string, _ map[string]string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.Failed = append(d.Failed, canonicals...)
+	return d.MarkFailedErr
+}
+
 func (d *DummyEndpointIndex) MarkPendingBatch(_ context.Context, canonicals []string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -446,7 +454,7 @@ func (d *DummyEnumerator) Enumerate(_ context.Context, _ string, cb utils.Progre
 		return nil, d.Err
 	}
 	if cb != nil {
-		cb(len(d.URLs), len(d.URLs))
+		cb(len(d.URLs), 0, len(d.URLs))
 	}
 	return d.URLs, nil
 }

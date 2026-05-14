@@ -104,6 +104,7 @@ func (t *DummyTracker) AddSnapshots(ctx context.Context, pc *models.PendingCommi
 	copySnaps := append([]*models.Snapshot(nil), snapshots...)
 	t.Batches = append(t.Batches, copySnaps)
 	t.AllSnapshots = append(t.AllSnapshots, copySnaps...)
+	pc.SetSnapshotCount(pc.GetSnapshotCount() + len(snapshots))
 
 	return nil
 }
@@ -277,6 +278,13 @@ func (d *DummyEndpointIndex) MarkFailed(ctx context.Context, canonical string, r
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.Failed = append(d.Failed, canonical)
+	return d.MarkFailedErr
+}
+
+func (d *DummyEndpointIndex) MarkFailedBatch(ctx context.Context, canonicals []string, reasons map[string]string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.Failed = append(d.Failed, canonicals...)
 	return d.MarkFailedErr
 }
 
@@ -767,7 +775,7 @@ func TestFetcher_WorkerPoolProgressCallback(t *testing.T) {
 
 	var mu sync.Mutex
 	var progressCalls []int
-	callback := func(current, total int) {
+	callback := func(current, failed, total int) {
 		mu.Lock()
 		defer mu.Unlock()
 		progressCalls = append(progressCalls, current)

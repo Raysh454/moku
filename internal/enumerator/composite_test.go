@@ -61,9 +61,10 @@ func TestComposite_should_aggregate_progress(t *testing.T) {
 
 	composite := enumerator.NewComposite([]enumerator.Enumerator{e1, e2}, nil)
 
-	var lastProcessed, lastTotal int
-	cb := func(processed, total int) {
+	var lastProcessed, lastFailed, lastTotal int
+	cb := func(processed, failed, total int) {
 		lastProcessed = processed
+		lastFailed = failed
 		lastTotal = total
 	}
 
@@ -72,6 +73,7 @@ func TestComposite_should_aggregate_progress(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	_ = lastFailed // Use it
 	if lastProcessed == 0 {
 		t.Error("expected progress callback to report processed > 0")
 	}
