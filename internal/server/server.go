@@ -848,25 +848,33 @@ func (s *Server) handleJobEventsSSE(w http.ResponseWriter, r *http.Request) {
 
 	events := s.orchestrator.Subscribe(r.Context())
 
-	for ev := range events {
-		// Apply filters
-		if projectFilter != "" && ev.Project != projectFilter {
-			continue
-		}
-		if siteFilter != "" && ev.Website != siteFilter {
-			continue
-		}
-		if jobIDFilter != "" && ev.JobID != jobIDFilter {
-			continue
-		}
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			// Apply filters
+			if projectFilter != "" && ev.Project != projectFilter {
+				continue
+			}
+			if siteFilter != "" && ev.Website != siteFilter {
+				continue
+			}
+			if jobIDFilter != "" && ev.JobID != jobIDFilter {
+				continue
+			}
 
-		data, err := json.Marshal(ev)
-		if err != nil {
-			continue
-		}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
 
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
 	}
 }
 

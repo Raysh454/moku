@@ -62,14 +62,16 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		log.Println("Closing orchestrator and components...")
+		srv.Close()
+
+		log.Println("Shutting down HTTP server...")
 		if err := httpServer.Shutdown(ctx); err != nil {
 			log.Printf("HTTP server shutdown error: %v", err)
 		}
-
-		srv.Close()
 
 		close(idleConnsClosed)
 	}()

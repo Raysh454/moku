@@ -978,6 +978,7 @@ func (o *Orchestrator) Close() {
 	o.siteCompMutex.Lock()
 	for id, sc := range o.siteComponentsCache {
 		if sc != nil {
+			o.logger.Info("closing site components", logging.Field{Key: "website_id", Value: id})
 			if err := sc.Close(); err != nil && o.logger != nil {
 				o.logger.Warn("failed to close site components",
 					logging.Field{Key: "website_id", Value: id},
