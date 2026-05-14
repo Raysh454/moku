@@ -615,7 +615,74 @@ func (o *Orchestrator) DeleteProject(ctx context.Context, identifier string) err
 }
 
 func (o *Orchestrator) DeleteWebsite(ctx context.Context, projectIdentifier, websiteSlug string) error {
+	web, err := o.registry.GetWebsiteBySlug(ctx, projectIdentifier, websiteSlug)
+	if err != nil {
+		return err
+	}
+
+	o.cancelWebsiteJobs(web.ProjectID, web.Slug)
+	if err := o.waitForWebsiteJobs(ctx, web.ProjectID, web.Slug); err != nil {
+		return fmt.Errorf("wait for website jobs: %w", err)
+	}
+
+	o.siteCompMutex.Lock()
+	comps := o.siteComponentsCache[web.ID]
+	if comps != nil {
+		delete(o.siteComponentsCache, web.ID)
+	}
+	o.siteCompMutex.Unlock()
+
+	if comps != nil {
+		if err := comps.Close(); err != nil {
+			return fmt.Errorf("close site components: %w", err)
+		}
+	}
+
 	return o.registry.DeleteWebsite(ctx, projectIdentifier, websiteSlug)
+}
+
+func (o *Orchestrator) cancelWebsiteJobs(projectID, websiteSlug string) {
+	o.jobsMu.Lock()
+	defer o.jobsMu.Unlock()
+	for jobID, job := range o.jobs {
+		if job == nil || job.Project != projectID || job.Website != websiteSlug {
+			continue
+		}
+		if cancel := o.jobCancels[jobID]; cancel != nil {
+			cancel()
+		}
+	}
+}
+
+func (o *Orchestrator) waitForWebsiteJobs(ctx context.Context, projectID, websiteSlug string) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if !o.hasActiveWebsiteJobs(projectID, websiteSlug) {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (o *Orchestrator) hasActiveWebsiteJobs(projectID, websiteSlug string) bool {
+	o.jobsMu.Lock()
+	defer o.jobsMu.Unlock()
+	for _, job := range o.jobs {
+		if job == nil || job.Project != projectID || job.Website != websiteSlug {
+			continue
+		}
+		if job.Status != JobDone && job.Status != JobFailed && job.Status != JobCanceled {
+			return true
+		}
+	}
+	return false
 }
 
 // GetWebsiteIndexer returns the indexer for a website.

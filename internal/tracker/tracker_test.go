@@ -85,38 +85,38 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 
 	if commitResult == nil {
 		t.Fatal("Commit returned nil result")
-	}
+	} else {
+		version := &commitResult.Version
+		if version.ID == "" {
+			t.Error("version ID is empty")
+		}
 
-	version := &commitResult.Version
-	if version.ID == "" {
-		t.Error("version ID is empty")
-	}
+		if version.Message != "Initial commit" {
+			t.Errorf("expected message 'Initial commit', got %q", version.Message)
+		}
 
-	if version.Message != "Initial commit" {
-		t.Errorf("expected message 'Initial commit', got %q", version.Message)
-	}
+		if version.Author != "test@example.com" {
+			t.Errorf("expected author 'test@example.com', got %q", version.Author)
+		}
 
-	if version.Author != "test@example.com" {
-		t.Errorf("expected author 'test@example.com', got %q", version.Author)
-	}
+		// Get the snapshots back
+		retrievedSnapshots, err := tr.GetSnapshots(ctx, version.ID)
+		if err != nil {
+			t.Fatalf("GetSnapshots returned error: %v", err)
+		}
 
-	// Get the snapshots back
-	retrievedSnapshots, err := tr.GetSnapshots(ctx, version.ID)
-	if err != nil {
-		t.Fatalf("GetSnapshots returned error: %v", err)
-	}
+		if len(retrievedSnapshots) == 0 {
+			t.Fatal("GetSnapshots returned no snapshots")
+		}
 
-	if len(retrievedSnapshots) == 0 {
-		t.Fatal("GetSnapshots returned no snapshots")
-	}
+		retrievedSnapshot := retrievedSnapshots[0]
+		if retrievedSnapshot.URL != snapshot.URL {
+			t.Errorf("expected URL %q, got %q", snapshot.URL, retrievedSnapshot.URL)
+		}
 
-	retrievedSnapshot := retrievedSnapshots[0]
-	if retrievedSnapshot.URL != snapshot.URL {
-		t.Errorf("expected URL %q, got %q", snapshot.URL, retrievedSnapshot.URL)
-	}
-
-	if string(retrievedSnapshot.Body) != string(snapshot.Body) {
-		t.Errorf("body mismatch: expected %q, got %q", string(snapshot.Body), string(retrievedSnapshot.Body))
+		if string(retrievedSnapshot.Body) != string(snapshot.Body) {
+			t.Errorf("body mismatch: expected %q, got %q", string(snapshot.Body), string(retrievedSnapshot.Body))
+		}
 	}
 }
 
@@ -272,40 +272,40 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 
 	if diff == nil {
 		t.Fatal("Diff returned nil")
-	}
+	} else {
+		if diff.BaseVersionID != result1.Version.ID {
+			t.Errorf("expected BaseVersionID %q, got %q", result1.Version.ID, diff.BaseVersionID)
+		}
 
-	if diff.BaseVersionID != result1.Version.ID {
-		t.Errorf("expected BaseVersionID %q, got %q", result1.Version.ID, diff.BaseVersionID)
-	}
+		if diff.HeadVersionID != result2.Version.ID {
+			t.Errorf("expected HeadVersionID %q, got %q", result2.Version.ID, diff.HeadVersionID)
+		}
 
-	if diff.HeadVersionID != result2.Version.ID {
-		t.Errorf("expected HeadVersionID %q, got %q", result2.Version.ID, diff.HeadVersionID)
-	}
+		// Should have at least one chunk (actual diff implementation)
+		chunkCount := 0
+		for _, f := range diff.Files {
+			chunkCount += len(f.BodyDiff.Chunks)
+		}
+		if chunkCount == 0 {
+			t.Error("expected at least one diff chunk")
+		}
 
-	// Should have at least one chunk (actual diff implementation)
-	chunkCount := 0
-	for _, f := range diff.Files {
-		chunkCount += len(f.BodyDiff.Chunks)
-	}
-	if chunkCount == 0 {
-		t.Error("expected at least one diff chunk")
-	}
-
-	// Verify diff chunks make sense (version 1 removed, version 2 added)
-	hasRemoved := false
-	hasAdded := false
-	for _, f := range diff.Files {
-		for _, chunk := range f.BodyDiff.Chunks {
-			if chunk.Type == "removed" && chunk.Content == "1" {
-				hasRemoved = true
-			}
-			if chunk.Type == "added" && chunk.Content == "2" {
-				hasAdded = true
+		// Verify diff chunks make sense (version 1 removed, version 2 added)
+		hasRemoved := false
+		hasAdded := false
+		for _, f := range diff.Files {
+			for _, chunk := range f.BodyDiff.Chunks {
+				if chunk.Type == "removed" && chunk.Content == "1" {
+					hasRemoved = true
+				}
+				if chunk.Type == "added" && chunk.Content == "2" {
+					hasAdded = true
+				}
 			}
 		}
-	}
-	if !hasRemoved || !hasAdded {
-		t.Errorf("expected diff to show version 1 removed and version 2 added, got multi: %+v", diff)
+		if !hasRemoved || !hasAdded {
+			t.Errorf("expected diff to show version 1 removed and version 2 added, got multi: %+v", diff)
+		}
 	}
 }
 

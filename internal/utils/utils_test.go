@@ -33,18 +33,19 @@ func TestNewSnapshotFromResponse_BasicFields(t *testing.T) {
 
 	if snap == nil {
 		t.Fatal("expected non-nil snapshot")
-	}
-	if snap.URL != "https://example.com/page" {
-		t.Errorf("expected URL from request, got %q", snap.URL)
-	}
-	if snap.StatusCode != 200 {
-		t.Errorf("expected status 200, got %d", snap.StatusCode)
-	}
-	if string(snap.Body) != "<html>body</html>" {
-		t.Errorf("unexpected body: %q", snap.Body)
-	}
-	if snap.CreatedAt != now {
-		t.Errorf("expected CreatedAt = FetchedAt")
+	} else {
+		if snap.URL != "https://example.com/page" {
+			t.Errorf("expected URL from request, got %q", snap.URL)
+		}
+		if snap.StatusCode != 200 {
+			t.Errorf("expected status 200, got %d", snap.StatusCode)
+		}
+		if string(snap.Body) != "<html>body</html>" {
+			t.Errorf("unexpected body: %q", snap.Body)
+		}
+		if snap.CreatedAt != now {
+			t.Errorf("expected CreatedAt = FetchedAt")
+		}
 	}
 }
 

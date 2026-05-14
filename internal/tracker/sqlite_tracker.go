@@ -755,6 +755,12 @@ func (t *SQLiteTracker) DB() *sql.DB {
 func (t *SQLiteTracker) Close() error {
 	t.logger.Info("Closing SQLiteTracker")
 	if t.db != nil {
+		// Explicitly checkpoint the WAL to flush all pending changes and release locks.
+		// This is especially important on Windows where file locks can persist.
+		if _, err := t.db.Exec("PRAGMA wal_checkpoint(RESTART)"); err != nil {
+			t.logger.Warn("WAL checkpoint failed", logging.Field{Key: "error", Value: err.Error()})
+			// Don't fail the close on checkpoint error - still proceed to close the db
+		}
 		return t.db.Close()
 	}
 	return nil

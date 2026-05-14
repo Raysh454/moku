@@ -162,13 +162,13 @@ func TestBuildAttackSurfaceFromHTML_EmptyHTML(t *testing.T) {
 
 	if as == nil {
 		t.Fatal("Expected AttackSurface to be non-nil")
-	}
-
-	if len(as.Forms) != 0 {
-		t.Errorf("Expected 0 forms, got %d", len(as.Forms))
-	}
-	if len(as.Scripts) != 0 {
-		t.Errorf("Expected 0 scripts, got %d", len(as.Scripts))
+	} else {
+		if len(as.Forms) != 0 {
+			t.Errorf("Expected 0 forms, got %d", len(as.Forms))
+		}
+		if len(as.Scripts) != 0 {
+			t.Errorf("Expected 0 scripts, got %d", len(as.Scripts))
+		}
 	}
 }
 
@@ -198,25 +198,25 @@ func TestParseCookie_CompleteAttributes(t *testing.T) {
 
 	if cookie == nil {
 		t.Fatal("Expected cookie to be non-nil")
-	}
-
-	if cookie.Name != "sessionid" {
-		t.Errorf("Expected name to be sessionid, got %s", cookie.Name)
-	}
-	if cookie.Domain != "example.com" {
-		t.Errorf("Expected domain to be example.com, got %s", cookie.Domain)
-	}
-	if cookie.Path != "/app" {
-		t.Errorf("Expected path to be /app, got %s", cookie.Path)
-	}
-	if !cookie.Secure {
-		t.Errorf("Expected cookie to be Secure")
-	}
-	if !cookie.HttpOnly {
-		t.Errorf("Expected cookie to be HttpOnly")
-	}
-	if cookie.SameSite != "Lax" {
-		t.Errorf("Expected SameSite to be Lax, got %s", cookie.SameSite)
+	} else {
+		if cookie.Name != "sessionid" {
+			t.Errorf("Expected name to be sessionid, got %s", cookie.Name)
+		}
+		if cookie.Domain != "example.com" {
+			t.Errorf("Expected domain to be example.com, got %s", cookie.Domain)
+		}
+		if cookie.Path != "/app" {
+			t.Errorf("Expected path to be /app, got %s", cookie.Path)
+		}
+		if !cookie.Secure {
+			t.Errorf("Expected cookie to be Secure")
+		}
+		if !cookie.HttpOnly {
+			t.Errorf("Expected cookie to be HttpOnly")
+		}
+		if cookie.SameSite != "Lax" {
+			t.Errorf("Expected SameSite to be Lax, got %s", cookie.SameSite)
+		}
 	}
 }
 
@@ -225,16 +225,16 @@ func TestParseCookie_MinimalCookie(t *testing.T) {
 
 	if cookie == nil {
 		t.Fatal("Expected cookie to be non-nil")
-	}
-
-	if cookie.Name != "token" {
-		t.Errorf("Expected name to be token, got %s", cookie.Name)
-	}
-	if cookie.Secure {
-		t.Errorf("Expected cookie to not be Secure")
-	}
-	if cookie.HttpOnly {
-		t.Errorf("Expected cookie to not be HttpOnly")
+	} else {
+		if cookie.Name != "token" {
+			t.Errorf("Expected name to be token, got %s", cookie.Name)
+		}
+		if cookie.Secure {
+			t.Errorf("Expected cookie to not be Secure")
+		}
+		if cookie.HttpOnly {
+			t.Errorf("Expected cookie to not be HttpOnly")
+		}
 	}
 }
 

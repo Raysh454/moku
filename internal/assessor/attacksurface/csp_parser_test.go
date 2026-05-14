@@ -8,15 +8,16 @@ func TestParseCSP_EmptyHeader(t *testing.T) {
 	csp := ParseCSP("", false)
 	if csp == nil {
 		t.Fatal("expected non-nil CSPDirectives for empty header")
-	}
-	if csp.HasUnsafeInline {
-		t.Error("expected HasUnsafeInline == false for empty CSP")
-	}
-	if csp.HasUnsafeEval {
-		t.Error("expected HasUnsafeEval == false for empty CSP")
-	}
-	if csp.ReportOnly {
-		t.Error("expected ReportOnly == false")
+	} else {
+		if csp.HasUnsafeInline {
+			t.Error("expected HasUnsafeInline == false for empty CSP")
+		}
+		if csp.HasUnsafeEval {
+			t.Error("expected HasUnsafeEval == false for empty CSP")
+		}
+		if csp.ReportOnly {
+			t.Error("expected ReportOnly == false")
+		}
 	}
 }
 

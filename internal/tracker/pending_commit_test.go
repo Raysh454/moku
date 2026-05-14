@@ -31,22 +31,22 @@ func TestBeginCommit_CreatesVersion(t *testing.T) {
 
 	if pc == nil {
 		t.Fatal("BeginCommit returned nil PendingCommit")
-	}
+	} else {
+		if pc.VersionID == "" {
+			t.Error("PendingCommit has empty VersionID")
+		}
 
-	if pc.VersionID == "" {
-		t.Error("PendingCommit has empty VersionID")
-	}
+		if pc.Message != "Test commit" {
+			t.Errorf("Expected message 'Test commit', got '%s'", pc.Message)
+		}
 
-	if pc.Message != "Test commit" {
-		t.Errorf("Expected message 'Test commit', got '%s'", pc.Message)
-	}
+		if pc.Author != "test-author" {
+			t.Errorf("Expected author 'test-author', got '%s'", pc.Author)
+		}
 
-	if pc.Author != "test-author" {
-		t.Errorf("Expected author 'test-author', got '%s'", pc.Author)
-	}
-
-	if pc.GetTransaction() == nil {
-		t.Error("PendingCommit has no active transaction")
+		if pc.GetTransaction() == nil {
+			t.Error("PendingCommit has no active transaction")
+		}
 	}
 
 	// Clean up
@@ -188,20 +188,20 @@ func TestFinalizeCommit_CreatesOneVersion(t *testing.T) {
 
 	if cr == nil {
 		t.Fatal("FinalizeCommit returned nil CommitResult")
-	}
+	} else {
+		if cr.Version.ID == "" {
+			t.Error("CommitResult has empty Version ID")
+		}
 
-	if cr.Version.ID == "" {
-		t.Error("CommitResult has empty Version ID")
-	}
+		if len(cr.Snapshots) != 3 {
+			t.Errorf("Expected 3 snapshots in result, got %d", len(cr.Snapshots))
+		}
 
-	if len(cr.Snapshots) != 3 {
-		t.Errorf("Expected 3 snapshots in result, got %d", len(cr.Snapshots))
-	}
-
-	// Verify all snapshots have the same version ID
-	for i, snap := range cr.Snapshots {
-		if snap.VersionID != cr.Version.ID {
-			t.Errorf("Snapshot %d has different version ID: %s != %s", i, snap.VersionID, cr.Version.ID)
+		// Verify all snapshots have the same version ID
+		for i, snap := range cr.Snapshots {
+			if snap.VersionID != cr.Version.ID {
+				t.Errorf("Snapshot %d has different version ID: %s != %s", i, snap.VersionID, cr.Version.ID)
+			}
 		}
 	}
 }

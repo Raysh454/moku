@@ -50,14 +50,14 @@ func TestHeaderStorage_Integration(t *testing.T) {
 
 	if result1 == nil {
 		t.Fatal("Commit returned nil result")
-	}
-
-	retrievedSnapshots, err := tr.GetSnapshots(ctx, result1.Version.ID)
-	if err != nil {
-		t.Fatalf("GetSnapshots returned error: %v", err)
-	}
-	if len(retrievedSnapshots) == 0 {
-		t.Fatal("GetSnapshots returned no snapshots")
+	} else {
+		retrievedSnapshots, err := tr.GetSnapshots(ctx, result1.Version.ID)
+		if err != nil {
+			t.Fatalf("GetSnapshots returned error: %v", err)
+		}
+		if len(retrievedSnapshots) == 0 {
+			t.Fatal("GetSnapshots returned no snapshots")
+		}
 	}
 
 	// Second snapshot with modified headers
@@ -87,18 +87,18 @@ func TestHeaderStorage_Integration(t *testing.T) {
 
 	if diff == nil {
 		t.Fatal("Diff returned nil")
-	}
+	} else {
+		// Expect at least one file diff with body chunks
+		chunkCount := 0
+		for _, f := range diff.Files {
+			chunkCount += len(f.BodyDiff.Chunks)
+		}
+		if chunkCount == 0 {
+			t.Error("expected at least one body diff chunk")
+		}
 
-	// Expect at least one file diff with body chunks
-	chunkCount := 0
-	for _, f := range diff.Files {
-		chunkCount += len(f.BodyDiff.Chunks)
+		t.Logf("Diff computed successfully with %d chunks", chunkCount)
 	}
-	if chunkCount == 0 {
-		t.Error("expected at least one body diff chunk")
-	}
-
-	t.Logf("Diff computed successfully with %d chunks", chunkCount)
 }
 
 func TestHeaderNormalization_Integration(t *testing.T) {

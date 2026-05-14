@@ -151,25 +151,27 @@ func runAnalyzerContract(t *testing.T, expectedBackend analyzer.Backend, newA an
 		}
 		if result == nil {
 			t.Fatal("ScanAndWait returned nil result with nil error")
-		}
-		if result.Backend != expectedBackend {
-			t.Errorf("result.Backend = %q, want %q", result.Backend, expectedBackend)
-		}
-		if result.Status != analyzer.StatusCompleted {
-			t.Errorf("result.Status = %q, want %q", result.Status, analyzer.StatusCompleted)
-		}
-		if result.Findings == nil {
-			t.Error("result.Findings is nil; contract requires non-nil once Completed")
-		}
-		if result.Summary == nil {
-			t.Fatal("result.Summary is nil; contract requires non-nil once Completed")
-		}
-		if result.Summary.Total != len(result.Findings) {
-			t.Errorf("Summary.Total = %d, want %d (= len(Findings))", result.Summary.Total, len(result.Findings))
-		}
-		severitySum := result.Summary.Info + result.Summary.Low + result.Summary.Medium + result.Summary.High + result.Summary.Critical
-		if severitySum != result.Summary.Total {
-			t.Errorf("per-severity counts sum to %d, want %d (= Summary.Total)", severitySum, result.Summary.Total)
+		} else {
+			if result.Backend != expectedBackend {
+				t.Errorf("result.Backend = %q, want %q", result.Backend, expectedBackend)
+			}
+			if result.Status != analyzer.StatusCompleted {
+				t.Errorf("result.Status = %q, want %q", result.Status, analyzer.StatusCompleted)
+			}
+			if result.Findings == nil {
+				t.Error("result.Findings is nil; contract requires non-nil once Completed")
+			}
+			if result.Summary == nil {
+				t.Fatal("result.Summary is nil; contract requires non-nil once Completed")
+			} else {
+				if result.Summary.Total != len(result.Findings) {
+					t.Errorf("Summary.Total = %d, want %d (= len(Findings))", result.Summary.Total, len(result.Findings))
+				}
+				severitySum := result.Summary.Info + result.Summary.Low + result.Summary.Medium + result.Summary.High + result.Summary.Critical
+				if severitySum != result.Summary.Total {
+					t.Errorf("per-severity counts sum to %d, want %d (= Summary.Total)", severitySum, result.Summary.Total)
+				}
+			}
 		}
 	})
 
