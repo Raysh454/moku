@@ -45,14 +45,14 @@ func TestSQLiteTracker_CommitBatch_MultipleSnapshots(t *testing.T) {
 	}
 	if cr == nil {
 		t.Fatal("CommitBatch returned nil")
-	}
-
-	got, err := tr.GetSnapshots(ctx, cr.Version.ID)
-	if err != nil {
-		t.Fatalf("GetSnapshots: %v", err)
-	}
-	if len(got) != 3 {
-		t.Errorf("expected 3 snapshots, got %d", len(got))
+	} else {
+		got, err := tr.GetSnapshots(ctx, cr.Version.ID)
+		if err != nil {
+			t.Fatalf("GetSnapshots: %v", err)
+		}
+		if len(got) != 3 {
+			t.Errorf("expected 3 snapshots, got %d", len(got))
+		}
 	}
 }
 
@@ -156,9 +156,10 @@ func TestSQLiteTracker_GetSnapshotByURL(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatal("expected non-nil snapshot")
-	}
-	if got.URL != url {
-		t.Errorf("expected URL=%q, got %q", url, got.URL)
+	} else {
+		if got.URL != url {
+			t.Errorf("expected URL=%q, got %q", url, got.URL)
+		}
 	}
 }
 
@@ -276,9 +277,10 @@ func TestSQLiteTracker_DiffSnapshots(t *testing.T) {
 	}
 	if diff == nil {
 		t.Fatal("DiffSnapshots returned nil")
-	}
-	if len(diff.BodyDiff.Chunks) == 0 {
-		t.Error("expected non-empty diff chunks between 'before' and 'after'")
+	} else {
+		if len(diff.BodyDiff.Chunks) == 0 {
+			t.Error("expected non-empty diff chunks between 'before' and 'after'")
+		}
 	}
 }
 

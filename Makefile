@@ -25,6 +25,7 @@ MKDIR_BIN := mkdir -p $(BIN_DIR)
 MKDIR_TEST_RESULTS := mkdir -p test-results
 RM_CLEAN := rm -rf $(BIN_DIR) coverage.out coverage.html test-results
 COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out | tee test-results/coverage.txt
+COVERAGE_TEST := SKIP_CHROMEDP=1 $(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
 INSTALL_GOLANGCI := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 INSTALL_SWAGGER := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
 
@@ -39,6 +40,7 @@ MKDIR_BIN := if not exist "$(BIN_DIR)" mkdir "$(BIN_DIR)"
 MKDIR_TEST_RESULTS := if not exist "test-results" mkdir "test-results"
 RM_CLEAN := if exist "$(BIN_DIR)" rmdir /S /Q "$(BIN_DIR)" & if exist "coverage.out" del /Q "coverage.out" & if exist "coverage.html" del /Q "coverage.html" & if exist "test-results" rmdir /S /Q "test-results"
 COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out > "test-results\\coverage.txt" & type "test-results\\coverage.txt"
+COVERAGE_TEST := set SKIP_CHROMEDP=1& $(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
 INSTALL_GOLANGCI := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 INSTALL_SWAGGER := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
 endif
@@ -124,7 +126,7 @@ endif
 coverage:
 	@echo "==> running tests with coverage"
 	@$(MKDIR_TEST_RESULTS)
-	SKIP_CHROMEDP=1 $(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
+	$(COVERAGE_TEST)
 	@echo "==> coverage summary"
 	@$(COVERAGE_SUMMARY)
 

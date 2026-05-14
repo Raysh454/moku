@@ -327,6 +327,23 @@ func (r *Registry) CreateWebsite(ctx context.Context, projectIdentifier string, 
 
 	originDirName := normalizeOriginForDir(origin)
 	wdir := r.websiteDir(projectDirName, originDirName)
+
+	// Check if directory already exists with data from a previous website.
+	// This can happen if the previous deletion failed due to file locks.
+	mokiDir := filepath.Join(wdir, ".moku")
+	mokiDBPath := filepath.Join(mokiDir, "moku.db")
+	if _, err := os.Stat(mokiDBPath); err == nil {
+		// Directory already has a database - this is likely from a previous failed deletion.
+		// Remove the directory and recreate fresh.
+		if err := os.RemoveAll(wdir); err != nil {
+			return nil, fmt.Errorf("remove stale website directory: %w", err)
+		}
+		if r.logger != nil {
+			r.logger.Warn("removed stale website directory from previous failed deletion",
+				logging.Field{Key: "path", Value: wdir})
+		}
+	}
+
 	if err := os.MkdirAll(wdir, 0o755); err != nil {
 		return nil, fmt.Errorf("create website dir: %w", err)
 	}
@@ -477,9 +494,17 @@ func (r *Registry) DeleteWebsite(ctx context.Context, projectIdentifier, website
 		return fmt.Errorf("delete website from DB: %w", err)
 	}
 
-	// Remove directory
+	// Best-effort directory removal. Log errors but don't fail the operation,
+	// since the website is already removed from the database.
 	wdir := r.websiteDir(projectDirName, originDirName)
-	return os.RemoveAll(wdir)
+	if err := os.RemoveAll(wdir); err != nil {
+		if r.logger != nil {
+			r.logger.Warn("failed to remove website directory",
+				logging.Field{Key: "path", Value: wdir},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+	return nil
 }
 
 // DeleteProject removes a project's DB record and its associated directory.
@@ -500,7 +525,15 @@ func (r *Registry) DeleteProject(ctx context.Context, identifier string) error {
 		return fmt.Errorf("delete project from DB: %w", err)
 	}
 
-	// Remove directory
+	// Best-effort directory removal. Log errors but don't fail the operation,
+	// since the project is already removed from the database.
 	projDir := r.projectDir(dirName)
-	return os.RemoveAll(projDir)
+	if err := os.RemoveAll(projDir); err != nil {
+		if r.logger != nil {
+			r.logger.Warn("failed to remove project directory",
+				logging.Field{Key: "path", Value: projDir},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+	return nil
 }

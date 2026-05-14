@@ -107,6 +107,7 @@ type DummyTracker struct {
 	Batches       [][]*models.Snapshot
 	AllSnapshots  []*models.Snapshot
 	PendingCommit *models.PendingCommit
+	CloseFunc     func() error
 }
 
 func (t *DummyTracker) Commit(_ context.Context, snap *models.Snapshot, _, _ string) (*models.CommitResult, error) {
@@ -234,7 +235,12 @@ func (t *DummyTracker) ReadHEAD() (string, error) { return "", nil }
 
 func (t *DummyTracker) DB() *sql.DB { return nil }
 
-func (t *DummyTracker) Close() error { return nil }
+func (t *DummyTracker) Close() error {
+	if t.CloseFunc != nil {
+		return t.CloseFunc()
+	}
+	return nil
+}
 
 // ─── Assessor ──────────────────────────────────────────────────────────
 

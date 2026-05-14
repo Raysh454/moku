@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -216,9 +217,60 @@ func TestStartFetchJob_TransitionsToRunningThenDone(t *testing.T) {
 	final := o.GetJob(job.ID)
 	if final == nil {
 		t.Fatal("job not found after completion")
+	} else {
+		if final.Status != JobDone {
+			t.Errorf("expected status 'done', got %q (err: %s)", final.Status, final.Error)
+		}
 	}
-	if final.Status != JobDone {
-		t.Errorf("expected status 'done', got %q (err: %s)", final.Status, final.Error)
+}
+
+func TestOrchestrator_DeleteWebsite_ClosesCachedComponents(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	ctx := context.Background()
+
+	if _, err := o.CreateProject(ctx, "proj", "Proj", ""); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	web, err := o.CreateWebsite(ctx, "proj", "site", "https://example.com")
+	if err != nil {
+		t.Fatalf("CreateWebsite: %v", err)
+	}
+
+	closed := false
+	tr := &testutil.DummyTracker{CloseFunc: func() error {
+		closed = true
+		return nil
+	}}
+	wc := &testutil.DummyWebClient{}
+	idx := &testutil.DummyEndpointIndex{}
+	an := &testutil.DummyAnalyzer{}
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, &testutil.DummyLogger{})
+	if err != nil {
+		t.Fatalf("new fetcher: %v", err)
+	}
+
+	o.siteCompMutex.Lock()
+	if o.siteComponentsCache == nil {
+		o.siteComponentsCache = make(map[string]*SiteComponents)
+	}
+	o.siteComponentsCache[web.ID] = &SiteComponents{Tracker: tr, Index: idx, Fetcher: f, WebClient: wc, Analyzer: an}
+	o.siteCompMutex.Unlock()
+
+	if err := o.DeleteWebsite(ctx, "proj", "site"); err != nil {
+		t.Fatalf("DeleteWebsite: %v", err)
+	}
+	if !closed {
+		t.Fatal("expected cached tracker to be closed before deletion")
+	}
+	o.siteCompMutex.Lock()
+	_, ok := o.siteComponentsCache[web.ID]
+	o.siteCompMutex.Unlock()
+	if ok {
+		t.Fatal("expected cached site components to be evicted after deletion")
+	}
+	if _, err := os.Stat(web.StoragePath); !os.IsNotExist(err) {
+		t.Fatalf("expected website directory to be removed, stat err = %v", err)
 	}
 }
 
@@ -258,10 +310,11 @@ func TestStartFetchJob_CancelJobTransitionsToCanceled(t *testing.T) {
 	final := o.GetJob(job.ID)
 	if final == nil {
 		t.Fatal("job not found after cancel")
-	}
-	// May be done or canceled depending on timing
-	if final.Status != JobCanceled && final.Status != JobDone {
-		t.Errorf("expected done or canceled, got %q", final.Status)
+	} else {
+		// May be done or canceled depending on timing
+		if final.Status != JobCanceled && final.Status != JobDone {
+			t.Errorf("expected done or canceled, got %q", final.Status)
+		}
 	}
 }
 
@@ -323,10 +376,11 @@ func TestStartEnumerateJob_Completes(t *testing.T) {
 	final := o.GetJob(job.ID)
 	if final == nil {
 		t.Fatal("job not found")
-	}
-	// Job should complete (done) or fail depending on spider result
-	if final.Status != JobDone && final.Status != JobFailed {
-		t.Errorf("expected done or failed, got %q", final.Status)
+	} else {
+		// Job should complete (done) or fail depending on spider result
+		if final.Status != JobDone && final.Status != JobFailed {
+			t.Errorf("expected done or failed, got %q", final.Status)
+		}
 	}
 }
 
