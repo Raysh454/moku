@@ -132,6 +132,16 @@ func (o *Orchestrator) ensureJobMaps() {
 func (o *Orchestrator) Subscribe(ctx context.Context) chan JobEvent {
 	ch := make(chan JobEvent, 100)
 	o.subsMu.Lock()
+	o.closedMu.Lock()
+	closed := o.closed
+	o.closedMu.Unlock()
+
+	if closed {
+		o.subsMu.Unlock()
+		close(ch)
+		return ch
+	}
+
 	o.subscribers = append(o.subscribers, ch)
 	o.subsMu.Unlock()
 
@@ -989,4 +999,11 @@ func (o *Orchestrator) Close() {
 		delete(o.siteComponentsCache, id)
 	}
 	o.siteCompMutex.Unlock()
+
+	o.subsMu.Lock()
+	for _, sub := range o.subscribers {
+		close(sub)
+	}
+	o.subscribers = nil
+	o.subsMu.Unlock()
 }

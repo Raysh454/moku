@@ -28,7 +28,7 @@ func TestFetch_SingleVersion(t *testing.T) {
 
 	// Fetch 5 URLs (should create 3 batches: 2 + 2 + 1)
 	urls := []string{"url1", "url2", "url3", "url4", "url5"}
-	f.Fetch(context.Background(), urls, nil)
+	_ = f.Fetch(context.Background(), urls, nil)
 
 	// Verify multiple batches were created (should be 3)
 	if len(tr.Batches) != 3 {
@@ -69,7 +69,7 @@ func TestFetch_LargeSet(t *testing.T) {
 		urls[i] = string(rune('A' + i%26))
 	}
 
-	f.Fetch(context.Background(), urls, nil)
+	_ = f.Fetch(context.Background(), urls, nil)
 
 	// Verify 3 batches (100 + 100 + 50)
 	if len(tr.Batches) != 3 {
@@ -108,7 +108,7 @@ func TestFetch_WithCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	urls := []string{"url1", "url2", "url3"}
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// With immediate cancellation, we might get 0 or 1 finalize
 	// The important thing is that CancelCommit is called if needed
@@ -138,7 +138,7 @@ func TestFetch_WithErrors(t *testing.T) {
 	}
 
 	urls := []string{"ok1", "fail1", "ok2", "fail2", "ok3"}
-	f.Fetch(context.Background(), urls, nil)
+	_ = f.Fetch(context.Background(), urls, nil)
 
 	// Should finalize once (even with some failures)
 	if tr.FinalizedCount != 1 {

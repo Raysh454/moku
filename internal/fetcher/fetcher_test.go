@@ -116,6 +116,11 @@ func (t *DummyTracker) FinalizeCommit(ctx context.Context, pc *models.PendingCom
 		return nil, errors.New("no active transaction")
 	}
 
+	if len(t.AllSnapshots) == 0 {
+		pc.SetTransaction(nil)
+		return nil, errors.New("cannot finalize commit with 0 snapshots")
+	}
+
 	// Mark transaction as complete
 	pc.SetTransaction(nil)
 	t.FinalizedCount++
@@ -344,7 +349,7 @@ func TestFetcher_Batching(t *testing.T) {
 	}
 
 	urls := []string{"1", "2", "3", "4", "5"}
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	expected := []int{2, 2, 1}
 
@@ -379,7 +384,7 @@ func TestFetcher_ContextCancellation(t *testing.T) {
 		cancel() // cancel while fetching
 	}()
 
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	if len(tr.Batches) > 1 {
 		t.Fatalf("expected at most 1 batch due to cancellation, got %d", len(tr.Batches))
@@ -399,7 +404,7 @@ func TestFetcher_LogsFetchErrors_AndMarksFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.Fetch(ctx, []string{"a", "bad", "b"}, nil)
+	_ = f.Fetch(ctx, []string{"a", "bad", "b"}, nil)
 
 	if len(logger.Errors) == 0 {
 		t.Fatalf("expected logged errors but got none")
@@ -432,7 +437,7 @@ func TestFetcher_FetchResponseBodies(t *testing.T) {
 	}
 
 	urls := []string{"x", "y", "z"}
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// Check that snapshot bodies match "ok:<url>"
 	found := map[string]bool{}
@@ -466,7 +471,7 @@ func TestFetcher_FinalBatchFlush(t *testing.T) {
 	}
 
 	urls := []string{"a", "b", "c", "d"} // 4 snapshots, commit size = 3
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	expectedBatches := 2 // one batch of 3, one batch of 1
 	if len(tr.Batches) != expectedBatches {
@@ -500,7 +505,7 @@ func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			urls := []string{fmt.Sprintf("u%d-1", i), fmt.Sprintf("u%d-2", i)}
-			f.Fetch(ctx, urls, nil)
+			_ = f.Fetch(ctx, urls, nil)
 		}(i)
 	}
 	wg.Wait()
@@ -546,7 +551,7 @@ func TestFetcher_WorkerPoolLimitsGoroutines(t *testing.T) {
 	// The key test: with worker pool pattern, this should spawn only MaxConcurrency workers
 	// (not 50 goroutines). We can't directly count goroutines in the test, but we can
 	// verify all URLs are processed correctly which proves the pattern works.
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// Verify all snapshots were processed
 	total := 0
@@ -573,7 +578,7 @@ func TestFetcher_WorkerPoolWithSingleWorker(t *testing.T) {
 	}
 
 	urls := []string{"a", "b", "c", "d", "e"}
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// All URLs should still be processed
 	total := 0
@@ -604,7 +609,7 @@ func TestFetcher_WorkerPoolWithHighConcurrency(t *testing.T) {
 		urls[i] = fmt.Sprintf("url-%d", i)
 	}
 
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// All URLs should be processed
 	total := 0
@@ -642,7 +647,7 @@ func TestFetcher_WorkerPoolCancellationMidFetch(t *testing.T) {
 		cancel()
 	}()
 
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// We expect fewer than all URLs to be processed due to cancellation
 	// The exact number is non-deterministic, but should be < 100
@@ -683,7 +688,7 @@ func TestFetcher_WorkerPoolErrorHandlingDoesNotBlock(t *testing.T) {
 		urls[i] = fmt.Sprintf("url-%d", i)
 	}
 
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// Count successful snapshots
 	total := 0
@@ -721,7 +726,7 @@ func TestFetcher_WorkerPoolProcessesAllURLs(t *testing.T) {
 
 	// 10 URLs with only 3 workers
 	urls := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}
-	f.Fetch(ctx, urls, nil)
+	_ = f.Fetch(ctx, urls, nil)
 
 	// Collect all processed URLs
 	processed := make(map[string]bool)
@@ -768,7 +773,7 @@ func TestFetcher_WorkerPoolProgressCallback(t *testing.T) {
 		progressCalls = append(progressCalls, current)
 	}
 
-	f.Fetch(ctx, urls, callback)
+	_ = f.Fetch(ctx, urls, callback)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -864,7 +869,7 @@ func TestFetchWithOptions_StatusCodeFiltering(t *testing.T) {
 		FilterConfig:      filterCfg,
 	}
 
-	f.FetchWithOptions(ctx, urls, opts, nil)
+	_ = f.FetchWithOptions(ctx, urls, opts, nil)
 
 	// Check that 404 was filtered
 	idx.mu.Lock()
@@ -925,7 +930,7 @@ func TestFetchWithOptions_NoFilterConfig(t *testing.T) {
 	urls := []string{"http://example.com/notfound"}
 
 	// No filter options - 404 should be fetched normally
-	f.FetchWithOptions(ctx, urls, nil, nil)
+	_ = f.FetchWithOptions(ctx, urls, nil, nil)
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -981,7 +986,7 @@ func TestFetchWithOptions_MultipleStatusCodesFiltered(t *testing.T) {
 		FilterConfig:      filterCfg,
 	}
 
-	f.FetchWithOptions(ctx, urls, opts, nil)
+	_ = f.FetchWithOptions(ctx, urls, opts, nil)
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -1091,11 +1096,40 @@ func benchmarkFetcherWorkPool(b *testing.B, numURLs, maxConcurrency int) {
 		idx := &DummyEndpointIndex{}
 
 		f, _ := fetcher.New(fetcher.Config{MaxConcurrency: maxConcurrency, CommitSize: 100}, tr, wc, idx, logger)
-		f.Fetch(ctx, urls, nil)
+		_ = f.Fetch(ctx, urls, nil)
 	}
 }
 
 // BenchmarkFetcher_MemoryUsage measures memory allocations
+func TestFetcher_FailAllRequestsReturnsError(t *testing.T) {
+	tr := &DummyTracker{}
+	wc := &DummyWebClient{
+		FailURLs: map[string]bool{
+			"https://fail.com":  true,
+			"https://broken.io": true,
+		},
+	}
+	cfg := fetcher.Config{
+		MaxConcurrency: 4,
+		CommitSize:     10,
+	}
+	f, _ := fetcher.New(cfg, tr, wc, nil, &DummyLogger{})
+
+	err := f.Fetch(context.Background(), []string{"https://fail.com", "https://broken.io"}, nil)
+
+	if err == nil {
+		t.Error("expected error when all requests fail, but got nil")
+	}
+
+	tr.mu.Lock()
+	finalized := tr.FinalizedCount
+	tr.mu.Unlock()
+
+	if finalized > 0 {
+		t.Errorf("expected 0 finalized commits, but got %d", finalized)
+	}
+}
+
 func BenchmarkFetcher_MemoryUsage_1000URLs(b *testing.B) {
 	ctx := context.Background()
 
@@ -1114,6 +1148,6 @@ func BenchmarkFetcher_MemoryUsage_1000URLs(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		f.Fetch(ctx, urls, nil)
+		_ = f.Fetch(ctx, urls, nil)
 	}
 }

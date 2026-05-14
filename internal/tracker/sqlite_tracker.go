@@ -1146,6 +1146,15 @@ func (t *SQLiteTracker) FinalizeCommit(ctx context.Context, pc *models.PendingCo
 		logging.Field{Key: "version_id", Value: pc.VersionID},
 		logging.Field{Key: "total_snapshots", Value: pc.GetSnapshotCount()})
 
+	// Prevent empty commits (unless we decide we want them in the future)
+	if pc.GetSnapshotCount() == 0 {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			t.logger.Warn("Failed to rollback empty commit transaction", logging.Field{Key: "error", Value: err.Error()})
+		}
+		pc.SetTransaction(nil)
+		return nil, fmt.Errorf("cannot finalize commit with 0 snapshots for version %s", pc.VersionID)
+	}
+
 	// Compute and store diff if there's a parent
 	var diffID, diffJSON string
 	if pc.ParentID != "" {
