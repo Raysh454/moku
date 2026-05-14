@@ -224,27 +224,128 @@ export const subscribeToJobEvents = (
   const query = params.toString() ? `?${params}` : "";
   const url = `${apiBase}/jobs/events${query}`;
 
-  const eventSource = new EventSource(url);
+  let eventSource: EventSource | null = null;
+  let closed = false;
+  let reconnectTimer: number | null = null;
+  let backoff = 1000; // start 1s
+  const maxBackoff = 30000; // 30s
+  let healthCheckTimer: number | null = null;
 
-  eventSource.onopen = () => {
-    if (onOpen) onOpen();
-  };
-
-  eventSource.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      onEvent(data);
-    } catch (err) {
-      console.error("Failed to parse SSE event:", err);
+  const stopHealthCheck = () => {
+    if (healthCheckTimer) {
+      clearInterval(healthCheckTimer as unknown as number);
+      healthCheckTimer = null;
     }
   };
 
-  eventSource.onerror = (err) => {
-    console.error("SSE connection error:", err);
+  const startHealthCheck = () => {
+    stopHealthCheck();
+    // Poll /jobs to detect when backend is available again. Runs every 2s.
+    healthCheckTimer = window.setInterval(async () => {
+      try {
+        const resp = await fetch(`${apiBase}/jobs`, { method: "GET", cache: "no-cache" });
+        if (resp.ok) {
+          stopHealthCheck();
+          // Attempt immediate reconnect
+          backoff = 1000;
+          if (!closed) create();
+        }
+      } catch (_e) {
+        // ignore
+      }
+    }, 2000) as unknown as number;
   };
 
+  const create = () => {
+    if (closed) return;
+    // clean up previous
+    if (eventSource) {
+      try {
+        eventSource.close();
+      } catch (_) {}
+      eventSource = null;
+    }
+
+    eventSource = new EventSource(url);
+
+    eventSource.onopen = () => {
+      backoff = 1000;
+      stopHealthCheck();
+      if (onOpen) onOpen();
+    };
+
+    eventSource.onmessage = (ev) => {
+      const raw = ev.data;
+      if (!raw) return;
+      // Ignore SSE comment/ping lines if any (some proxies may send these as events)
+      if (typeof raw === "string" && raw.trim().startsWith(":")) return;
+      try {
+        const data = JSON.parse(raw);
+        onEvent(data);
+      } catch (err) {
+        console.error("Failed to parse SSE event:", err, "raw:", raw);
+      }
+    };
+
+    eventSource.onerror = (_err) => {
+      console.error("SSE connection error, scheduling reconnect", _err);
+      if (closed) return;
+      // Close the current EventSource to free the socket and allow the
+      // proxy to accept a fresh connection later.
+      try {
+        eventSource?.close();
+      } catch (_) {}
+      eventSource = null;
+
+      // Start a health-check loop that will try to detect when the backend
+      // becomes responsive again and trigger an immediate reconnect.
+      startHealthCheck();
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        backoff = Math.min(maxBackoff, backoff * 2);
+        create();
+      }, backoff) as unknown as number;
+    };
+  };
+
+  // Also attempt reconnect when the page becomes visible or the browser
+  // regains network connectivity.
+  const onOnline = () => {
+    if (closed) return;
+    backoff = 1000;
+    stopHealthCheck();
+    if (!eventSource) create();
+  };
+  const onVisibility = () => {
+    if (document.visibilityState === "visible") {
+      onOnline();
+    }
+  };
+  window.addEventListener("online", onOnline);
+  document.addEventListener("visibilitychange", onVisibility);
+
+  // Start
+  create();
+
   return () => {
-    eventSource.close();
+    closed = true;
+    stopHealthCheck();
+    window.removeEventListener("online", onOnline);
+    document.removeEventListener("visibilitychange", onVisibility);
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer as unknown as number);
+      reconnectTimer = null;
+    }
+    if (eventSource) {
+      try {
+        eventSource.close();
+      } catch (_) {}
+      eventSource = null;
+    }
   };
 };
 
