@@ -116,42 +116,70 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 	urlQueue := make(chan string, f.config.MaxConcurrency*2)
 	snapCh := make(chan *models.Snapshot)
 	batcherErr := make(chan error, 1)
-	filterCollectorDone := make(chan struct{})
 
-	// Channel for URLs filtered by status code (for marking in indexer)
+	// Channels for URLs filtered by status code or failed (for marking in indexer)
 	filteredCh := make(chan filteredURL, f.config.MaxConcurrency)
+	failedCh := make(chan filteredURL, f.config.MaxConcurrency)
 
-	// Collected filtered URLs (populated by collector goroutine)
+	// Collected URLs (populated by collector goroutine)
 	var filteredURLs []string
 	var filteredReasons map[string]string
+	var failedURLs []string
+	var failedReasons map[string]string
+
+	collectorDone := make(chan struct{})
+
+	// Start a goroutine to collect filtered and failed URLs to avoid blocking workers
+	go func() {
+		defer close(collectorDone)
+		filteredURLs = make([]string, 0)
+		filteredReasons = make(map[string]string)
+		failedURLs = make([]string, 0)
+		failedReasons = make(map[string]string)
+
+		for {
+			select {
+			case fu, ok := <-filteredCh:
+				if ok {
+					filteredURLs = append(filteredURLs, fu.URL)
+					filteredReasons[fu.URL] = fu.Reason
+				} else {
+					filteredCh = nil
+				}
+			case fa, ok := <-failedCh:
+				if ok {
+					failedURLs = append(failedURLs, fa.URL)
+					failedReasons[fa.URL] = fa.Reason
+				} else {
+					failedCh = nil
+				}
+			}
+			if filteredCh == nil && failedCh == nil {
+				break
+			}
+		}
+	}()
 
 	// Create filter engine if status code filtering is enabled
 	var filterEngine *filter.Engine
 	if opts != nil && opts.FilterStatusCodes && opts.FilterConfig != nil {
 		filterEngine = filter.NewEngine(opts.FilterConfig)
-
-		// Start a goroutine to collect filtered URLs to avoid blocking workers
-		filteredURLs = make([]string, 0)
-		filteredReasons = make(map[string]string)
-		go func() {
-			defer close(filterCollectorDone)
-			for fu := range filteredCh {
-				filteredURLs = append(filteredURLs, fu.URL)
-				filteredReasons[fu.URL] = fu.Reason
-			}
-		}()
-	} else {
-		// No filter engine, just close the collector done channel
-		close(filterCollectorDone)
 	}
 
 	total := len(pageUrls)
 	var processed int32
+	var failed int32
 
-	emitProgress := func() {
+	emitProgress := func(isFailure bool) {
+		p := atomic.AddInt32(&processed, 1)
+		var f int32
+		if isFailure {
+			f = atomic.AddInt32(&failed, 1)
+		} else {
+			f = atomic.LoadInt32(&failed)
+		}
 		if cb != nil {
-			p := atomic.AddInt32(&processed, 1)
-			cb(int(p), total)
+			cb(int(p), int(f), total)
 		}
 	}
 
@@ -223,6 +251,23 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 						return
 					}
 
+					// If no snapshots were successfully added, don't attempt to finalize
+					// to avoid "cannot finalize commit with 0 snapshots" error.
+					if pc.GetSnapshotCount() == 0 {
+						fCount := atomic.LoadInt32(&failed)
+						pCount := atomic.LoadInt32(&processed)
+						if f.logger != nil {
+							f.logger.Info("Fetch complete - 0 snapshots created (all failed or no changes)",
+								logging.Field{Key: "processed", Value: pCount},
+								logging.Field{Key: "failed", Value: fCount},
+								logging.Field{Key: "total", Value: total})
+						}
+						if total > 0 && int(fCount) == total {
+							batcherErr <- fmt.Errorf("all %d requests failed, no snapshots created", total)
+						}
+						return
+					}
+
 					// Finalize the pending commit (creates one version for all snapshots)
 					cr, err := f.tracker.FinalizeCommit(ctx, pc)
 					if err != nil {
@@ -281,8 +326,6 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 					return
 				}
 
-				emitProgress()
-
 				response, err := f.HTTPGet(ctx, pageUrl)
 				if err != nil {
 					if f.logger != nil {
@@ -290,14 +333,12 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 							logging.Field{Key: "url", Value: pageUrl},
 							logging.Field{Key: "error", Value: err})
 					}
-					if f.indexer != nil {
-						err := f.indexer.MarkFailed(ctx, pageUrl, err.Error())
-						if err != nil && f.logger != nil {
-							f.logger.Error("error while marking endpoint as failed in indexer",
-								logging.Field{Key: "url", Value: pageUrl},
-								logging.Field{Key: "error", Value: err})
-						}
+					select {
+					case <-ctx.Done():
+						return
+					case failedCh <- filteredURL{URL: pageUrl, Reason: err.Error()}:
 					}
+					emitProgress(true)
 					continue
 				}
 
@@ -316,6 +357,7 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 							return
 						case filteredCh <- filteredURL{URL: pageUrl, Reason: result.Reason}:
 						}
+						emitProgress(false)
 						continue
 					}
 				}
@@ -325,6 +367,7 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 				case <-ctx.Done():
 					return
 				case snapCh <- snap:
+					emitProgress(false)
 				}
 			}
 		})
@@ -350,16 +393,25 @@ cleanup:
 	wg.Wait()
 	// Close snapCh to signal batcher that no more snapshots will be sent
 	close(snapCh)
-	// Close filtered channel to signal collector goroutine
+	// Close filtered and failed channels to signal collector goroutine
 	close(filteredCh)
+	close(failedCh)
 
-	// Wait for filter collector goroutine to finish
-	<-filterCollectorDone
+	// Wait for collector goroutine to finish
+	<-collectorDone
 
 	// Mark filtered URLs in indexer
 	if f.indexer != nil && len(filteredURLs) > 0 {
 		if err := f.indexer.MarkFilteredBatch(ctx, filteredURLs, filteredReasons); err != nil && f.logger != nil {
 			f.logger.Error("error marking filtered URLs in indexer",
+				logging.Field{Key: "error", Value: err})
+		}
+	}
+
+	// Mark failed URLs in indexer
+	if f.indexer != nil && len(failedURLs) > 0 {
+		if err := f.indexer.MarkFailedBatch(ctx, failedURLs, failedReasons); err != nil && f.logger != nil {
+			f.logger.Error("error marking failed URLs in indexer",
 				logging.Field{Key: "error", Value: err})
 		}
 	}

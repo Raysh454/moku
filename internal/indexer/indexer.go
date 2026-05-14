@@ -22,6 +22,7 @@ type EndpointIndex interface {
 	MarkFetched(ctx context.Context, canonical string, versionID string, fetchedAt time.Time) error
 	MarkFetchedBatch(ctx context.Context, canonicals []string, versionID string, fetchedAt time.Time) error
 	MarkFailed(ctx context.Context, canonical string, reason string) error
+	MarkFailedBatch(ctx context.Context, canonicals []string, reasons map[string]string) error
 	MarkFilteredBatch(ctx context.Context, canonicals []string, reasons map[string]string) error
 	UnfilterBatch(ctx context.Context, canonicals []string) error
 }
@@ -202,6 +203,53 @@ func (ix *Index) MarkFetchedBatch(ctx context.Context, canonicals []string, vers
 func (ix *Index) MarkFailed(ctx context.Context, canonical string, reason string) error {
 	_, err := ix.db.ExecContext(ctx, `UPDATE endpoints SET status = ?, meta = json_set(COALESCE(meta, '{}'), '$.last_error', ?) WHERE canonical_url = ?`, "failed", reason, canonical)
 	return err
+}
+
+func (ix *Index) MarkFailedBatch(ctx context.Context, canonicals []string, reasons map[string]string) error {
+	if len(canonicals) == 0 {
+		return nil
+	}
+
+	// Process in batches
+	const batchSize = 500
+	for i := 0; i < len(canonicals); i += batchSize {
+		end := i + batchSize
+		if end > len(canonicals) {
+			end = len(canonicals)
+		}
+		batch := canonicals[i:end]
+
+		tx, err := ix.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+
+		stmt, err := tx.PrepareContext(ctx,
+			`UPDATE endpoints 
+			 SET status = 'failed', 
+			     meta = json_set(COALESCE(meta, '{}'), '$.last_error', ?)
+			 WHERE canonical_url = ?`)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+
+		for _, canonical := range batch {
+			reason := reasons[canonical]
+			if _, err := stmt.ExecContext(ctx, reason, canonical); err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
+				return err
+			}
+		}
+
+		_ = stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // ListEndpoints with simple filters; extend filter struct as needed.

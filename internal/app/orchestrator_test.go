@@ -387,7 +387,7 @@ func TestProgressCallback_EmitsProgressEvents(t *testing.T) {
 	cb := o.progressCallback(job.ID)
 	// Subscribe before emitting
 	events := o.Subscribe(context.Background())
-	cb(1, 10)
+	cb(1, 0, 10)
 
 	// Read the progress event from the channel
 	select {

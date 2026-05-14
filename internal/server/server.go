@@ -850,6 +850,62 @@ func (s *Server) handleJobEventsSSE(w http.ResponseWriter, r *http.Request) {
 
 	events := s.orchestrator.Subscribe(r.Context())
 
+	// Send initial status for matching jobs if jobIDFilter is set
+	if jobIDFilter != "" {
+		job := s.orchestrator.GetJob(jobIDFilter)
+		if job != nil {
+			// Apply other filters if present
+			match := true
+			if projectFilter != "" && job.Project != projectFilter {
+				match = false
+			}
+			if siteFilter != "" && job.Website != siteFilter {
+				match = false
+			}
+
+			if match {
+				ev := app.JobEvent{
+					JobID:     job.ID,
+					Project:   job.Project,
+					Website:   job.Website,
+					Type:      app.JobEventStatus,
+					Status:    job.Status,
+					Error:     job.Error,
+					Total:     0, // We don't have progress info in Job struct yet
+					Processed: 0,
+				}
+				data, _ := json.Marshal(ev)
+				fmt.Fprintf(w, "data: %s\n\n", string(data))
+				flusher.Flush()
+			}
+		}
+	} else {
+		// If no specific job ID, send initial status for ALL active matching jobs
+		jobs := s.orchestrator.ListJobs()
+		for _, job := range jobs {
+			if job.Status != app.JobRunning && job.Status != app.JobPending {
+				continue
+			}
+			if projectFilter != "" && job.Project != projectFilter {
+				continue
+			}
+			if siteFilter != "" && job.Website != siteFilter {
+				continue
+			}
+
+			ev := app.JobEvent{
+				JobID:   job.ID,
+				Project: job.Project,
+				Website: job.Website,
+				Type:    app.JobEventStatus,
+				Status:  job.Status,
+			}
+			data, _ := json.Marshal(ev)
+			fmt.Fprintf(w, "data: %s\n\n", string(data))
+			flusher.Flush()
+		}
+	}
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -859,7 +915,9 @@ func (s *Server) handleJobEventsSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			// Keep-alive ping
-			fmt.Fprintf(w, ": ping\n\n")
+			if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
+				return
+			}
 			flusher.Flush()
 		case ev, ok := <-events:
 			if !ok {
@@ -878,10 +936,12 @@ func (s *Server) handleJobEventsSSE(w http.ResponseWriter, r *http.Request) {
 
 			data, err := json.Marshal(ev)
 			if err != nil {
+				s.logger.Error("sse: failed to marshal job event", logging.Field{Key: "error", Value: err})
 				continue
 			}
-
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 	}

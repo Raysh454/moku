@@ -225,7 +225,7 @@ func TestRobots_should_invoke_progress_callback(t *testing.T) {
 	robots := enumerator.NewRobots(wc, nil)
 
 	var callCount int
-	cb := func(processed, total int) {
+	cb := func(processed, failed, total int) {
 		callCount++
 	}
 

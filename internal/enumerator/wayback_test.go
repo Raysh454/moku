@@ -322,10 +322,10 @@ func TestWayback_should_call_progress_callback(t *testing.T) {
 	target := srv.URL
 
 	callbackCalled := false
-	callback := func(current, total int) {
+	callback := func(current, failed, total int) {
 		callbackCalled = true
 		if current != 1 || total != 1 {
-			t.Errorf("expected callback(1, 1), got callback(%d, %d)", current, total)
+			t.Errorf("expected callback(1, 0, 1), got callback(%d, %d, %d)", current, failed, total)
 		}
 	}
 
