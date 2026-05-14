@@ -278,3 +278,58 @@ func TestUpdateWebsiteLastSeen(t *testing.T) {
 		t.Errorf("LastSeenAt = %d, want %d", got.LastSeenAt, now.Unix())
 	}
 }
+
+func TestDeleteWebsite(t *testing.T) {
+	reg, cleanup := newTestRegistry(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	proj, _ := reg.CreateProject(ctx, "proj", "Proj", "")
+	w, _ := reg.CreateWebsite(ctx, proj.Slug, "site", "https://example.com")
+
+	if _, err := os.Stat(w.StoragePath); err != nil {
+		t.Fatal("website directory should exist")
+	}
+
+	if err := reg.DeleteWebsite(ctx, proj.Slug, w.Slug); err != nil {
+		t.Fatalf("DeleteWebsite: %v", err)
+	}
+
+	if _, err := reg.GetWebsiteBySlug(ctx, proj.Slug, w.Slug); err != ErrWebsiteNotFound {
+		t.Errorf("expected ErrWebsiteNotFound, got %v", err)
+	}
+
+	if _, err := os.Stat(w.StoragePath); err == nil {
+		t.Error("website directory should be deleted")
+	}
+}
+
+func TestDeleteProject(t *testing.T) {
+	reg, cleanup := newTestRegistry(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	proj, _ := reg.CreateProject(ctx, "proj", "Proj", "")
+	w, _ := reg.CreateWebsite(ctx, proj.Slug, "site", "https://example.com")
+
+	if _, err := os.Stat(w.StoragePath); err != nil {
+		t.Fatal("website directory should exist")
+	}
+
+	if err := reg.DeleteProject(ctx, proj.Slug); err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+
+	if _, err := reg.GetProjectBySlug(ctx, proj.Slug); err != ErrProjectNotFound {
+		t.Errorf("expected ErrProjectNotFound, got %v", err)
+	}
+
+	if _, err := os.Stat(w.StoragePath); err == nil {
+		t.Error("website directory should be deleted")
+	}
+
+	projDir := reg.projectDir(normalizeNameForDir(proj.Name))
+	if _, err := os.Stat(projDir); err == nil {
+		t.Error("project directory should be deleted")
+	}
+}

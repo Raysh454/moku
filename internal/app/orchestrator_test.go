@@ -205,7 +205,11 @@ func TestStartFetchJob_TransitionsToRunningThenDone(t *testing.T) {
 	}
 
 	// Wait for job to finish by draining events
-	for range job.Events {
+	events := o.Subscribe(ctx)
+	for ev := range events {
+		if ev.JobID == job.ID && (ev.Status == JobDone || ev.Status == JobFailed || ev.Status == JobCanceled) {
+			break
+		}
 	}
 
 	// Check final status
@@ -244,7 +248,11 @@ func TestStartFetchJob_CancelJobTransitionsToCanceled(t *testing.T) {
 	o.CancelJob(job.ID)
 
 	// Drain events
-	for range job.Events {
+	events := o.Subscribe(ctx)
+	for ev := range events {
+		if ev.JobID == job.ID && (ev.Status == JobDone || ev.Status == JobFailed || ev.Status == JobCanceled) {
+			break
+		}
 	}
 
 	final := o.GetJob(job.ID)
@@ -280,7 +288,11 @@ func TestStartFetchJob_AppearsInListJobs(t *testing.T) {
 	}
 
 	// Drain events so job finishes
-	for range job.Events {
+	events := o.Subscribe(ctx)
+	for ev := range events {
+		if ev.JobID == job.ID && (ev.Status == JobDone || ev.Status == JobFailed || ev.Status == JobCanceled) {
+			break
+		}
 	}
 }
 
@@ -301,7 +313,11 @@ func TestStartEnumerateJob_Completes(t *testing.T) {
 	}
 
 	// Drain events
-	for range job.Events {
+	events := o.Subscribe(ctx)
+	for ev := range events {
+		if ev.JobID == job.ID && (ev.Status == JobDone || ev.Status == JobFailed || ev.Status == JobCanceled) {
+			break
+		}
 	}
 
 	final := o.GetJob(job.ID)
@@ -350,7 +366,11 @@ func TestClose_CancelsRunningJobs(t *testing.T) {
 	o.Close()
 
 	// Drain remaining events
-	for range job.Events {
+	events := o.Subscribe(ctx)
+	for ev := range events {
+		if ev.JobID == job.ID && (ev.Status == JobDone || ev.Status == JobFailed || ev.Status == JobCanceled) {
+			break
+		}
 	}
 }
 
@@ -365,11 +385,13 @@ func TestProgressCallback_EmitsProgressEvents(t *testing.T) {
 	o.setJob(job)
 
 	cb := o.progressCallback(job.ID)
+	// Subscribe before emitting
+	events := o.Subscribe(context.Background())
 	cb(1, 10)
 
 	// Read the progress event from the channel
 	select {
-	case ev := <-job.Events:
+	case ev := <-events:
 		if ev.Type != JobEventProgress {
 			t.Errorf("expected progress event, got %q", ev.Type)
 		}

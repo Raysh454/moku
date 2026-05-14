@@ -78,6 +78,8 @@ export type Job = {
   ended_at?: string;
   security_overview?: SecurityDiffOverview;
   enumerated_urls?: string[];
+  processed?: number;
+  total?: number;
 };
 
 export type Snapshot = {

@@ -11,12 +11,16 @@ import (
 // It implements Logger and prints JSON lines to stdout.
 type StdoutLogger struct {
 	component string
+	fields    map[string]any
 }
 
 // NewStdoutLogger creates a new simple StdoutLogger. component is optional and
 // will be included as a persistent field on With().
 func NewStdoutLogger(component string) *StdoutLogger {
-	return &StdoutLogger{component: component}
+	return &StdoutLogger{
+		component: component,
+		fields:    make(map[string]any),
+	}
 }
 
 func (s *StdoutLogger) log(level string, msg string, fields ...Field) {
@@ -28,6 +32,9 @@ func (s *StdoutLogger) log(level string, msg string, fields ...Field) {
 		Fields    map[string]any `json:"fields,omitempty"`
 	}
 	m := make(map[string]any)
+	for k, v := range s.fields {
+		m[k] = v
+	}
 	for _, f := range fields {
 		m[f.Key] = f.Value
 	}
@@ -64,14 +71,22 @@ func (s *StdoutLogger) Error(msg string, fields ...Field) {
 }
 
 func (s *StdoutLogger) With(fields ...Field) Logger {
-	// create a child logger with component appended (simple implementation)
-	child := &StdoutLogger{component: s.component}
-	// If fields include a component key, prefer that as the component name
+	newFields := make(map[string]any)
+	for k, v := range s.fields {
+		newFields[k] = v
+	}
+
+	child := &StdoutLogger{
+		component: s.component,
+		fields:    newFields,
+	}
 	for _, f := range fields {
 		if f.Key == "component" {
 			if str, ok := f.Value.(string); ok {
 				child.component = str
 			}
+		} else {
+			child.fields[f.Key] = f.Value
 		}
 	}
 	return child

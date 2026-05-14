@@ -20,11 +20,8 @@ type SiteComponents struct {
 	Index     indexer.EndpointIndex
 	Fetcher   *fetcher.Fetcher
 	WebClient webclient.WebClient
-	// Analyzer is the vulnerability-scanner plugin selected by
-	// cfg.AnalyzerCfg.Backend. Every site gets its own Analyzer instance so
-	// per-site state (Moku's in-memory job registry, Burp/ZAP HTTP client
-	// pools) stays isolated.
-	Analyzer analyzer.Analyzer
+	Analyzer  analyzer.Analyzer
+	logger    logging.Logger // Add scoped logger
 }
 
 // Build components for a given website (registry.Website).
@@ -33,7 +30,13 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		cfg = DefaultConfig()
 	}
 
-	a, err := assessor.NewHeuristicsAssessor(&cfg.assessorCfg, logger)
+	// Scope the logger to this site
+	scopedLogger := logger.With(
+		logging.Field{Key: "project", Value: web.ProjectID},
+		logging.Field{Key: "site", Value: web.Slug},
+	)
+
+	a, err := assessor.NewHeuristicsAssessor(&cfg.assessorCfg, scopedLogger)
 	if err != nil {
 		return nil, fmt.Errorf("new assessor: %w", err)
 	}
@@ -41,15 +44,15 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 	trackerCfg := cfg.trackerCfg
 	trackerCfg.StoragePath = web.StoragePath
 	trackerCfg.ProjectID = web.ProjectID
-	tr, err := tracker.NewSQLiteTracker(&trackerCfg, logger, a)
+	tr, err := tracker.NewSQLiteTracker(&trackerCfg, scopedLogger, a)
 	if err != nil {
 		return nil, fmt.Errorf("new tracker: %w", err)
 	}
 
 	db := tr.DB()
-	ix := indexer.NewIndex(db, logger, utils.CanonicalizeOptions{})
+	ix := indexer.NewIndex(db, scopedLogger, utils.CanonicalizeOptions{})
 
-	wc, err := webclient.NewWebClient(cfg.WebClientCfg, logger)
+	wc, err := webclient.NewWebClient(cfg.WebClientCfg, scopedLogger)
 	if err != nil {
 		tr.Close()
 		return nil, fmt.Errorf("new webclient: %w", err)
@@ -60,7 +63,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		tr,
 		wc,
 		ix,
-		logger,
+		scopedLogger,
 	)
 	if err != nil {
 		tr.Close()
@@ -69,7 +72,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 	}
 
 	an, err := analyzer.NewAnalyzer(cfg.AnalyzerCfg, analyzer.Dependencies{
-		Logger:     logger,
+		Logger:     scopedLogger,
 		WebClient:  wc,
 		Assessor:   a,
 		HTTPClient: wc,
@@ -86,25 +89,33 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		Fetcher:   f,
 		WebClient: wc,
 		Analyzer:  an,
+		logger:    scopedLogger,
 	}, nil
 }
 
 // Close site components and release resources.
-// Calling this will close resources that the Fetcher relies on
-// Any ongoing fetch operations will be stopped.
 func (sc *SiteComponents) Close() error {
 	var firstErr error
 	if sc.Analyzer != nil {
+		if sc.logger != nil {
+			sc.logger.Info("closing analyzer")
+		}
 		if err := sc.Analyzer.Close(); err != nil {
 			firstErr = fmt.Errorf("close analyzer: %w", err)
 		}
 	}
 	if sc.WebClient != nil {
+		if sc.logger != nil {
+			sc.logger.Info("closing webclient")
+		}
 		if err := sc.WebClient.Close(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close webclient: %w", err)
 		}
 	}
 	if sc.Tracker != nil {
+		if sc.logger != nil {
+			sc.logger.Info("closing tracker")
+		}
 		if err := sc.Tracker.Close(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close tracker: %w", err)
 		}

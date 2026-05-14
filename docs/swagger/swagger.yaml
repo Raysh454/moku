@@ -1121,6 +1121,33 @@ paths:
       summary: Get job details
       tags:
       - Jobs
+  /jobs/events:
+    get:
+      description: Establishes a Server-Sent Events (SSE) stream for real-time job
+        updates.
+      parameters:
+      - description: Filter by project slug
+        in: query
+        name: project
+        type: string
+      - description: Filter by website slug
+        in: query
+        name: site
+        type: string
+      - description: Filter by specific job ID
+        in: query
+        name: job_id
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE Stream
+          schema:
+            type: string
+      summary: Stream all job events via SSE
+      tags:
+      - Jobs
   /projects:
     get:
       description: Returns all configured projects.
@@ -1167,6 +1194,25 @@ paths:
           schema:
             $ref: '#/definitions/server.ErrorResponse'
       summary: Create a project
+      tags:
+      - Projects
+  /projects/{project}:
+    delete:
+      description: Removes a project, its websites, and associated directory.
+      parameters:
+      - description: Project slug or ID
+        in: path
+        name: project
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Delete a project
       tags:
       - Projects
   /projects/{project}/websites:
@@ -1226,6 +1272,30 @@ paths:
           schema:
             $ref: '#/definitions/server.ErrorResponse'
       summary: Create a website inside a project
+      tags:
+      - Websites
+  /projects/{project}/websites/{site}:
+    delete:
+      description: Removes a website and its associated directory.
+      parameters:
+      - description: Project slug
+        in: path
+        name: project
+        required: true
+        type: string
+      - description: Website slug
+        in: path
+        name: site
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+      summary: Delete a website
       tags:
       - Websites
   /projects/{project}/websites/{site}/analyzer/capabilities:
@@ -1610,66 +1680,4 @@ paths:
       summary: List versions for a website
       tags:
       - Versions
-  /ws/projects/{project}/websites/{site}/enumerate:
-    get:
-      description: Upgrades the connection, receives EnumerationConfig as first message,
-        and streams enumeration progress events.
-      parameters:
-      - description: Project slug
-        in: path
-        name: project
-        required: true
-        type: string
-      - description: Website slug
-        in: path
-        name: site
-        required: true
-        type: string
-      responses:
-        "101":
-          description: WebSocket Upgrade
-          schema:
-            type: string
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/server.ErrorResponse'
-      summary: Stream enumerate job events over WebSocket
-      tags:
-      - Jobs
-  /ws/projects/{project}/websites/{site}/fetch:
-    get:
-      description: Upgrades the connection and streams fetch progress events.
-      parameters:
-      - description: Project slug
-        in: path
-        name: project
-        required: true
-        type: string
-      - description: Website slug
-        in: path
-        name: site
-        required: true
-        type: string
-      - default: new
-        description: Endpoint status filter
-        in: query
-        name: status
-        type: string
-      - description: Maximum endpoints
-        in: query
-        name: limit
-        type: integer
-      responses:
-        "101":
-          description: WebSocket Upgrade
-          schema:
-            type: string
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/server.ErrorResponse'
-      summary: Stream fetch job events over WebSocket
-      tags:
-      - Jobs
 swagger: "2.0"

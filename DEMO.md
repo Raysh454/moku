@@ -59,7 +59,7 @@ Demo control page (optional direct view):
 Open a third terminal:
 
 ```bash
-cd ui
+cd frontend
 ```
 
 First time only:
@@ -97,12 +97,13 @@ Open the URL shown by Vite (usually):
 In order:
 
 1. **Projects panel**
-   - Create/select project (e.g. `demo-ui`).
+   - Create/select project (e.g. `demo-frontend`).
 2. **Websites panel**
    - Create/select website (origin should be `http://localhost:9999`).
 3. **Jobs panel**
    - Click **Enumerate (REST)**.
-   - Click **Fetch (REST)** (or **Fetch (WebSocket)**).
+   - Click **Fetch (REST)**.
+   - Observe real-time progress updates in the job queue (powered by SSE).
 4. **Endpoints panel**
    - Load endpoints and choose one (start with `/`).
 5. **Endpoint details panel**
@@ -214,7 +215,7 @@ This makes it efficient to track many versions without exploding storage.
 ### UI cannot reach API/demo server
 
 - Confirm both Go servers are running.
-- Confirm `.env` values in `ui/.env`:
+- Confirm `.env` values in `frontend/.env`:
   - `VITE_API_BASE_URL=http://localhost:8080`
   - `VITE_DEMO_BASE_URL=http://localhost:9999`
 
@@ -226,7 +227,7 @@ This makes it efficient to track many versions without exploding storage.
 
 ### UI build/type issues
 
-From `ui/`:
+From `frontend/`:
 
 ```bash
 npm install
@@ -243,6 +244,6 @@ Stop each terminal with `Ctrl+C`.
 
 ## 8) Isolation note
 
-The GUI is intentionally isolated under `ui/`.
+The GUI is intentionally isolated under `frontend/`.
 
 If you ever want to remove it from the project, delete that directory only.

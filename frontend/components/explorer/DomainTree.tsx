@@ -12,7 +12,6 @@ interface DomainTreeProps {
 type DomainMenuSection = "enumerate" | "fetch" | "endpoints" | null;
 
 type DomainMenuState = {
-  enumMode: JobTransport;
   spiderEnabled: boolean;
   spiderDepth: number;
   spiderConcurrency: number;
@@ -21,7 +20,6 @@ type DomainMenuState = {
   waybackEnabled: boolean;
   waybackMachine: boolean;
   commonCrawl: boolean;
-  fetchMode: JobTransport;
   fetchStatus: string;
   fetchLimit: number;
   fetchConcurrency: number;
@@ -30,7 +28,6 @@ type DomainMenuState = {
 };
 
 const defaultMenuState = (): DomainMenuState => ({
-  enumMode: "rest",
   spiderEnabled: true,
   spiderDepth: 4,
   spiderConcurrency: 5,
@@ -39,7 +36,6 @@ const defaultMenuState = (): DomainMenuState => ({
   waybackEnabled: false,
   waybackMachine: true,
   commonCrawl: true,
-  fetchMode: "rest",
   fetchStatus: "*",
   fetchLimit: 0,
   fetchConcurrency: 4,
@@ -75,6 +71,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
     addEndpointsForDomain,
     runEnumerateForDomain,
     runFetchForDomain,
+    deleteWebsite,
     isBusy,
   } = useProject();
   const { notify } = useNotifications();
@@ -163,14 +160,13 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
   const runEnumerate = async (domain: Domain) => {
     const state = domainMenuState[domain.id] || defaultMenuState();
     const request: EnumerateRequest = {
-      mode: state.enumMode,
       config: buildEnumerationConfig(state),
     };
 
     notify({
       kind: "info",
       title: `Starting enumeration for ${domain.hostname}`,
-      message: `${state.enumMode.toUpperCase()} job queued`,
+      message: `Job queued`,
     });
 
     await runEnumerateForDomain(domain.id, request);
@@ -179,7 +175,6 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
   const runFetch = async (domain: Domain) => {
     const state = domainMenuState[domain.id] || defaultMenuState();
     const request: FetchRequest = {
-      mode: state.fetchMode,
       status: state.fetchStatus || "*",
       limit: Math.max(0, Number.isFinite(state.fetchLimit) ? state.fetchLimit : 0),
       config: {
@@ -190,7 +185,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
     notify({
       kind: "info",
       title: `Starting fetch for ${domain.hostname}`,
-      message: `${state.fetchMode.toUpperCase()} • status=${request.status === "*" ? "all-non-filtered" : request.status} • limit=${request.limit === 0 ? "no-limit" : request.limit}`,
+      message: `status=${request.status === "*" ? "all-non-filtered" : request.status} • limit=${request.limit === 0 ? "no-limit" : request.limit}`,
     });
 
     await runFetchForDomain(domain.id, request);
@@ -454,23 +449,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
               {activeSection === "enumerate" && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="text-[11px] text-slate-300 flex flex-col gap-1">
-                      Transport
-                      <select
-                        value={currentMenuState.enumMode}
-                        onChange={(event) =>
-                          updateDomainMenuState(openMenuId, (state) => ({
-                            ...state,
-                            enumMode: event.target.value as JobTransport,
-                          }))
-                        }
-                        className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"
-                      >
-                        <option value="rest">REST</option>
-                        <option value="ws">WebSocket</option>
-                      </select>
-                    </label>
-                    <label className="text-[11px] text-slate-300 flex items-center gap-2 mt-5">
+                    <label className="text-[11px] text-slate-300 flex items-center gap-2 mt-2">
                       <input
                         type="checkbox"
                         checked={currentMenuState.spiderEnabled}
@@ -604,25 +583,9 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
                 </>
               )}
 
+
               {activeSection === "fetch" && (
                 <>
-                  <label className="text-[11px] text-slate-300 flex flex-col gap-1">
-                    Transport
-                    <select
-                      value={currentMenuState.fetchMode}
-                      onChange={(event) =>
-                        updateDomainMenuState(openMenuId, (state) => ({
-                          ...state,
-                          fetchMode: event.target.value as JobTransport,
-                        }))
-                      }
-                      className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"
-                    >
-                      <option value="rest">REST</option>
-                      <option value="ws">WebSocket</option>
-                    </select>
-                  </label>
-
                   <div className="grid grid-cols-3 gap-2">
                     <label className="text-[11px] text-slate-300 flex flex-col gap-1">
                       Status
@@ -762,6 +725,21 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
                   </button>
                 </>
               )}
+            </div>
+            {/* Menu Footer */}
+            <div className="p-3 border-t border-border bg-card">
+              <button
+                className="w-full bg-danger/10 text-danger border border-danger/20 rounded px-3 py-2 text-[12px] font-semibold hover:bg-danger/20 disabled:opacity-50"
+                disabled={isBusy}
+                onClick={async () => {
+                  const domain = activeProject.domains.find((item) => item.id === openMenuId);
+                  if (!domain || !window.confirm(`Are you sure you want to delete website "${domain.hostname}"?`)) return;
+                  await deleteWebsite(domain.slug);
+                  setOpenMenuId(null);
+                }}
+              >
+                Delete Website
+              </button>
             </div>
           </div>
         </div>

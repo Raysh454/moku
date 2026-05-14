@@ -15,12 +15,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/gorilla/websocket"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
 	_ "github.com/raysh454/moku/docs/swagger"
 	"github.com/raysh454/moku/internal/analyzer"
-	"github.com/raysh454/moku/internal/api"
 	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/registry"
@@ -28,12 +26,11 @@ import (
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
-// Server is the HTTP + WebSocket API surface for Moku.
+// Server is the HTTP API surface for Moku.
 type Server struct {
 	cfg            Config
 	orchestrator   *app.Orchestrator
 	router         chi.Router
-	upgrader       websocket.Upgrader
 	logger         logging.Logger
 	registryDB     *sql.DB
 	allowedOrigins []string
@@ -62,7 +59,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	// Set up registry DB
-	db, err := sql.Open("sqlite", filepath.Join(cfg.AppConfig.StorageRoot, "registry.db"))
+	db, err := sql.Open("sqlite", filepath.Join(cfg.AppConfig.StorageRoot, "registry.db")+"?_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("opening registry database: %w", err)
 	}
@@ -89,16 +86,9 @@ func NewServer(cfg Config) (*Server, error) {
 		registryDB:     db,
 		allowedOrigins: resolveAllowedOrigins(cfg),
 	}
-	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkWebSocketOrigin}
 
 	s.routes()
 	return s, nil
-}
-
-// checkWebSocketOrigin enforces the configured origin allowlist on WebSocket
-// upgrades. Non-browser clients (no Origin header) are always allowed.
-func (s *Server) checkWebSocketOrigin(r *http.Request) bool {
-	return isOriginAllowed(r.Header.Get("Origin"), s.allowedOrigins)
 }
 
 // Orchestrator returns the underlying orchestrator for advanced use (tests, etc.).
@@ -118,7 +108,9 @@ func (s *Server) routes() {
 
 	// CORS preflight
 	r.Options("/projects", s.optionsHandler("GET, POST"))
+	r.Options("/projects/{project}", s.optionsHandler("DELETE"))
 	r.Options("/projects/{project}/websites", s.optionsHandler("GET, POST"))
+	r.Options("/projects/{project}/websites/{site}", s.optionsHandler("DELETE"))
 	r.Options("/projects/{project}/websites/{site}/endpoints", s.optionsHandler("GET, POST"))
 	r.Options("/projects/{project}/websites/{site}/endpoints/details", s.optionsHandler("GET"))
 	r.Options("/projects/{project}/websites/{site}/security/overview", s.optionsHandler("GET"))
@@ -128,17 +120,18 @@ func (s *Server) routes() {
 	r.Options("/projects/{project}/websites/{site}/analyzer/capabilities", s.optionsHandler("GET"))
 	r.Options("/projects/{project}/websites/{site}/analyzer/health", s.optionsHandler("GET"))
 	r.Options("/jobs", s.optionsHandler("GET"))
+	r.Options("/jobs/events", s.optionsHandler("GET"))
 	r.Options("/jobs/{jobID}", s.optionsHandler("GET, DELETE"))
-	r.Options("/ws/projects/{project}/websites/{site}/fetch", s.optionsHandler("GET"))
-	r.Options("/ws/projects/{project}/websites/{site}/enumerate", s.optionsHandler("GET"))
 
 	// Projects
 	r.Post("/projects", s.handleCreateProject)
 	r.Get("/projects", s.handleListProjects)
+	r.Delete("/projects/{project}", s.handleDeleteProject)
 
 	// Websites
 	r.Post("/projects/{project}/websites", s.handleCreateWebsite)
 	r.Get("/projects/{project}/websites", s.handleListWebsites)
+	r.Delete("/projects/{project}/websites/{site}", s.handleDeleteWebsite)
 
 	// Endpoints
 	r.Post("/projects/{project}/websites/{site}/endpoints", s.handleAddWebsiteEndpoints)
@@ -156,12 +149,9 @@ func (s *Server) routes() {
 	r.Get("/projects/{project}/websites/{site}/analyzer/capabilities", s.handleGetAnalyzerCapabilities)
 	r.Get("/projects/{project}/websites/{site}/analyzer/health", s.handleGetAnalyzerHealth)
 	r.Get("/jobs", s.handleListJobs)
+	r.Get("/jobs/events", s.handleJobEventsSSE)
 	r.Get("/jobs/{jobID}", s.handleGetJob)
 	r.Delete("/jobs/{jobID}", s.handleCancelJob)
-
-	// WebSockets for job progress
-	r.Get("/ws/projects/{project}/websites/{site}/fetch", s.handleFetchWS)
-	r.Get("/ws/projects/{project}/websites/{site}/enumerate", s.handleEnumerateWS)
 
 	// Filter Rules CRUD
 	r.Options("/projects/{project}/websites/{site}/filters", s.optionsHandler("GET, POST"))
@@ -316,6 +306,46 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("created project", logging.Field{Key: "slug", Value: p.Slug})
 	writeJSON(w, http.StatusCreated, p)
+}
+
+// handleDeleteProject godoc
+// @Summary Delete a project
+// @Description Removes a project, its websites, and associated directory.
+// @Tags Projects
+// @Param project path string true "Project slug or ID"
+// @Success 204
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project} [delete]
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	if err := s.orchestrator.DeleteProject(r.Context(), project); err != nil {
+		s.logger.Warn("deleting project", logging.Field{Key: "error", Value: err.Error()})
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Info("deleted project", logging.Field{Key: "project", Value: project})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteWebsite godoc
+// @Summary Delete a website
+// @Description Removes a website and its associated directory.
+// @Tags Websites
+// @Param project path string true "Project slug"
+// @Param site path string true "Website slug"
+// @Success 204
+// @Failure 500 {object} ErrorResponse
+// @Router /projects/{project}/websites/{site} [delete]
+func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	site := chi.URLParam(r, "site")
+	if err := s.orchestrator.DeleteWebsite(r.Context(), project, site); err != nil {
+		s.logger.Warn("deleting website", logging.Field{Key: "error", Value: err.Error()})
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Info("deleted website", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleListProjects godoc
@@ -787,79 +817,56 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jobs)
 }
 
-// WebSockets
-
-// handleFetchWS godoc
-// @Summary Stream fetch job events over WebSocket
-// @Description Upgrades the connection and streams fetch progress events.
+// handleJobEventsSSE godoc
+// @Summary Stream all job events via SSE
+// @Description Establishes a Server-Sent Events (SSE) stream for real-time job updates.
 // @Tags Jobs
-// @Param project path string true "Project slug"
-// @Param site path string true "Website slug"
-// @Param status query string false "Endpoint status filter" default(new)
-// @Param limit query int false "Maximum endpoints"
-// @Success 101 {string} string "WebSocket Upgrade"
-// @Failure 400 {object} ErrorResponse
-// @Router /ws/projects/{project}/websites/{site}/fetch [get]
-func (s *Server) handleFetchWS(w http.ResponseWriter, r *http.Request) {
-	project := chi.URLParam(r, "project")
-	site := chi.URLParam(r, "site")
+// @Produce text/event-stream
+// @Param project query string false "Filter by project slug"
+// @Param site query string false "Filter by website slug"
+// @Param job_id query string false "Filter by specific job ID"
+// @Success 200 {string} string "SSE Stream"
+// @Router /jobs/events [get]
+func (s *Server) handleJobEventsSSE(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		s.logger.Warn("upgrading to websocket", logging.Field{Key: "error", Value: err.Error()})
-		return
-	}
-	defer conn.Close()
-
-	// Try to read config from first WebSocket message
-	var fetchRequest StartFetchJobRequest
-	if err := conn.ReadJSON(&fetchRequest); err != nil {
-		// Fallback to query parameters for backward compatibility
-		status := normalizeEndpointStatus(r.URL.Query().Get("status"))
-		if status == "" {
-			status = "new"
-		}
-		limit := 100
-		if ls := r.URL.Query().Get("limit"); ls != "" {
-			if v, err := strconv.Atoi(ls); err == nil && v > 0 {
-				limit = v
-			}
-		}
-
-		fetchRequest = StartFetchJobRequest{
-			Status: status,
-			Limit:  limit,
-		}
-	}
-
-	// Normalize and apply defaults
-	fetchRequest.Status = normalizeEndpointStatus(fetchRequest.Status)
-	if fetchRequest.Status == "" {
-		fetchRequest.Status = "new"
-	}
-	if fetchRequest.Limit <= 0 {
-		fetchRequest.Limit = 100
-	}
-
-	ctx := r.Context()
-
-	job, err := s.orchestrator.StartFetchJob(ctx, project, site, fetchRequest.Status, fetchRequest.Limit, fetchRequest.Config)
-	if err != nil {
-		s.logger.Warn("starting fetch job", logging.Field{Key: "error", Value: err.Error()})
-		_ = conn.WriteJSON(map[string]string{"error": err.Error()})
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
 
-	// Optionally send initial job struct
-	s.logger.Info("started fetch job", logging.Field{Key: "job_id", Value: job.ID})
-	_ = conn.WriteJSON(job)
+	// Send headers immediately
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
 
-	for ev := range job.Events {
-		if err := conn.WriteJSON(ev); err != nil {
-			// Assume client disconnected; cancel job
-			s.orchestrator.CancelJob(job.ID)
-			return
+	projectFilter := r.URL.Query().Get("project")
+	siteFilter := r.URL.Query().Get("site")
+	jobIDFilter := r.URL.Query().Get("job_id")
+
+	events := s.orchestrator.Subscribe(r.Context())
+
+	for ev := range events {
+		// Apply filters
+		if projectFilter != "" && ev.Project != projectFilter {
+			continue
 		}
+		if siteFilter != "" && ev.Website != siteFilter {
+			continue
+		}
+		if jobIDFilter != "" && ev.JobID != jobIDFilter {
+			continue
+		}
+
+		data, err := json.Marshal(ev)
+		if err != nil {
+			continue
+		}
+
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
 	}
 }
 
@@ -869,54 +876,6 @@ func normalizeEndpointStatus(status string) string {
 		return "*"
 	}
 	return trimmed
-}
-
-// handleEnumerateWS godoc
-// @Summary Stream enumerate job events over WebSocket
-// @Description Upgrades the connection, receives EnumerationConfig as first message, and streams enumeration progress events.
-// @Tags Jobs
-// @Param project path string true "Project slug"
-// @Param site path string true "Website slug"
-// @Success 101 {string} string "WebSocket Upgrade"
-// @Failure 400 {object} ErrorResponse
-// @Router /ws/projects/{project}/websites/{site}/enumerate [get]
-func (s *Server) handleEnumerateWS(w http.ResponseWriter, r *http.Request) {
-	project := chi.URLParam(r, "project")
-	site := chi.URLParam(r, "site")
-
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		s.logger.Warn("upgrading to websocket", logging.Field{Key: "error", Value: err.Error()})
-		return
-	}
-	defer conn.Close()
-
-	// Read config from first message
-	var cfg api.EnumerationConfig
-	if err := conn.ReadJSON(&cfg); err != nil {
-		_ = conn.WriteJSON(map[string]string{"error": "invalid config: " + err.Error()})
-		s.logger.Warn("reading enumerate config", logging.Field{Key: "error", Value: err.Error()})
-		return
-	}
-
-	ctx := r.Context()
-
-	job, err := s.orchestrator.StartEnumerateJob(ctx, project, site, cfg)
-	if err != nil {
-		_ = conn.WriteJSON(map[string]string{"error": err.Error()})
-		s.logger.Warn("starting enumerate job", logging.Field{Key: "error", Value: err.Error()})
-		return
-	}
-
-	s.logger.Info("started enumerate job", logging.Field{Key: "job_id", Value: job.ID})
-	_ = conn.WriteJSON(job)
-
-	for ev := range job.Events {
-		if err := conn.WriteJSON(ev); err != nil {
-			s.orchestrator.CancelJob(job.ID)
-			return
-		}
-	}
 }
 
 func expandPath(p string) (string, error) {
