@@ -97,25 +97,16 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 func (sc *SiteComponents) Close() error {
 	var firstErr error
 	if sc.Analyzer != nil {
-		if sc.logger != nil {
-			sc.logger.Info("closing analyzer")
-		}
 		if err := sc.Analyzer.Close(); err != nil {
 			firstErr = fmt.Errorf("close analyzer: %w", err)
 		}
 	}
 	if sc.WebClient != nil {
-		if sc.logger != nil {
-			sc.logger.Info("closing webclient")
-		}
 		if err := sc.WebClient.Close(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close webclient: %w", err)
 		}
 	}
 	if sc.Tracker != nil {
-		if sc.logger != nil {
-			sc.logger.Info("closing tracker")
-		}
 		if err := sc.Tracker.Close(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close tracker: %w", err)
 		}
