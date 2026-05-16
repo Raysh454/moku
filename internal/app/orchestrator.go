@@ -620,8 +620,12 @@ func (o *Orchestrator) DeleteWebsite(ctx context.Context, projectIdentifier, web
 		return err
 	}
 
-	o.cancelWebsiteJobs(web.ProjectID, web.Slug)
-	if err := o.waitForWebsiteJobs(ctx, web.ProjectID, web.Slug); err != nil {
+	// Job.Project / Job.Website hold the URL-path identifier (slug) passed
+	// to the Start*Job methods, not the website's UUID. Filter on the same
+	// slug here, otherwise the cancel/wait loops match no jobs and we race
+	// the running goroutines into the eviction below.
+	o.cancelWebsiteJobs(projectIdentifier, web.Slug)
+	if err := o.waitForWebsiteJobs(ctx, projectIdentifier, web.Slug); err != nil {
 		return fmt.Errorf("wait for website jobs: %w", err)
 	}
 

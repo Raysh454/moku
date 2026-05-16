@@ -274,6 +274,75 @@ func TestOrchestrator_DeleteWebsite_ClosesCachedComponents(t *testing.T) {
 	}
 }
 
+// TestOrchestrator_DeleteWebsite_CancelsInFlightScanJob proves that an
+// in-flight scan job is actually cancelled (and waited on) before the
+// orchestrator evicts the site. Before the cancellation-filter fix this
+// test would deadlock or timeout because `cancelWebsiteJobs` filtered on
+// the project UUID while `Job.Project` holds the URL slug, so the cancel
+// loop matched nothing and `waitForWebsiteJobs` returned immediately even
+// while the goroutine was still running.
+func TestOrchestrator_DeleteWebsite_CancelsInFlightScanJob(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "http://example.com")
+
+	web, err := o.registry.GetWebsiteBySlug(context.Background(), "proj", "site")
+	if err != nil {
+		t.Fatalf("GetWebsiteBySlug: %v", err)
+	}
+
+	scanStarted := make(chan struct{})
+	scanExited := make(chan struct{})
+	o.siteCompMutex.Lock()
+	comps := o.siteComponentsCache[web.ID]
+	o.siteCompMutex.Unlock()
+	comps.Analyzer = &testutil.DummyAnalyzer{
+		ScanAndWaitFunc: func(ctx context.Context, _ *analyzer.ScanRequest, _ analyzer.PollOptions) (*analyzer.ScanResult, error) {
+			close(scanStarted)
+			<-ctx.Done()
+			close(scanExited)
+			return nil, ctx.Err()
+		},
+	}
+
+	job, err := o.StartScanJob(context.Background(), "proj", "site", &analyzer.ScanRequest{URL: "http://example.com/"})
+	if err != nil {
+		t.Fatalf("StartScanJob: %v", err)
+	}
+
+	select {
+	case <-scanStarted:
+	case <-time.After(time.Second):
+		t.Fatal("scan goroutine did not start within 1s")
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- o.DeleteWebsite(context.Background(), "proj", "site") }()
+
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("DeleteWebsite: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DeleteWebsite did not return within 5s — cancellation likely not firing")
+	}
+
+	select {
+	case <-scanExited:
+	case <-time.After(time.Second):
+		t.Fatal("scan goroutine did not observe cancellation")
+	}
+
+	final := o.GetJob(job.ID)
+	if final == nil {
+		t.Fatal("scan job vanished from orchestrator")
+	}
+	if final.Status != JobCanceled {
+		t.Errorf("scan job status = %q, want %q", final.Status, JobCanceled)
+	}
+}
+
 func TestStartFetchJob_RejectsWhenClosed(t *testing.T) {
 	t.Parallel()
 	o := newTestOrchestrator(t)
