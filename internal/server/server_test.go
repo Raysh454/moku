@@ -787,3 +787,44 @@ func TestHandleGetAnalyzerHealth_ReturnsStatus(t *testing.T) {
 		t.Errorf("Backend = %q, want %q", resp.Backend, "moku")
 	}
 }
+
+// TestServer_DeleteThenRecreate_SameOrigin_Succeeds reproduces issue #17:
+// creating a website, warming its tracker, deleting it, and recreating one
+// with the same origin must succeed. Before the fix the recreate failed on
+// Windows because the per-site `moku.db` SQLite handle was still held.
+func TestServer_DeleteThenRecreate_SameOrigin_Succeeds(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+
+	if rec := doJSON(t, s, "POST", "/projects",
+		`{"slug":"proj","name":"Proj"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Create
+	if rec := doJSON(t, s, "POST", "/projects/proj/websites",
+		`{"slug":"site","origin":"https://example.com"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("first create website: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Warm the site components so the tracker SQLite DB is held open —
+	// hitting the analyzer capabilities endpoint goes through
+	// `siteComponentsFor` and forces a `NewSQLiteTracker` call.
+	if rec := doJSON(t, s, "GET",
+		"/projects/proj/websites/site/analyzer/capabilities", ""); rec.Code != http.StatusOK {
+		t.Fatalf("warm site components: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Delete
+	if rec := doJSON(t, s, "DELETE",
+		"/projects/proj/websites/site", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete website: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Recreate with the SAME origin.
+	rec := doJSON(t, s, "POST", "/projects/proj/websites",
+		`{"slug":"site","origin":"https://example.com"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("recreate with same origin: %d %s", rec.Code, rec.Body.String())
+	}
+}

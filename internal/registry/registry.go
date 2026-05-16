@@ -494,16 +494,13 @@ func (r *Registry) DeleteWebsite(ctx context.Context, projectIdentifier, website
 		return fmt.Errorf("delete website from DB: %w", err)
 	}
 
-	// Best-effort directory removal. Log errors but don't fail the operation,
-	// since the website is already removed from the database.
+	// Best-effort directory removal. The website is already gone from the DB,
+	// so a residual directory must not be allowed to collide with a recreate.
+	// On Windows the SQLite handle close lag can briefly hold `moku.db` open
+	// even after the tracker is closed — see issue #17 — so we retry, then
+	// rename the directory aside as a last resort.
 	wdir := r.websiteDir(projectDirName, originDirName)
-	if err := os.RemoveAll(wdir); err != nil {
-		if r.logger != nil {
-			r.logger.Warn("failed to remove website directory",
-				logging.Field{Key: "path", Value: wdir},
-				logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	removeDirBestEffort(wdir, r.logger)
 	return nil
 }
 
@@ -525,15 +522,9 @@ func (r *Registry) DeleteProject(ctx context.Context, identifier string) error {
 		return fmt.Errorf("delete project from DB: %w", err)
 	}
 
-	// Best-effort directory removal. Log errors but don't fail the operation,
-	// since the project is already removed from the database.
+	// Best-effort directory removal. Same retry + rename fallback as
+	// `DeleteWebsite` so a stale project dir can never block a recreate.
 	projDir := r.projectDir(dirName)
-	if err := os.RemoveAll(projDir); err != nil {
-		if r.logger != nil {
-			r.logger.Warn("failed to remove project directory",
-				logging.Field{Key: "path", Value: projDir},
-				logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	removeDirBestEffort(projDir, r.logger)
 	return nil
 }
