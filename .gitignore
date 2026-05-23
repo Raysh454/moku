@@ -11,3 +11,17 @@ node_modules/
 dist/
 .vite/
 package-lock.json
+
+# Scratch workspace for analyzer integration work (Phase A)
+worktrees/
+
+# Sidecar analyzer runtime artifacts
+services/analyzer/.venv/
+services/analyzer/.run/
+services/analyzer/__pycache__/
+services/analyzer/**/__pycache__/
+services/analyzer/.pytest_cache/
+services/analyzer/**/.pytest_cache/
+services/analyzer/.ruff_cache/
+services/analyzer/*.db
+services/analyzer/.installed
