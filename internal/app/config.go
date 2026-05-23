@@ -1,6 +1,9 @@
 package app
 
 import (
+	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/raysh454/moku/internal/analyzer"
@@ -11,6 +14,46 @@ import (
 	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
 )
+
+// EnvAnalyzerBackend is the env var consulted by DefaultConfig to override
+// AnalyzerCfg.Backend at process start. Library callers that prefer explicit
+// configuration over env-driven defaults can ignore this and set Backend
+// directly on the returned Config.
+const EnvAnalyzerBackend = "MOKU_ANALYZER_BACKEND"
+
+// analyzerBackendsByName maps the lowercase string accepted in
+// EnvAnalyzerBackend to the canonical analyzer.Backend constant. Centralizing
+// the mapping keeps DefaultConfig free of a sprawling switch statement and
+// gives tests a single source of truth.
+var analyzerBackendsByName = map[string]analyzer.Backend{
+	"moku":       analyzer.BackendMoku,
+	"burp":       analyzer.BackendBurp,
+	"zap":        analyzer.BackendZAP,
+	"dast":       analyzer.BackendDAST,
+	"nuclei":     analyzer.BackendNuclei,
+	"nikto":      analyzer.BackendNikto,
+	"shodan":     analyzer.BackendShodan,
+	"virustotal": analyzer.BackendVirusTotal,
+}
+
+// resolveAnalyzerBackend returns the analyzer.Backend chosen by the
+// EnvAnalyzerBackend env var. When the var is unset or empty, the default
+// (BackendMoku) is returned. An unrecognized value triggers a warning log and
+// falls back to BackendMoku so the process can still boot.
+func resolveAnalyzerBackend() analyzer.Backend {
+	raw := strings.TrimSpace(os.Getenv(EnvAnalyzerBackend))
+	if raw == "" {
+		return analyzer.BackendMoku
+	}
+	if backend, ok := analyzerBackendsByName[strings.ToLower(raw)]; ok {
+		return backend
+	}
+	log.Printf(
+		"app: %s=%q is not a recognized analyzer backend; falling back to %q",
+		EnvAnalyzerBackend, raw, analyzer.BackendMoku,
+	)
+	return analyzer.BackendMoku
+}
 
 // Config contains a minimal set of runtime configuration options required by
 // internal modules during initial development. We intentionally keep this small
@@ -67,7 +110,7 @@ func DefaultConfig() *Config {
 			Client: webclient.ClientNetHTTP,
 		},
 		AnalyzerCfg: analyzer.Config{
-			Backend: analyzer.BackendMoku,
+			Backend: resolveAnalyzerBackend(),
 			DefaultPoll: analyzer.PollOptions{
 				Timeout:       5 * time.Minute,
 				Interval:      2 * time.Second,
