@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -507,7 +508,16 @@ func (o *Orchestrator) StartScanJob(ctx context.Context, projectIdentifier, webs
 			case <-jobCtx.Done():
 				o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
 			default:
-				o.setJobStatus(jobID, JobFailed, err)
+				// Transport-level failure talking to the analyzer sidecar gets a
+				// dedicated, user-facing failure message so operators can tell
+				// "scanner crashed" from "scanner not running". Every other error
+				// (in-band sidecar status, decode failure, scan-engine error) falls
+				// through to the generic JobFailed path.
+				if errors.Is(err, analyzer.ErrSidecarUnreachable) {
+					o.setJobStatus(jobID, JobFailed, fmt.Errorf("vulnerability analyzer sidecar offline: %w", err))
+				} else {
+					o.setJobStatus(jobID, JobFailed, err)
+				}
 			}
 			return
 		}

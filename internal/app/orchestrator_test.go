@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -744,6 +746,104 @@ func TestOrchestrator_StartScanJob_EmptyURLErrors(t *testing.T) {
 	if _, err := o.StartScanJob(context.Background(), "proj", "site", &analyzer.ScanRequest{URL: ""}); err == nil {
 		t.Error("expected error for empty scan URL")
 	}
+}
+
+// TestOrchestrator_StartScanJob_SidecarOffline_MarksJobFailed proves that
+// when the underlying analyzer returns an error wrapping
+// analyzer.ErrSidecarUnreachable, the orchestrator promotes the job to
+// JobFailed with a user-facing "sidecar offline" message (not the raw
+// transport error). Operators rely on this string to distinguish a missing
+// sidecar process from a scanner that ran but reported a failure.
+func TestOrchestrator_StartScanJob_SidecarOffline_MarksJobFailed(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "http://example.com")
+
+	web, err := o.registry.GetWebsiteBySlug(context.Background(), "proj", "site")
+	if err != nil {
+		t.Fatalf("GetWebsiteBySlug: %v", err)
+	}
+
+	o.siteCompMutex.Lock()
+	comps := o.siteComponentsCache[web.ID]
+	o.siteCompMutex.Unlock()
+	comps.Analyzer = &testutil.DummyAnalyzer{
+		ScanAndWaitFunc: func(_ context.Context, _ *analyzer.ScanRequest, _ analyzer.PollOptions) (*analyzer.ScanResult, error) {
+			// Mimic what sidecarAnalyzer.do() returns when the sidecar is
+			// unreachable: a wrapped sentinel error.
+			return nil, fmt.Errorf("%w: dial tcp 127.0.0.1:1: connect: connection refused", analyzer.ErrSidecarUnreachable)
+		},
+	}
+
+	job, err := o.StartScanJob(context.Background(), "proj", "site", &analyzer.ScanRequest{URL: "http://example.com/"})
+	if err != nil {
+		t.Fatalf("StartScanJob: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stored := o.GetJob(job.ID)
+		if stored != nil && (stored.Status == JobFailed || stored.Status == JobDone || stored.Status == JobCanceled) {
+			if stored.Status != JobFailed {
+				t.Fatalf("Job.Status = %q, want %q", stored.Status, JobFailed)
+			}
+			if !strings.Contains(stored.Error, "sidecar offline") {
+				t.Errorf("Job.Error = %q; expected to contain %q so operators can identify transport failures", stored.Error, "sidecar offline")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("scan job did not reach a terminal status within deadline")
+}
+
+// TestOrchestrator_StartScanJob_GenericAnalyzerError_MarksJobFailed pairs
+// with the sidecar-offline test above: when the analyzer returns an error
+// that does NOT wrap ErrSidecarUnreachable, the orchestrator must surface
+// the raw error verbatim (no "sidecar offline" prefix). Together the two
+// tests pin the errors.Is branch to its discriminator.
+func TestOrchestrator_StartScanJob_GenericAnalyzerError_MarksJobFailed(t *testing.T) {
+	t.Parallel()
+	o := newTestOrchestrator(t)
+	injectFakeComponents(t, o, "proj", "site", "http://example.com")
+
+	web, err := o.registry.GetWebsiteBySlug(context.Background(), "proj", "site")
+	if err != nil {
+		t.Fatalf("GetWebsiteBySlug: %v", err)
+	}
+
+	o.siteCompMutex.Lock()
+	comps := o.siteComponentsCache[web.ID]
+	o.siteCompMutex.Unlock()
+	comps.Analyzer = &testutil.DummyAnalyzer{
+		ScanAndWaitFunc: func(_ context.Context, _ *analyzer.ScanRequest, _ analyzer.PollOptions) (*analyzer.ScanResult, error) {
+			return nil, fmt.Errorf("scan engine exploded mid-run")
+		},
+	}
+
+	job, err := o.StartScanJob(context.Background(), "proj", "site", &analyzer.ScanRequest{URL: "http://example.com/"})
+	if err != nil {
+		t.Fatalf("StartScanJob: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stored := o.GetJob(job.ID)
+		if stored != nil && (stored.Status == JobFailed || stored.Status == JobDone || stored.Status == JobCanceled) {
+			if stored.Status != JobFailed {
+				t.Fatalf("Job.Status = %q, want %q", stored.Status, JobFailed)
+			}
+			if strings.Contains(stored.Error, "sidecar offline") {
+				t.Errorf("Job.Error = %q; generic errors must NOT carry the sidecar-offline prefix", stored.Error)
+			}
+			if !strings.Contains(stored.Error, "scan engine exploded mid-run") {
+				t.Errorf("Job.Error = %q; expected the raw scan-engine message to be surfaced", stored.Error)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("scan job did not reach a terminal status within deadline")
 }
 
 // TestOrchestrator_StartScanJob_CompletesAndStoresResult drives the scan-job
