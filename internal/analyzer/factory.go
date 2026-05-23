@@ -64,7 +64,38 @@ func NewAnalyzer(cfg Config, deps Dependencies) (Analyzer, error) {
 			return nil, fmt.Errorf("analyzer: zap backend requires HTTPClient")
 		}
 		return NewZAPAnalyzer(cfg.ZAP, cfg.DefaultPoll, deps.HTTPClient, deps.Logger)
+	case BackendDAST, BackendNuclei, BackendNikto, BackendShodan, BackendVirusTotal:
+		if deps.HTTPClient == nil {
+			return nil, fmt.Errorf("analyzer: %s backend requires HTTPClient", backend)
+		}
+		adapter, err := sidecarAdapterFor(backend)
+		if err != nil {
+			return nil, err
+		}
+		return newSidecarAnalyzer(cfg.Sidecar, cfg.DefaultPoll, backend, adapter, deps.HTTPClient, deps.Logger)
 	default:
-		return nil, fmt.Errorf("analyzer: unknown backend %q (supported: moku, burp, zap)", backend)
+		return nil, fmt.Errorf("analyzer: unknown backend %q (supported: moku, burp, zap, dast, nuclei, nikto, shodan, virustotal)", backend)
+	}
+}
+
+// sidecarAdapterFor maps a Moku-side Backend constant to the adapter name the
+// Python sidecar uses internally. BackendDAST maps to "builtin" because the
+// sidecar's active scanning engine is named that way; the Go-side constant is
+// renamed for clarity ("DAST" describes the technique, "builtin" describes
+// the implementation slot).
+func sidecarAdapterFor(b Backend) (string, error) {
+	switch b {
+	case BackendDAST:
+		return "builtin", nil
+	case BackendNuclei:
+		return "nuclei", nil
+	case BackendNikto:
+		return "nikto", nil
+	case BackendShodan:
+		return "shodan", nil
+	case BackendVirusTotal:
+		return "virustotal", nil
+	default:
+		return "", fmt.Errorf("analyzer: no sidecar adapter for backend %q", b)
 	}
 }

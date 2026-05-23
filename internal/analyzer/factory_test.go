@@ -1,6 +1,12 @@
 package analyzer_test
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,5 +167,165 @@ func TestNewAnalyzer_ZAP_RequiresBaseURL(t *testing.T) {
 	cfg.ZAP.BaseURL = ""
 	if _, err := analyzer.NewAnalyzer(cfg, factoryValidDeps()); err == nil {
 		t.Error("expected error when ZAP backend has empty BaseURL")
+	}
+}
+
+// ─── Sidecar dispatch ──────────────────────────────────────────────────
+//
+// Each sidecar-backed Backend (DAST/Nuclei/Nikto/Shodan/VirusTotal) must be
+// dispatched by NewAnalyzer to a *sidecarAnalyzer instance configured with
+// the correct Python-adapter name. We verify dispatch by submitting a scan
+// through the factory-built analyzer against a recording fake sidecar and
+// asserting the POST body's "backend" field matches the expected adapter.
+
+// recordingSidecar is a minimal httptest fake that captures every POST to
+// /scan so factory tests can assert the wire-level adapter name without
+// reaching into the sidecarAnalyzer's internals.
+type recordingSidecar struct {
+	server   *httptest.Server
+	bodiesMu sync.Mutex
+	bodies   [][]byte
+}
+
+func newRecordingSidecar(t *testing.T) *recordingSidecar {
+	t.Helper()
+	rs := &recordingSidecar{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		rs.bodiesMu.Lock()
+		rs.bodies = append(rs.bodies, body)
+		rs.bodiesMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"job_id":"factory-test-job"}`))
+	})
+	rs.server = httptest.NewServer(mux)
+	t.Cleanup(rs.server.Close)
+	return rs
+}
+
+func (rs *recordingSidecar) capturedBodies() [][]byte {
+	rs.bodiesMu.Lock()
+	defer rs.bodiesMu.Unlock()
+	out := make([][]byte, len(rs.bodies))
+	copy(out, rs.bodies)
+	return out
+}
+
+// assertSidecarBackendRoutes builds an Analyzer via the factory for backend,
+// fires a SubmitScan, and asserts the POST body carries the expected adapter
+// name. Used by the per-backend dispatch tests below.
+func assertSidecarBackendRoutes(t *testing.T, backend analyzer.Backend, expectedAdapterField string) {
+	t.Helper()
+	rs := newRecordingSidecar(t)
+
+	cfg := factoryDefaultConfig()
+	cfg.Backend = backend
+	cfg.Sidecar = analyzer.SidecarConfig{BaseURL: rs.server.URL}
+
+	a, err := analyzer.NewAnalyzer(cfg, factoryValidDeps())
+	if err != nil {
+		t.Fatalf("NewAnalyzer(%s): %v", backend, err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if got := a.Name(); got != backend {
+		t.Errorf("Name() = %q, want %q", got, backend)
+	}
+
+	jobID, err := a.SubmitScan(context.Background(), &analyzer.ScanRequest{
+		URL: "https://example.com/",
+	})
+	if err != nil {
+		t.Fatalf("SubmitScan(%s): %v", backend, err)
+	}
+	if jobID != "factory-test-job" {
+		t.Errorf("SubmitScan returned %q, want %q", jobID, "factory-test-job")
+	}
+
+	bodies := rs.capturedBodies()
+	if len(bodies) != 1 {
+		t.Fatalf("recorded %d submit bodies; want 1", len(bodies))
+	}
+	wantSubstring := `"backend":"` + expectedAdapterField + `"`
+	if !strings.Contains(string(bodies[0]), wantSubstring) {
+		t.Errorf("submit body does not contain %s: %s", wantSubstring, string(bodies[0]))
+	}
+}
+
+func TestNewAnalyzer_DAST_RoutesToSidecar(t *testing.T) {
+	t.Parallel()
+	assertSidecarBackendRoutes(t, analyzer.BackendDAST, "builtin")
+}
+
+func TestNewAnalyzer_Nuclei_RoutesToSidecar(t *testing.T) {
+	t.Parallel()
+	assertSidecarBackendRoutes(t, analyzer.BackendNuclei, "nuclei")
+}
+
+func TestNewAnalyzer_Nikto_RoutesToSidecar(t *testing.T) {
+	t.Parallel()
+	assertSidecarBackendRoutes(t, analyzer.BackendNikto, "nikto")
+}
+
+func TestNewAnalyzer_Shodan_RoutesToSidecar(t *testing.T) {
+	t.Parallel()
+	assertSidecarBackendRoutes(t, analyzer.BackendShodan, "shodan")
+}
+
+func TestNewAnalyzer_VirusTotal_RoutesToSidecar(t *testing.T) {
+	t.Parallel()
+	assertSidecarBackendRoutes(t, analyzer.BackendVirusTotal, "virustotal")
+}
+
+// Each sidecar backend must require an HTTPClient — otherwise the factory has
+// no transport to talk to the sidecar with.
+func TestNewAnalyzer_SidecarBackends_RequireHTTPClient(t *testing.T) {
+	t.Parallel()
+	sidecarBackends := []analyzer.Backend{
+		analyzer.BackendDAST,
+		analyzer.BackendNuclei,
+		analyzer.BackendNikto,
+		analyzer.BackendShodan,
+		analyzer.BackendVirusTotal,
+	}
+	for _, backend := range sidecarBackends {
+		t.Run(string(backend), func(t *testing.T) {
+			t.Parallel()
+			cfg := factoryDefaultConfig()
+			cfg.Backend = backend
+			cfg.Sidecar = analyzer.SidecarConfig{BaseURL: "http://127.0.0.1:8181"}
+			deps := factoryValidDeps()
+			deps.HTTPClient = nil
+			if _, err := analyzer.NewAnalyzer(cfg, deps); err == nil {
+				t.Errorf("expected error when %s backend has nil HTTPClient", backend)
+			}
+		})
+	}
+}
+
+// Each sidecar backend must reject construction when SidecarConfig.BaseURL
+// is empty — without a target URL the analyzer has nowhere to send /scan.
+func TestNewAnalyzer_SidecarBackends_RequireBaseURL(t *testing.T) {
+	t.Parallel()
+	sidecarBackends := []analyzer.Backend{
+		analyzer.BackendDAST,
+		analyzer.BackendNuclei,
+		analyzer.BackendNikto,
+		analyzer.BackendShodan,
+		analyzer.BackendVirusTotal,
+	}
+	for _, backend := range sidecarBackends {
+		t.Run(string(backend), func(t *testing.T) {
+			t.Parallel()
+			cfg := factoryDefaultConfig()
+			cfg.Backend = backend
+			cfg.Sidecar = analyzer.SidecarConfig{BaseURL: ""}
+			if _, err := analyzer.NewAnalyzer(cfg, factoryValidDeps()); err == nil {
+				t.Errorf("expected error when %s backend has empty Sidecar.BaseURL", backend)
+			}
+		})
 	}
 }
