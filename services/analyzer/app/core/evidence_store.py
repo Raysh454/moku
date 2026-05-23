@@ -1,0 +1,120 @@
+"""EvidenceStore — sha256-addressed blob storage for request/response evidence."""
+
+import hashlib
+import os
+import shutil
+import time
+from datetime import timedelta
+from pathlib import Path
+
+from app.core.finding import EvidenceRef
+
+
+def _default_base_dir() -> str:
+    return os.environ.get("MOKU_EVIDENCE_DIR") or str(
+        Path.home() / ".config" / "moku" / "evidence"
+    )
+
+
+class EvidenceStore:
+    """Filesystem-backed evidence store keyed by sha256 of the blob.
+
+    Blobs land in `<base>/<job_id>/<sha256>` so a single job's evidence can
+    be purged in one call. The store is created lazily — importing the
+    module never touches the filesystem.
+    """
+
+    def __init__(self, base_dir: str | None = None):
+        self.base_dir = Path(base_dir or _default_base_dir())
+
+    def _job_dir(self, job_id: str | None) -> Path:
+        return self.base_dir / (job_id or "_shared")
+
+    def save(self, data: bytes, label: str, job_id: str | None = None) -> EvidenceRef:
+        """Persist `data` and return an `EvidenceRef` pointing at it."""
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError("EvidenceStore.save requires bytes; encode strings first")
+        raw = bytes(data)
+        sha = hashlib.sha256(raw).hexdigest()
+        target_dir = self._job_dir(job_id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / sha
+
+        if not path.exists():
+            path.write_bytes(raw)
+
+        return EvidenceRef(
+            sha256=sha,
+            size=len(raw),
+            path=str(path),
+            label=label,
+        )
+
+    def load(self, sha256: str, job_id: str | None = None) -> bytes:
+        """Return the raw bytes of a previously stored blob."""
+        path = self._job_dir(job_id) / sha256
+        if not path.exists():
+            raise FileNotFoundError(f"evidence blob not found: {sha256}")
+        return path.read_bytes()
+
+    def delete_for_job(self, job_id: str) -> int:
+        """Remove all blobs associated with `job_id`."""
+        target = self._job_dir(job_id)
+        if not target.exists():
+            return 0
+        count = sum(1 for _ in target.iterdir() if _.is_file())
+        shutil.rmtree(target, ignore_errors=True)
+        return count
+
+    def prune(
+        self,
+        max_age: timedelta | None = None,
+        max_bytes: int | None = None,
+    ) -> int:
+        """Drop blobs older than `max_age` and trim total size to `max_bytes`."""
+        if not self.base_dir.exists():
+            return 0
+
+        now = time.time()
+        cutoff = now - max_age.total_seconds() if max_age is not None else None
+        removed = 0
+
+        files: list[tuple[float, int, Path]] = []
+        for path in self.base_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            stat = path.stat()
+            if cutoff is not None and stat.st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+                removed += 1
+                continue
+            files.append((stat.st_mtime, stat.st_size, path))
+
+        if max_bytes is not None:
+            files.sort()
+            total = sum(size for _, size, _ in files)
+            for _, size, path in files:
+                if total <= max_bytes:
+                    break
+                path.unlink(missing_ok=True)
+                total -= size
+                removed += 1
+
+        return removed
+
+
+_store: EvidenceStore | None = None
+
+
+def get_evidence_store() -> EvidenceStore:
+    """Return a lazily-constructed module-singleton."""
+    global _store
+    if _store is None:
+        _store = EvidenceStore()
+    return _store
+
+
+def _reset_evidence_store_for_tests() -> None:
+    """Clear the cached singleton (test-only helper)."""
+    global _store
+    _store = None

@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moku-analyzer"
+version = "0.2.0"
+description = "Standalone vulnerability analyzer for the Moku platform"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "pydantic==2.8.2",
+    "requests==2.32.3",
+    "python-dotenv==1.0.0",
+    "colorama==0.4.6",
+    "pyfiglet==1.0.4",
+    "beautifulsoup4==4.12.2",
+    "lxml==5.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-mock>=3.12",
+    "responses>=0.25",
+    "httpx>=0.25",
+    "ruff>=0.4",
+    "pyright>=1.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires external services (network or installed scanner binary)",
+]
+addopts = "-ra --strict-markers --strict-config"
+norecursedirs = ["tests/integration", ".venv", "node_modules"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "B008", "UP038"]
+
+[tool.pyright]
+include = ["app"]
+exclude = [".venv", "**/__pycache__", "tests/integration"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+reportMissingImports = false
+reportMissingTypeStubs = false
+# Pydantic v2 aliased fields trip pyright's call-checks; runtime is fine.
+reportCallIssue = "none"
+# bs4 attribute return types are loose Unions; mypy/pyright cannot narrow safely.
+reportAttributeAccessIssue = "none"
+reportArgumentType = "none"
