@@ -8,7 +8,6 @@ import type {
   FilterConfig,
   FilterRule,
   Job,
-  JobEvent,
   Project,
   RuleType,
   SuccessMessage,
@@ -205,86 +204,6 @@ export const demoApi = {
       body,
     }).then(asJson<SuccessMessage>)
   },
-}
-
-const wsOrigin = () => window.location.origin.replace(/^http/, 'ws')
-
-export const createJobSocket = (
-  kind: 'fetch' | 'enumerate',
-  project: string,
-  site: string,
-  options?: { status?: string; limit?: number },
-) => {
-  const params = new URLSearchParams()
-
-  if (kind === 'fetch') {
-    params.set('status', options?.status || '*')
-    params.set('limit', String(options?.limit ?? 100))
-  }
-
-  const suffix = params.toString() ? `?${params}` : ''
-  const socket = new WebSocket(`${wsOrigin()}/ws/projects/${project}/websites/${site}/${kind}${suffix}`)
-
-  return {
-    socket,
-    onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => {
-      socket.onmessage = (event) => {
-        try {
-          handler(JSON.parse(event.data))
-        } catch {
-          handler({ error: 'Invalid websocket payload' })
-        }
-      }
-    },
-  }
-}
-
-export const createFetchSocket = (
-  project: string,
-  site: string,
-  fetchRequest: { status: string; limit: number; config?: FetchConfig },
-) => {
-  const socket = new WebSocket(`${wsOrigin()}/ws/projects/${project}/websites/${site}/fetch`)
-
-  return {
-    socket,
-    sendRequest: () => {
-      socket.send(JSON.stringify(fetchRequest))
-    },
-    onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => {
-      socket.onmessage = (event) => {
-        try {
-          handler(JSON.parse(event.data))
-        } catch {
-          handler({ error: 'Invalid websocket payload' })
-        }
-      }
-    },
-  }
-}
-
-export const createEnumerateSocket = (
-  project: string,
-  site: string,
-  enumConfig: EnumerationConfig,
-) => {
-  const socket = new WebSocket(`${wsOrigin()}/ws/projects/${project}/websites/${site}/enumerate`)
-
-  return {
-    socket,
-    sendConfig: () => {
-      socket.send(JSON.stringify(enumConfig))
-    },
-    onMessage: (handler: (payload: Job | JobEvent | { error: string }) => void) => {
-      socket.onmessage = (event) => {
-        try {
-          handler(JSON.parse(event.data))
-        } catch {
-          handler({ error: 'Invalid websocket payload' })
-        }
-      }
-    },
-  }
 }
 
 export const config = {
