@@ -36,6 +36,23 @@ class TestValidateTargetUrl:
         ):
             assert validate_target_url("https://example.com") == "https://example.com"
 
+    def test_allows_loopback_when_env_flag_set(self, monkeypatch):
+        monkeypatch.setenv("MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS", "true")
+        assert (
+            validate_target_url("http://127.0.0.1:9999/admin")
+            == "http://127.0.0.1:9999/admin"
+        )
+
+    def test_still_rejects_unsupported_scheme_when_env_flag_set(self, monkeypatch):
+        monkeypatch.setenv("MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS", "true")
+        with pytest.raises(ValueError):
+            validate_target_url("file:///etc/passwd")
+
+    def test_still_rejects_dash_prefix_when_env_flag_set(self, monkeypatch):
+        monkeypatch.setenv("MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS", "true")
+        with pytest.raises(ValueError):
+            validate_target_url("-target")
+
 
 class TestRunSubprocess:
     def test_raises_runtime_error_on_nonzero_exit(self):

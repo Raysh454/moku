@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
+import os
 import re
 import socket
 from datetime import UTC, datetime, timedelta
@@ -19,6 +21,23 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+logger = logging.getLogger(__name__)
+
+# Env var that, when truthy, instructs the schema validator to skip the SSRF
+# rejection of private/loopback hosts. Intended for local development and
+# automated verification runs against the demo server (localhost:9999).
+# Production deployments MUST leave this unset.
+_ALLOW_PRIVATE_HOSTS_ENV_VAR = "MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS"
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes"})
+
+
+def _private_host_bypass_enabled() -> bool:
+    """Return True iff the SSRF private-host bypass env flag is set truthy."""
+    raw = os.getenv(_ALLOW_PRIVATE_HOSTS_ENV_VAR)
+    if raw is None:
+        return False
+    return raw.strip().lower() in _TRUTHY_ENV_VALUES
 
 
 class ScanStatus(str, Enum):
@@ -132,7 +151,21 @@ class Auth(BaseModel):
 
 
 def _reject_private_host(host: str) -> None:
-    """Raise `ValueError` for private/loopback/link-local/reserved addresses."""
+    """Raise `ValueError` for private/loopback/link-local/reserved addresses.
+
+    Honors the `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` env flag for local
+    development and automated verification: when the flag is truthy, the
+    private-host rejection is bypassed (with a warning logged) so callers
+    can scan localhost/RFC1918 targets such as the demo server.
+    """
+    if _private_host_bypass_enabled():
+        logger.warning(
+            "SSRF private-host guard bypassed for host %r via %s env flag",
+            host,
+            _ALLOW_PRIVATE_HOSTS_ENV_VAR,
+        )
+        return
+
     candidates: list[str] = []
     try:
         ipaddress.ip_address(host)

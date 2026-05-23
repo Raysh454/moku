@@ -248,6 +248,17 @@ GET http://moku-analyzer-url/scan/{job_id}/download?format=csv
 | GET | `/scan/{id}` | Poll for results |
 | GET | `/scan/{id}/download` | Download report (CSV/TXT) |
 
+### Environment Variables
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `SIDECAR_HOST` | `127.0.0.1` | Interface uvicorn binds to. |
+| `SIDECAR_PORT` | `8181` | Port uvicorn binds to. |
+| `SIDECAR_SHARED_SECRET` | unset | When set, the Go client sends it as `X-Shared-Secret`; sidecar enforces it. |
+| `SHODAN_API_KEY` | unset | API key consumed by the `shodan` adapter. |
+| `VIRUSTOTAL_API_KEY` | unset | API key consumed by the `virustotal` adapter. |
+| `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` | unset | When `1`/`true`/`yes` (case-insensitive), bypasses the `ScanRequest` SSRF guard that rejects loopback/RFC1918 hosts. Intended for local development and verification against the demo server only; leave unset in production. The bypass is logged as a warning. |
+
 ### Schema Notes for Integrators
 
 The Pydantic models in `app/models/schemas.py` are designed to round-trip
