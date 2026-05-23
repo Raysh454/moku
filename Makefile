@@ -48,7 +48,21 @@ endif
 # Ensure local bin is used first
 export PATH := $(BIN_DIR)$(PATH_SEP)$(PATH)
 
-.PHONY: all build run test test-race test-pkg fmt vet lint install-golangci coverage coverage-html install-swagger swagger ci clean
+# Sidecar analyzer (Python FastAPI service vendored under services/analyzer)
+SIDECAR_HOST ?= 127.0.0.1
+SIDECAR_PORT ?= 8181
+PYTHON := $(shell command -v python 2>$(NULL_DEVICE) || command -v python3 2>$(NULL_DEVICE))
+
+ifeq ($(GOOS),windows)
+SIDECAR_PYTHON := services/analyzer/.venv/Scripts/python.exe
+SIDECAR_PIP := services/analyzer/.venv/Scripts/pip.exe
+else
+SIDECAR_PYTHON := services/analyzer/.venv/bin/python
+SIDECAR_PIP := services/analyzer/.venv/bin/pip
+endif
+
+.PHONY: all build run test test-race test-pkg fmt vet lint install-golangci coverage coverage-html install-swagger swagger ci clean \
+        sidecar-install sidecar-start sidecar-stop sidecar-health sidecar-test sidecar-clean schema-check
 
 all: build
 
@@ -65,6 +79,11 @@ endif
 
 run: build
 	@echo "==> running $(BIN_DIR)/$(BINARY)"
+	@echo "==> note: sidecar-routed Backends (DAST/Nuclei/Nikto/Shodan/VirusTotal) require 'make sidecar-start' separately"
+	$(BIN_DIR)/$(BINARY)
+
+run-with-sidecar: sidecar-start build
+	@echo "==> running $(BIN_DIR)/$(BINARY) with sidecar"
 	$(BIN_DIR)/$(BINARY)
 
 demo-server:
@@ -145,6 +164,12 @@ endif
 
 # CI target: runs canonical checks used by CI
 ci: install-swagger swagger fmt vet install-golangci lint test-race coverage
+ifneq ($(PYTHON),)
+	@echo "==> running sidecar tests"
+	@$(MAKE) sidecar-test
+else
+	@echo "==> python not found; skipping sidecar tests"
+endif
 	@echo "==> CI checks completed"
 
 install-swagger:
@@ -163,3 +188,72 @@ swagger: install-swagger
 clean:
 	@echo "==> cleaning"
 	@$(RM_CLEAN)
+
+# ─── Sidecar analyzer (Python FastAPI service) ─────────────────────────────────
+
+sidecar-install:
+	@echo "==> installing sidecar dependencies"
+ifeq ($(GOOS),windows)
+	@if not exist "services\analyzer\.venv\Scripts\python.exe" python -m venv services\analyzer\.venv
+	@"$(SIDECAR_PIP)" install -r services\analyzer\requirements.txt -r services\analyzer\requirements-dev.txt
+	@type nul > services\analyzer\.installed
+else
+	@test -x "$(SIDECAR_PYTHON)" || python3 -m venv services/analyzer/.venv
+	@"$(SIDECAR_PIP)" install -r services/analyzer/requirements.txt -r services/analyzer/requirements-dev.txt
+	@touch services/analyzer/.installed
+endif
+
+sidecar-start:
+ifeq ($(GOOS),windows)
+	@pwsh -ExecutionPolicy Bypass -File services/analyzer/scripts/start.ps1
+else
+	@bash services/analyzer/scripts/start.sh
+endif
+
+sidecar-stop:
+ifeq ($(GOOS),windows)
+	@pwsh -ExecutionPolicy Bypass -File services/analyzer/scripts/stop.ps1
+else
+	@bash services/analyzer/scripts/stop.sh
+endif
+
+sidecar-health:
+ifeq ($(GOOS),windows)
+	@pwsh -ExecutionPolicy Bypass -File services/analyzer/scripts/health.ps1
+else
+	@bash services/analyzer/scripts/health.sh
+endif
+
+sidecar-test:
+	@echo "==> running sidecar pytest suite"
+ifeq ($(GOOS),windows)
+	@cd services/analyzer && .venv/Scripts/python.exe -m pytest tests/ -v
+else
+	@cd services/analyzer && .venv/bin/python -m pytest tests/ -v
+endif
+
+sidecar-clean:
+	@echo "==> cleaning sidecar runtime artifacts"
+ifeq ($(GOOS),windows)
+	@if exist "services\analyzer\.venv" rmdir /S /Q "services\analyzer\.venv"
+	@if exist "services\analyzer\.run" rmdir /S /Q "services\analyzer\.run"
+	@if exist "services\analyzer\.pytest_cache" rmdir /S /Q "services\analyzer\.pytest_cache"
+	@if exist "services\analyzer\.installed" del /Q "services\analyzer\.installed"
+	@for /d /r "services\analyzer" %%d in (__pycache__) do @if exist "%%d" rmdir /S /Q "%%d"
+	@for /r "services\analyzer" %%f in (*.db) do @if exist "%%f" del /Q "%%f"
+else
+	@rm -rf services/analyzer/.venv services/analyzer/.run services/analyzer/.pytest_cache services/analyzer/.installed
+	@find services/analyzer -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+	@find services/analyzer -name '*.db' -type f -delete 2>/dev/null || true
+endif
+
+# Validate canned sidecar payloads in internal/analyzer/testdata/sidecar
+# against the Pydantic ScanResult schema. The actual validation logic
+# lives in services/analyzer/scripts/schema_check.py.
+schema-check:
+	@echo "==> validating sidecar JSON fixtures against ScanResult schema"
+ifeq ($(GOOS),windows)
+	@cd services/analyzer && PYTHONPATH=. .venv/Scripts/python.exe scripts/schema_check.py
+else
+	@cd services/analyzer && PYTHONPATH=. .venv/bin/python scripts/schema_check.py
+endif
