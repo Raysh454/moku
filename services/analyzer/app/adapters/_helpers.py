@@ -1,6 +1,7 @@
 """Shared adapter helpers: URL guards, subprocess wrappers, tempdir builders."""
 
 import ipaddress
+import logging
 import shutil
 import socket
 import subprocess
@@ -8,9 +9,22 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+from app.models.schemas import (
+    _ALLOW_PRIVATE_HOSTS_ENV_VAR,
+    _private_host_bypass_enabled,
+)
+
+logger = logging.getLogger(__name__)
+
 
 def validate_target_url(url: str) -> str:
-    """Validate a target URL, rejecting unsafe schemes and private addresses."""
+    """Validate a target URL, rejecting unsafe schemes and private addresses.
+
+    Honors the `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` env flag so adapter-side
+    validation matches the request-level guard in `app.models.schemas`. When
+    the bypass is active, loopback/RFC1918 addresses are permitted with a
+    warning logged; scheme/hostname/argument-injection checks still apply.
+    """
     if not url or not isinstance(url, str):
         raise ValueError("url must be a non-empty string")
     if url.startswith("-"):
@@ -23,6 +37,14 @@ def validate_target_url(url: str) -> str:
     host = parsed.hostname
     if not host:
         raise ValueError("url must include a hostname")
+
+    if _private_host_bypass_enabled():
+        logger.warning(
+            "adapter SSRF private-host guard bypassed for host %r via %s env flag",
+            host,
+            _ALLOW_PRIVATE_HOSTS_ENV_VAR,
+        )
+        return url
 
     candidates: list[str] = []
     try:

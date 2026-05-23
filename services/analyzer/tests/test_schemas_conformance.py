@@ -85,3 +85,27 @@ def test_finding_severity_and_confidence_enums_emit_lower_case_strings():
     dumped = json.loads(finding.model_dump_json(by_alias=True))
     assert dumped["severity"] == "high"
     assert dumped["confidence"] == "firm"
+
+
+def test_reject_private_host_blocks_loopback_by_default(monkeypatch):
+    monkeypatch.delenv("MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS", raising=False)
+    with pytest.raises(ValidationError):
+        ScanRequest.model_validate(
+            {"url": "http://127.0.0.1:9999/", "backend": "builtin"}
+        )
+
+
+def test_reject_private_host_allows_loopback_when_env_flag_set(monkeypatch):
+    monkeypatch.setenv("MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS", "true")
+    req = ScanRequest.model_validate(
+        {"url": "http://127.0.0.1:9999/", "backend": "builtin"}
+    )
+    assert str(req.url).startswith("http://127.0.0.1:9999")
+
+
+def test_reject_private_host_still_blocks_javascript_scheme(monkeypatch):
+    monkeypatch.setenv("MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS", "true")
+    with pytest.raises(ValidationError):
+        ScanRequest.model_validate(
+            {"url": "javascript:alert(1)", "backend": "builtin"}
+        )
