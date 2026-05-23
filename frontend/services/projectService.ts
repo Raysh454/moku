@@ -104,10 +104,18 @@ const toProject = (raw: { id: string; slug: string; name: string; description: s
 });
 
 const loadDomain = async (projectSlug: string, site: { id: string; slug: string; origin: string }): Promise<Domain> => {
-  const [endpointsRaw, versions] = await Promise.all([
-    api.listEndpoints(projectSlug, site.slug, "", 500),
-    api.listVersions(projectSlug, site.slug, 100),
-  ]);
+  let endpointsRaw: any[] = [];
+  let versions: any[] = [];
+
+  try {
+    [endpointsRaw, versions] = await Promise.all([
+      api.listEndpoints(projectSlug, site.slug, "", 500),
+      api.listVersions(projectSlug, site.slug, 100),
+    ]);
+  } catch (error) {
+    console.error(`Failed to load domain data for ${site.slug}:`, error);
+    // Fallback to empty data so the website can still be displayed
+  }
 
   const endpoints = endpointsRaw.map(toEndpoint);
   for (const endpoint of endpoints) {
