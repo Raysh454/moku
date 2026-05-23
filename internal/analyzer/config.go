@@ -11,6 +11,16 @@ const (
 	BackendMoku Backend = "moku"
 	BackendBurp Backend = "burp"
 	BackendZAP  Backend = "zap"
+
+	// BackendDAST routes scan requests to the Python sidecar's "builtin"
+	// adapter, which performs active dynamic-analysis scanning (XSS / SQLi /
+	// CSRF probes). The Go side talks HTTP to the sidecar; the actual scan
+	// engine lives in services/analyzer/app/adapters/builtin/.
+	BackendDAST       Backend = "dast"
+	BackendNuclei     Backend = "nuclei"
+	BackendNikto      Backend = "nikto"
+	BackendShodan     Backend = "shodan"
+	BackendVirusTotal Backend = "virustotal"
 )
 
 // Config selects the analyzer backend and carries common + per-backend
@@ -37,6 +47,33 @@ type Config struct {
 	// ZAP holds settings specific to the ZAP backend. Ignored when
 	// Backend != BackendZAP.
 	ZAP ZAPConfig `json:"zap"`
+
+	// Sidecar holds settings shared by every backend that routes through the
+	// Python analyzer sidecar (DAST/Nuclei/Nikto/Shodan/VirusTotal). The
+	// adapter-name dispatch happens inside the sidecar — the Go side selects
+	// it via the Backend field on each ScanRequest payload.
+	Sidecar SidecarConfig `json:"sidecar"`
+}
+
+// SidecarConfig carries the connection details for the Python analyzer
+// sidecar process (services/analyzer/). One sidecar instance can serve every
+// adapter-backed Backend (BackendDAST / BackendNuclei / ...); the per-request
+// adapter selection lives in the JSON body sent to /scan.
+type SidecarConfig struct {
+	// BaseURL is the sidecar root (e.g. "http://127.0.0.1:8181"). Required.
+	BaseURL string `json:"base_url"`
+
+	// RequestTimeout bounds each individual HTTP call to the sidecar.
+	RequestTimeout time.Duration `json:"request_timeout"`
+
+	// InsecureSkipTLS disables TLS verification when the sidecar is exposed
+	// over HTTPS with a self-signed certificate.
+	InsecureSkipTLS bool `json:"insecure_skip_tls"`
+
+	// SharedSecret, when non-empty, is sent as the "X-Moku-Token" header
+	// on every request. Must match the sidecar's MOKU_ANALYZER_TOKEN env
+	// var. Excluded from JSON marshalling so it never round-trips to logs.
+	SharedSecret string `json:"-"`
 }
 
 // PollOptions controls how ScanAndWait polls the backend for completion.
