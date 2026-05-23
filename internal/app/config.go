@@ -78,6 +78,14 @@ func DefaultConfig() *Config {
 				DefaultProfile: analyzer.ProfileBalanced,
 				JobRetention:   60 * time.Minute,
 			},
+			// Sidecar holds the connection details for the Python analyzer
+			// sidecar process (services/analyzer/). Used when AnalyzerCfg.Backend
+			// is one of BackendDAST / BackendNuclei / BackendNikto / BackendShodan /
+			// BackendVirusTotal — those routes all share the same sidecar.
+			Sidecar: analyzer.SidecarConfig{
+				BaseURL:        "http://127.0.0.1:8181",
+				RequestTimeout: 30 * time.Second,
+			},
 		},
 		assessorCfg: assessor.Config{
 			ScoringVersion:    "v0.1.0",
