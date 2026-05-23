@@ -25,3 +25,6 @@ services/analyzer/**/.pytest_cache/
 services/analyzer/.ruff_cache/
 services/analyzer/*.db
 services/analyzer/.installed
+
+# Playwright MCP runtime artifacts
+.playwright-mcp/
