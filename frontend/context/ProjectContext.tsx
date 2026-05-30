@@ -461,9 +461,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       clearMessage();
       try {
         const domain = await projectService.createWebsite(activeProject.slug, payload);
-        // Refresh project state from server to ensure consistent data
-        await refreshActiveProject();
+
+        // Update local state immediately so the website appears in the UI
+        const updatedProject: Project = {
+          ...activeProject,
+          domains: [...activeProject.domains, domain].sort((a, b) => a.hostname.localeCompare(b.hostname)),
+        };
+        setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
+        setActiveProject(updatedProject);
+
         setNotice(`Added website "${domain.hostname}"`);
+
+        // Trigger a background refresh to ensure everything is perfectly in sync,
+        // but the user already sees the new site.
+        void refreshActiveProject();
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to create website");
       } finally {

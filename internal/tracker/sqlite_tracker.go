@@ -59,16 +59,6 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Fallback to explicit PRAGMA if DSN parameter is ignored by the specific build
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to set WAL mode: %w", err)
-	}
-
 	if err := applySchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
