@@ -339,8 +339,7 @@ func TestOrchestrator_DeleteWebsite_CancelsInFlightScanJob(t *testing.T) {
 	final := o.GetJob(job.ID)
 	if final == nil {
 		t.Fatal("scan job vanished from orchestrator")
-	}
-	if final.Status != JobCanceled {
+	} else if final.Status != JobCanceled {
 		t.Errorf("scan job status = %q, want %q", final.Status, JobCanceled)
 	}
 }

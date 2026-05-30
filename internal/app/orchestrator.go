@@ -84,6 +84,8 @@ type Orchestrator struct {
 
 	siteCompMutex       sync.Mutex
 	siteComponentsCache map[string]*SiteComponents
+	siteInitMu          sync.Mutex
+	siteInitLocks       map[string]*sync.Mutex
 
 	jobsMu           sync.Mutex
 	jobs             map[string]*Job
@@ -102,10 +104,12 @@ func NewOrchestrator(cfg *Config, reg *registry.Registry, logger logging.Logger)
 		cfg = DefaultConfig()
 	}
 	return &Orchestrator{
-		cfg:              cfg,
-		registry:         reg,
-		logger:           logger,
-		jobRetentionTime: cfg.JobRetentionTime,
+		cfg:                 cfg,
+		registry:            reg,
+		logger:              logger,
+		siteComponentsCache: make(map[string]*SiteComponents),
+		siteInitLocks:       make(map[string]*sync.Mutex),
+		jobRetentionTime:    cfg.JobRetentionTime,
 	}
 }
 
@@ -583,9 +587,27 @@ func (o *Orchestrator) ListJobs() []*Job {
 
 func (o *Orchestrator) siteComponentsFor(ctx context.Context, web *registry.Website) (*SiteComponents, error) {
 	o.siteCompMutex.Lock()
-	if o.siteComponentsCache == nil {
-		o.siteComponentsCache = make(map[string]*SiteComponents)
+	if comps, ok := o.siteComponentsCache[web.ID]; ok {
+		o.siteCompMutex.Unlock()
+		return comps, nil
 	}
+	o.siteCompMutex.Unlock()
+
+	// Use a per-site lock to prevent concurrent initialization of the same database.
+	// This prevents "database is locked" errors when multiple requests hit a new site.
+	o.siteInitMu.Lock()
+	lock, ok := o.siteInitLocks[web.ID]
+	if !ok {
+		lock = &sync.Mutex{}
+		o.siteInitLocks[web.ID] = lock
+	}
+	o.siteInitMu.Unlock()
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Check cache again after acquiring site-specific lock
+	o.siteCompMutex.Lock()
 	if comps, ok := o.siteComponentsCache[web.ID]; ok {
 		o.siteCompMutex.Unlock()
 		return comps, nil
@@ -600,6 +622,15 @@ func (o *Orchestrator) siteComponentsFor(ctx context.Context, web *registry.Webs
 	o.siteCompMutex.Lock()
 	o.siteComponentsCache[web.ID] = comps
 	o.siteCompMutex.Unlock()
+
+	// Initialization complete — remove the per-site init lock to avoid unbounded
+	// growth of `siteInitLocks`. We delete the entry while still holding the
+	// site-specific lock to ensure waiting goroutines (which hold a pointer to
+	// the same mutex) will still be correctly synchronized and will re-check
+	// the cache when they proceed.
+	o.siteInitMu.Lock()
+	delete(o.siteInitLocks, web.ID)
+	o.siteInitMu.Unlock()
 
 	return comps, nil
 }
