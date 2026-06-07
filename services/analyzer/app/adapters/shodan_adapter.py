@@ -1,15 +1,13 @@
 """Shodan adapter — passive recon via the Shodan Host API."""
 
-import ipaddress
 import logging
 import os
-import socket
-import uuid
 from urllib.parse import urlparse
 
 import requests
 
 from app.adapters.base import BaseAdapter
+from app.core.finding import make_finding_id
 from app.models.schemas import (
     Backend,
     Capabilities,
@@ -18,6 +16,7 @@ from app.models.schemas import (
     ScanRequest,
     Severity,
 )
+from app.net_guard import assert_public_host
 
 _logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ class ShodanAdapter(BaseAdapter):
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
-            async_=False,
+            async_=True,
             supports_auth=False,
             supports_scope=False,
             supports_scan_profile=False,
@@ -48,6 +47,8 @@ class ShodanAdapter(BaseAdapter):
             raise ValueError("url must include a hostname")
 
         ip = self._resolve_public_ip(hostname)
+        if ip is None:
+            raise RuntimeError("no public IP resolved for host")
 
         try:
             resp = requests.get(
@@ -65,36 +66,16 @@ class ShodanAdapter(BaseAdapter):
         data = resp.json()
         return self._map_findings(data, url, ip)
 
-    def _resolve_public_ip(self, hostname: str) -> str:
-        try:
-            ipaddress.ip_address(hostname)
-            candidates = [hostname]
-        except ValueError:
-            try:
-                infos = socket.getaddrinfo(hostname, None)
-            except socket.gaierror as exc:
-                raise RuntimeError("failed to resolve hostname") from exc
-            candidates = [info[4][0] for info in infos if info[4]]
+    def _resolve_public_ip(self, hostname: str) -> str | None:
+        """Return the first vetted public IP for `hostname`, or None if none.
 
-        for candidate in candidates:
-            try:
-                addr = ipaddress.ip_address(candidate)
-            except ValueError:
-                continue
-            if (
-                addr.is_private
-                or addr.is_loopback
-                or addr.is_link_local
-                or addr.is_reserved
-                or addr.is_multicast
-                or addr.is_unspecified
-            ):
-                raise ValueError(
-                    f"host {hostname!r} resolves to a disallowed address: {candidate}"
-                )
-            return candidate
-
-        raise RuntimeError("no public IP resolved for host")
+        Uses the shared SSRF guard so the private/loopback rejection and the
+        `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` dev bypass behave identically to
+        the request-level and adapter-level checks. Raises `ValueError` (via
+        the guard) when the host resolves to a disallowed address.
+        """
+        vetted = assert_public_host(hostname)
+        return vetted[0] if vetted else None
 
     def _map_findings(self, data: dict, url: str, ip: str) -> list[Finding]:
         findings: list[Finding] = []
@@ -103,7 +84,7 @@ class ShodanAdapter(BaseAdapter):
             product = service.get("product") or "unknown"
             findings.append(
                 Finding(
-                    id=f"shodan-{uuid.uuid4().hex[:8]}",
+                    id=make_finding_id("shodan"),
                     title="open-port",
                     severity=Severity.INFO,
                     confidence=Confidence.FIRM,
@@ -129,7 +110,7 @@ class ShodanAdapter(BaseAdapter):
         for item in iter_vulns:
             findings.append(
                 Finding(
-                    id=f"shodan-{uuid.uuid4().hex[:8]}",
+                    id=make_finding_id("shodan"),
                     title=str(item),
                     severity=Severity.HIGH,
                     confidence=Confidence.FIRM,

@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -109,3 +110,23 @@ def test_reject_private_host_still_blocks_javascript_scheme(monkeypatch):
         ScanRequest.model_validate(
             {"url": "javascript:alert(1)", "backend": "builtin"}
         )
+
+
+# The Go-side wire fixtures must validate as ScanResult. Running this inside
+# pytest (not only via the standalone scripts/schema_check.py) gates the
+# cross-language contract in CI.
+_SIDECAR_FIXTURE_DIR = (
+    Path(__file__).resolve().parents[3]
+    / "internal"
+    / "analyzer"
+    / "testdata"
+    / "sidecar"
+)
+
+
+@pytest.mark.parametrize(
+    "fixture_path",
+    sorted(str(p) for p in _SIDECAR_FIXTURE_DIR.glob("*.json")),
+)
+def test_go_fixture_validates_as_scan_result(fixture_path):
+    ScanResult.model_validate_json(Path(fixture_path).read_text(encoding="utf-8"))

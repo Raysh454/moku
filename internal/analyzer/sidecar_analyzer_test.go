@@ -529,23 +529,23 @@ func TestSidecarAnalyzer_Capabilities_StaticPerAdapter(t *testing.T) {
 	}{
 		{
 			backend:  analyzer.BackendDAST,
-			expected: analyzer.Capabilities{Async: true, SupportsScanProfile: true, Version: "sidecar-builtin"},
+			expected: analyzer.Capabilities{Async: true, SupportsAuth: true, MaxConcurrentScans: 1, Version: "sidecar-builtin"},
 		},
 		{
 			backend:  analyzer.BackendNuclei,
-			expected: analyzer.Capabilities{Async: true, SupportsAuth: true, SupportsScanProfile: true, Version: "sidecar-nuclei"},
+			expected: analyzer.Capabilities{Async: true, MaxConcurrentScans: 1, Version: "sidecar-nuclei"},
 		},
 		{
 			backend:  analyzer.BackendNikto,
-			expected: analyzer.Capabilities{Async: true, SupportsScanProfile: true, Version: "sidecar-nikto"},
+			expected: analyzer.Capabilities{Async: true, MaxConcurrentScans: 1, Version: "sidecar-nikto"},
 		},
 		{
 			backend:  analyzer.BackendShodan,
-			expected: analyzer.Capabilities{Async: true, Version: "sidecar-shodan"},
+			expected: analyzer.Capabilities{Async: true, MaxConcurrentScans: 1, Version: "sidecar-shodan"},
 		},
 		{
 			backend:  analyzer.BackendVirusTotal,
-			expected: analyzer.Capabilities{Async: true, Version: "sidecar-virustotal"},
+			expected: analyzer.Capabilities{Async: true, MaxConcurrentScans: 1, Version: "sidecar-virustotal"},
 		},
 	}
 
@@ -600,6 +600,10 @@ func TestSidecarFixtures_DecodeCleanly(t *testing.T) {
 		"scan_result_completed_with_findings.json",
 		"scan_result_failed_with_error.json",
 		"scan_result_multi_severity_summary.json",
+		// Golden produced by the Python serializer (millisecond + 'Z' datetimes);
+		// proves the Go consumer decodes the sidecar's actual output format. Kept
+		// in lock-step by services/analyzer/tests/test_contract_golden.py.
+		"scan_result_python_serialized.json",
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
@@ -781,6 +785,43 @@ func TestSidecarAnalyzer_SubmitScan_RespectsRequestTimeout(t *testing.T) {
 	// message); the elapsed-time guard is the behavioural signal.
 	if elapsed > 250*time.Millisecond {
 		t.Errorf("SubmitScan took %s; expected timeout to fire near 25ms (well under the 500ms server sleep)", elapsed)
+	}
+}
+
+// TestSidecarAnalyzer_SubmitScan_CallerCancelIsNotUnreachable proves that a
+// caller-driven context cancellation surfaces as context.Canceled and is NOT
+// misclassified as ErrSidecarUnreachable — the scanner is reachable, the
+// caller simply aborted.
+func TestSidecarAnalyzer_SubmitScan_CallerCancelIsNotUnreachable(t *testing.T) {
+	t.Parallel()
+	env := newSidecarEnv(t)
+	env.submitResponse = func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * time.Second):
+		case <-r.Context().Done():
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"job_id":"never-arrives"}`))
+	}
+	a := env.newAnalyzerWith(t, analyzer.BackendDAST, analyzer.SidecarConfig{
+		BaseURL: env.server.URL,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := a.SubmitScan(ctx, &analyzer.ScanRequest{URL: "https://example.com/"})
+	if err == nil {
+		t.Fatal("SubmitScan returned nil error; want context.Canceled")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v is not context.Canceled", err)
+	}
+	if errors.Is(err, analyzer.ErrSidecarUnreachable) {
+		t.Errorf("caller cancellation must not be reported as ErrSidecarUnreachable: %v", err)
 	}
 }
 

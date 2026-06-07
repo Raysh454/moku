@@ -115,3 +115,42 @@ jobs:
           # unique artifact name per matrix job/run
           name: test-results-${{ matrix.go-version }}-run-${{ github.run_id }}
           path: test-results
+
+  sidecar:
+    name: Sidecar (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/analyzer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('services/analyzer/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Run tests (pytest)
+        run: python -m pytest tests/ -v
+
+      - name: Schema contract check (Go fixtures <-> Pydantic)
+        env:
+          PYTHONPATH: .
+        run: python scripts/schema_check.py

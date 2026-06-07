@@ -14,7 +14,6 @@ dependencies = [
     "requests==2.32.3",
     "python-dotenv==1.0.0",
     "colorama==0.4.6",
-    "pyfiglet==1.0.4",
     "beautifulsoup4==4.12.2",
     "lxml==5.2.2",
 ]

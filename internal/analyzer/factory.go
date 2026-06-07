@@ -65,14 +65,14 @@ func NewAnalyzer(cfg Config, deps Dependencies) (Analyzer, error) {
 		}
 		return NewZAPAnalyzer(cfg.ZAP, cfg.DefaultPoll, deps.HTTPClient, deps.Logger)
 	case BackendDAST, BackendNuclei, BackendNikto, BackendShodan, BackendVirusTotal:
-		if deps.HTTPClient == nil {
-			return nil, fmt.Errorf("analyzer: %s backend requires HTTPClient", backend)
-		}
+		// The sidecar client builds its own *http.Client from SidecarConfig
+		// (TLS/timeout posture lives next to the config), so it needs no
+		// injected webclient — only the adapter name and a logger.
 		adapter, err := sidecarAdapterFor(backend)
 		if err != nil {
 			return nil, err
 		}
-		return newSidecarAnalyzer(cfg.Sidecar, cfg.DefaultPoll, backend, adapter, deps.HTTPClient, deps.Logger)
+		return newSidecarAnalyzer(cfg.Sidecar, cfg.DefaultPoll, backend, adapter, deps.Logger)
 	default:
 		return nil, fmt.Errorf("analyzer: unknown backend %q (supported: moku, burp, zap, dast, nuclei, nikto, shodan, virustotal)", backend)
 	}

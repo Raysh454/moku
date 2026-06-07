@@ -25,12 +25,17 @@ _MAX_WORKERS = int(os.getenv("MOKU_ANALYZER_WORKERS", "4"))
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="moku-scan")
 
 _SECRET_KV_PATTERN = re.compile(
-    r"(?i)(api[_-]?key|token|password|authorization|key)=([^&\s\"']+)"
+    r"(?i)(api[_-]?key|token|password|authorization|key)\s*[:=]\s*([^&\s\"']+)"
 )
 
 
 def _redact_error(message: str) -> str:
-    """Strip recognisable secrets out of error messages before logging/exposing."""
+    """Strip recognisable secrets out of error messages before logging/exposing.
+
+    Matches ``key=value`` and ``key: value`` (with optional surrounding
+    whitespace), normalising the redacted form to ``key=<redacted>`` so the
+    key name survives for diagnostics while the value never leaks.
+    """
     return _SECRET_KV_PATTERN.sub(r"\1=<redacted>", message)
 
 
@@ -46,6 +51,11 @@ def _run_job(job_id: str) -> None:
         return
 
     job_store.update_status(job_id, status=ScanStatus.RUNNING)
+
+    # Pin the evidence partition to the trusted, server-generated job id.
+    # Adapters read raw_options["job_id"] for evidence storage; overwriting it
+    # here ensures a caller-supplied value can never steer filesystem paths.
+    request.raw_options["job_id"] = job_id
 
     try:
         backend_name = (
@@ -83,19 +93,30 @@ def _run_job(job_id: str) -> None:
         )
 
 
+_SEVERITY_RANK: dict[Severity, int] = {
+    Severity.INFO: 0,
+    Severity.LOW: 1,
+    Severity.MEDIUM: 2,
+    Severity.HIGH: 3,
+    Severity.CRITICAL: 4,
+}
+
+
 def _dedupe_findings(findings: list[ApiFinding]) -> list[ApiFinding]:
+    """Collapse findings sharing (title, parameter, url), keeping the most
+    severe. This is the single dedup policy for every adapter — applied once,
+    here, so adapters never carry their own (potentially divergent) copy."""
     best: dict[tuple[str, str | None, str | None], ApiFinding] = {}
     for finding in findings:
         key = (finding.title, finding.parameter, finding.url)
         current = best.get(key)
-        if current is None or _confidence_rank(finding) > _confidence_rank(current):
+        if current is None or _severity_rank(finding) > _severity_rank(current):
             best[key] = finding
     return list(best.values())
 
 
-def _confidence_rank(finding: ApiFinding) -> int:
-    ranks = {"tentative": 0, "firm": 1, "certain": 2}
-    return ranks.get(str(finding.confidence), 0)
+def _severity_rank(finding: ApiFinding) -> int:
+    return _SEVERITY_RANK.get(Severity(finding.severity), 0)
 
 
 def _build_summary(findings: list[ApiFinding]) -> ScanSummary:

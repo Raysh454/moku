@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 
 from app.core.evidence_store import get_evidence_store
-from app.core.finding import Finding
+from app.core.finding import Finding, make_finding_id
 from app.core.scan_unit import ScanUnit, ScanUnitType
 from app.core.test_case import TestCase, TestMode
 from app.plugins.base_plugin import BasePlugin
@@ -149,7 +149,7 @@ class SQLiPlugin(BasePlugin):
             finding_meta["warning"] = meta_warning
 
         return Finding(
-            finding_id=f"sqli-{uuid.uuid4().hex[:8]}",
+            finding_id=make_finding_id("sqli"),
             plugin=self.name,
             scan_unit_url=test_case.injection_point,
             http_method="POST" if test_case.meta.get("mode") == "body" else "GET",

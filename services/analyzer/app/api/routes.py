@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.adapters.registry import registry
 from app.api.security import require_internal_token
-from app.core.job_store import job_store
+from app.core.job_store import JobStoreFull, job_store
 from app.core.runner import submit_scan_job
 from app.models.schemas import (
     Backend,
@@ -32,7 +32,13 @@ async def submit_scan(request: ScanRequest) -> SubmitResponse:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"backend {backend_name!r} is not registered",
         )
-    job_id = job_store.create(request)
+    try:
+        job_id = job_store.create(request)
+    except JobStoreFull as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+        ) from exc
     submit_scan_job(job_id)
     return SubmitResponse(job_id=job_id)
 

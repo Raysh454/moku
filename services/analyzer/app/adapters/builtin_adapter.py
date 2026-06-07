@@ -1,5 +1,6 @@
 """BuiltinAdapter — Moku's reference active-scan analyzer (XSS, SQLi, CSRF)."""
 
+import base64
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -7,34 +8,36 @@ from app.adapters._helpers import validate_target_url
 from app.adapters.base import BaseAdapter
 from app.core.executor import Executor
 from app.core.finding import Finding as InternalFinding
-from app.core.finding import _confidence_to_severity
+from app.core.finding import confidence_to_severity
 from app.core.scan_unit import ScanUnit, ScanUnitType
 from app.models.schemas import (
+    Auth,
     Backend,
     Capabilities,
     Confidence,
     ScanRequest,
-    Severity,
 )
 from app.models.schemas import (
     Finding as ApiFinding,
 )
-from app.plugins.csrf_plugin import CSRFPlugin
-from app.plugins.plugin_manager import plugin_manager
-from app.plugins.sqli_plugin import SQLiPlugin
-from app.plugins.xss_plugin import XSSPlugin
-
-_SEVERITY_RANK: dict[Severity, int] = {
-    Severity.INFO: 0,
-    Severity.LOW: 1,
-    Severity.MEDIUM: 2,
-    Severity.HIGH: 3,
-    Severity.CRITICAL: 4,
-}
+from app.plugins.plugin_manager import PluginManager, plugin_manager
 
 
-def _severity_rank(s: Severity) -> int:
-    return _SEVERITY_RANK.get(s, 0)
+def _auth_header(auth: Auth | None) -> str | None:
+    """Translate a request's Auth into an Authorization header value.
+
+    Supports bearer tokens and HTTP basic credentials; cookie-based auth is
+    handled separately via ``Auth.extra``. Returns None when no header-based
+    credential is present.
+    """
+    if auth is None:
+        return None
+    if auth.token:
+        return f"Bearer {auth.token}"
+    if auth.username is not None and auth.password is not None:
+        raw = f"{auth.username}:{auth.password}".encode()
+        return "Basic " + base64.b64encode(raw).decode("ascii")
+    return None
 
 
 def _to_confidence_enum(c: float) -> Confidence:
@@ -49,12 +52,14 @@ class BuiltinAdapter(BaseAdapter):
     name = Backend.BUILTIN.value
     description = "Moku built-in dynamic vulnerability analyzer"
 
-    def __init__(self) -> None:
-        self._plugins = [XSSPlugin(), SQLiPlugin(), CSRFPlugin()]
+    def __init__(self, plugins: PluginManager | None = None) -> None:
+        # PluginManager is the single source of truth for the plugin roster;
+        # injectable so tests can supply a stub without monkeypatching globals.
+        self._plugin_manager = plugins or plugin_manager
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
-            async_=False,
+            async_=True,
             supports_auth=True,
             supports_scope=False,
             supports_scan_profile=False,
@@ -69,18 +74,24 @@ class BuiltinAdapter(BaseAdapter):
         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
         cookies: dict[str, str] = {}
-        if request.auth and request.auth.extra:
-            cookies = dict(request.auth.extra)
+        headers: dict[str, str] = {}
+        if request.auth:
+            if request.auth.extra:
+                cookies = dict(request.auth.extra)
+            auth_header = _auth_header(request.auth)
+            if auth_header:
+                headers["Authorization"] = auth_header
 
         scan_unit = ScanUnit(
             type=ScanUnitType.URL,
             url=clean_url,
             params=params,
+            headers=headers,
             cookies=cookies,
             meta={"job_id": request.raw_options.get("job_id")},
         )
 
-        test_cases = plugin_manager.generate_tests(scan_unit)
+        test_cases = self._plugin_manager.generate_tests(scan_unit)
         if not test_cases:
             return []
 
@@ -91,14 +102,17 @@ class BuiltinAdapter(BaseAdapter):
         internal_findings = executor.run(
             scan_unit=scan_unit,
             test_cases=test_cases,
-            plugins=self._plugins,
+            plugins=self._plugin_manager.get_plugins(),
+            max_duration=request.max_duration,
         )
 
-        api_findings = [self._map_finding(f) for f in internal_findings]
-        return self._dedupe(api_findings)
+        # Deduplication is applied once, centrally, by the runner for every
+        # adapter (see app.core.runner._dedupe_findings), so the adapter just
+        # maps and returns.
+        return [self._map_finding(f) for f in internal_findings]
 
     def _map_finding(self, f: InternalFinding) -> ApiFinding:
-        severity = _confidence_to_severity(f.confidence)
+        severity = confidence_to_severity(f.confidence)
         confidence = _to_confidence_enum(f.confidence)
         raw_data: dict[str, Any] = {
             "payload": f.payload_used,
@@ -123,14 +137,3 @@ class BuiltinAdapter(BaseAdapter):
             references=[],
             raw_data=raw_data,
         )
-
-    def _dedupe(self, findings: list[ApiFinding]) -> list[ApiFinding]:
-        best: dict[tuple[str, str | None, str | None], ApiFinding] = {}
-        for finding in findings:
-            key = (finding.title, finding.parameter, finding.url)
-            current = best.get(key)
-            if current is None or _severity_rank(
-                Severity(finding.severity)
-            ) > _severity_rank(Severity(current.severity)):
-                best[key] = finding
-        return list(best.values())

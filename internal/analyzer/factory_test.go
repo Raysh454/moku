@@ -280,9 +280,10 @@ func TestNewAnalyzer_VirusTotal_RoutesToSidecar(t *testing.T) {
 	assertSidecarBackendRoutes(t, analyzer.BackendVirusTotal, "virustotal")
 }
 
-// Each sidecar backend must require an HTTPClient — otherwise the factory has
-// no transport to talk to the sidecar with.
-func TestNewAnalyzer_SidecarBackends_RequireHTTPClient(t *testing.T) {
+// Sidecar backends deliberately do NOT require deps.HTTPClient: the sidecar
+// client builds its own transport from SidecarConfig. A nil HTTPClient must
+// still construct successfully.
+func TestNewAnalyzer_SidecarBackends_DoNotRequireHTTPClient(t *testing.T) {
 	t.Parallel()
 	sidecarBackends := []analyzer.Backend{
 		analyzer.BackendDAST,
@@ -299,9 +300,11 @@ func TestNewAnalyzer_SidecarBackends_RequireHTTPClient(t *testing.T) {
 			cfg.Sidecar = analyzer.SidecarConfig{BaseURL: "http://127.0.0.1:8181"}
 			deps := factoryValidDeps()
 			deps.HTTPClient = nil
-			if _, err := analyzer.NewAnalyzer(cfg, deps); err == nil {
-				t.Errorf("expected error when %s backend has nil HTTPClient", backend)
+			a, err := analyzer.NewAnalyzer(cfg, deps)
+			if err != nil {
+				t.Fatalf("expected %s to construct with nil HTTPClient: %v", backend, err)
 			}
+			t.Cleanup(func() { _ = a.Close() })
 		})
 	}
 }

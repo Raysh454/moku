@@ -1,11 +1,23 @@
 """Finding model and helpers shared by plugins and the builtin adapter."""
 
+import uuid
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from app.models.schemas import Severity
+
+_FINDING_ID_HEX_WIDTH = 8
+
+
+def make_finding_id(prefix: str) -> str:
+    """Return a short, unique finding id of the form ``<prefix>-<8 hex>``.
+
+    Centralises the id format so adapters and plugins do not each hand-roll
+    ``uuid4().hex[:8]``; the width lives in one named constant.
+    """
+    return f"{prefix}-{uuid.uuid4().hex[:_FINDING_ID_HEX_WIDTH]}"
 
 
 class EvidenceRef(BaseModel):
@@ -32,7 +44,7 @@ class Finding(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict)
 
 
-def _confidence_to_severity(c: float) -> Severity:
+def confidence_to_severity(c: float) -> Severity:
     """Map a 0.0–1.0 confidence score onto the tiered severity scale."""
     if c >= 0.9:
         return Severity.CRITICAL

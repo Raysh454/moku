@@ -2,12 +2,16 @@
 
 import hashlib
 import os
+import re
 import shutil
 import time
 from datetime import timedelta
 from pathlib import Path
 
 from app.core.finding import EvidenceRef
+
+_SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
+_UNSAFE_SEGMENT_CHARS = ("/", "\\", "\x00")
 
 
 def _default_base_dir() -> str:
@@ -28,7 +32,21 @@ class EvidenceStore:
         self.base_dir = Path(base_dir or _default_base_dir())
 
     def _job_dir(self, job_id: str | None) -> Path:
-        return self.base_dir / (job_id or "_shared")
+        """Resolve the per-job evidence directory, rejecting path traversal.
+
+        `job_id` is treated as a single, untrusted path segment. Anything that
+        contains a path separator/NUL, is a relative-path token (`.`/`..`), or
+        resolves outside `base_dir` is rejected so a caller-influenced job id
+        can never escape the evidence root.
+        """
+        if not job_id:
+            return self.base_dir / "_shared"
+        if job_id in (".", "..") or any(c in job_id for c in _UNSAFE_SEGMENT_CHARS):
+            raise ValueError(f"unsafe evidence job_id: {job_id!r}")
+        candidate = (self.base_dir / job_id).resolve()
+        if not candidate.is_relative_to(self.base_dir.resolve()):
+            raise ValueError(f"evidence job_id escapes base dir: {job_id!r}")
+        return candidate
 
     def save(self, data: bytes, label: str, job_id: str | None = None) -> EvidenceRef:
         """Persist `data` and return an `EvidenceRef` pointing at it."""
@@ -52,6 +70,8 @@ class EvidenceStore:
 
     def load(self, sha256: str, job_id: str | None = None) -> bytes:
         """Return the raw bytes of a previously stored blob."""
+        if not _SHA256_PATTERN.match(sha256):
+            raise ValueError(f"invalid sha256 digest: {sha256!r}")
         path = self._job_dir(job_id) / sha256
         if not path.exists():
             raise FileNotFoundError(f"evidence blob not found: {sha256}")

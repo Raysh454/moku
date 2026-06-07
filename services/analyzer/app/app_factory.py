@@ -1,6 +1,7 @@
 """FastAPI application factory — parameterised for tests and production alike."""
 
 import asyncio
+import ipaddress
 import logging
 import os
 from collections.abc import Callable
@@ -13,10 +14,49 @@ from app.adapters.registry import AdapterRegistry
 from app.adapters.registry import registry as default_registry
 from app.api.routes import router
 from app.core.job_store import start_pruner
+from app.net_guard import private_host_bypass_enabled
 
 _logger = logging.getLogger(__name__)
 
 Registrar = Callable[[AdapterRegistry], None]
+
+_HOST_ENV = "MOKU_ANALYZER_HOST"
+_TOKEN_ENV = "MOKU_ANALYZER_TOKEN"
+_ALLOW_PRIVATE_HOSTS_ENV = "MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS"
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host in ("", "localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def enforce_startup_security_posture() -> None:
+    """Fail closed when exposing the service to a non-loopback interface.
+
+    A network-reachable bind (e.g. ``0.0.0.0`` in a container) must require an
+    authentication token and must not have the SSRF private-host bypass
+    enabled — otherwise the service is an unauthenticated open SSRF proxy.
+    Loopback binds (the dev/demo default) are left unrestricted. The bind host
+    is read from ``MOKU_ANALYZER_HOST``, which the launcher and start scripts
+    set.
+    """
+    host = os.environ.get(_HOST_ENV, "127.0.0.1")
+    if _is_loopback_host(host):
+        return
+    if not os.environ.get(_TOKEN_ENV):
+        raise RuntimeError(
+            f"refusing to start: binding to non-loopback host {host!r} requires "
+            f"{_TOKEN_ENV} to be set so inbound requests are authenticated"
+        )
+    if private_host_bypass_enabled():
+        raise RuntimeError(
+            f"refusing to start: {_ALLOW_PRIVATE_HOSTS_ENV} (SSRF guard bypass) "
+            f"must not be enabled when binding to non-loopback host {host!r}"
+        )
 
 
 def register_default_adapters(registry: AdapterRegistry) -> None:
@@ -40,6 +80,7 @@ def create_app(register: Registrar | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        enforce_startup_security_posture()
         for name in list(default_registry.available()):
             default_registry.unregister(name)
         if register is not None:

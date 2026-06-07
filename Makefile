@@ -48,9 +48,14 @@ endif
 # Ensure local bin is used first
 export PATH := $(BIN_DIR)$(PATH_SEP)$(PATH)
 
-# Sidecar analyzer (Python FastAPI service vendored under services/analyzer)
-SIDECAR_HOST ?= 127.0.0.1
-SIDECAR_PORT ?= 8181
+# Sidecar analyzer (Python FastAPI service vendored under services/analyzer).
+# Bind address uses the single MOKU_ANALYZER_* env family shared by the code,
+# the start/stop/health scripts, and the fail-closed startup guard. Exported so
+# `make sidecar-start MOKU_ANALYZER_PORT=9000` reaches the scripts.
+MOKU_ANALYZER_HOST ?= 127.0.0.1
+MOKU_ANALYZER_PORT ?= 8181
+export MOKU_ANALYZER_HOST
+export MOKU_ANALYZER_PORT
 PYTHON := $(shell command -v python 2>$(NULL_DEVICE) || command -v python3 2>$(NULL_DEVICE))
 
 ifeq ($(GOOS),windows)

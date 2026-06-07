@@ -28,6 +28,37 @@ def test_save_rejects_string(tmp_path):
         store.save("string-data", label="resp")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    "evil",
+    [
+        "../escape",
+        "../../etc",
+        "a/b",
+        "a\\b",
+        "..",
+        ".",
+    ],
+)
+def test_save_rejects_path_traversal_job_id(tmp_path, evil):
+    store = EvidenceStore(str(tmp_path))
+    with pytest.raises(ValueError):
+        store.save(b"x", label="resp", job_id=evil)
+    # nothing escaped the base dir
+    assert list((tmp_path).rglob("x")) == []
+
+
+def test_delete_for_job_rejects_path_traversal(tmp_path):
+    store = EvidenceStore(str(tmp_path))
+    with pytest.raises(ValueError):
+        store.delete_for_job("../../etc")
+
+
+def test_load_rejects_non_sha256(tmp_path):
+    store = EvidenceStore(str(tmp_path))
+    with pytest.raises(ValueError):
+        store.load("../../etc/passwd", job_id="j")
+
+
 def test_delete_for_job_removes_only_that_job(tmp_path):
     store = EvidenceStore(str(tmp_path))
     store.save(b"a", label="x", job_id="job-a")

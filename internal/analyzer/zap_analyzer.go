@@ -53,7 +53,7 @@ func NewZAPAnalyzer(cfg ZAPConfig, poll PollOptions, httpClient webclient.WebCli
 		return nil, errors.New("zap analyzer: ZAPConfig.BaseURL is required")
 	}
 	componentLogger := logger.With(logging.Field{Key: "component", Value: "zap_analyzer"})
-	componentLogger.Info("zap analyzer constructed (scaffold; REST pipeline not yet implemented)")
+	componentLogger.Warn("zap backend selected but NOT YET IMPLEMENTED (scaffold only); scans will fail until the REST pipeline lands. The Python sidecar's 'zap' adapter is a separate, working path")
 	return &zapAnalyzer{
 		cfg:        cfg,
 		poll:       poll,

@@ -7,7 +7,6 @@ call so importing this module remains free of side effects.
 import shutil
 import sys
 
-import pyfiglet  # noqa: F401  (kept for backwards-compat with prior callers)
 from colorama import Fore, Style, init
 
 _DEFAULT_TERMINAL_WIDTH = 100
@@ -52,14 +51,10 @@ def print_banner() -> None:
     print()
 
 
-def print_status(db_ok: bool = True, adapter_statuses=None) -> None:
+def print_status(adapter_statuses=None) -> None:
     _init_cli()
     print(Style.BRIGHT + Fore.WHITE + "  Status" + Style.RESET_ALL)
     print("  " + "─" * 50)
-
-    dot = Fore.GREEN + "●" if db_ok else Fore.RED + "●"
-    label = "Database connected" if db_ok else "Database error"
-    print(f"  {dot}{Style.RESET_ALL}  {label}")
 
     if adapter_statuses:
         for name, status_, note in adapter_statuses:

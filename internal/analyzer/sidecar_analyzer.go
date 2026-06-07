@@ -10,10 +10,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/raysh454/moku/internal/logging"
-	"github.com/raysh454/moku/internal/webclient"
 )
 
 // sidecarAnalyzer is the Go-side client for the Python analyzer sidecar
@@ -28,23 +26,21 @@ import (
 //
 // sidecarAnalyzer owns a dedicated *http.Client built from SidecarConfig so
 // its TLS / timeout posture is decoupled from the orchestrator's general
-// webclient. The caller-supplied webclient.WebClient is retained on the
-// struct only because the factory passes one and future features (e.g. body
-// logging via the webclient's middleware) may want it; sidecar HTTP traffic
-// itself does not use it.
+// webclient.
 type sidecarAnalyzer struct {
-	cfg        SidecarConfig
-	poll       PollOptions
-	backend    Backend
-	adapter    string
-	httpClient webclient.WebClient
-	httpDoer   sidecarHTTPDoer
-	logger     logging.Logger
+	cfg      SidecarConfig
+	poll     PollOptions
+	backend  Backend
+	adapter  string
+	httpDoer sidecarHTTPDoer
+	logger   logging.Logger
 }
 
 // sidecarHTTPDoer is the narrow capability the analyzer needs from its
-// transport — exactly what *http.Client satisfies. Defined as an interface so
-// tests can swap in a recording fake without standing up an httptest.Server.
+// transport — exactly what *http.Client satisfies (ISP: the analyzer depends
+// only on Do, not the full *http.Client surface). Concrete instances are built
+// by newSidecarHTTPClient; tests exercise the request path through an
+// httptest.Server.
 type sidecarHTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -69,6 +65,12 @@ var (
 const (
 	sidecarTokenHeader     = "X-Moku-Token"
 	sidecarContentTypeJSON = "application/json"
+
+	// SidecarContractVersion is the wire-contract version this client expects.
+	// The sidecar reports its own version on /health; a mismatch is logged so
+	// operators can spot Go/Python version skew. Must match the Python
+	// CONTRACT_VERSION in services/analyzer/app/models/schemas.py.
+	SidecarContractVersion = "1"
 )
 
 // newSidecarAnalyzer constructs a sidecar-backed Analyzer for a specific
@@ -79,14 +81,10 @@ func newSidecarAnalyzer(
 	poll PollOptions,
 	backend Backend,
 	adapter string,
-	httpClient webclient.WebClient,
 	logger logging.Logger,
 ) (*sidecarAnalyzer, error) {
 	if logger == nil {
 		return nil, errors.New("sidecar analyzer: logger is nil")
-	}
-	if httpClient == nil {
-		return nil, errors.New("sidecar analyzer: httpClient is nil")
 	}
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		return nil, errors.New("sidecar analyzer: SidecarConfig.BaseURL is required")
@@ -99,13 +97,12 @@ func newSidecarAnalyzer(
 		logging.Field{Key: "adapter", Value: adapter},
 	)
 	return &sidecarAnalyzer{
-		cfg:        cfg,
-		poll:       poll,
-		backend:    backend,
-		adapter:    adapter,
-		httpClient: httpClient,
-		httpDoer:   newSidecarHTTPClient(cfg),
-		logger:     componentLogger,
+		cfg:      cfg,
+		poll:     poll,
+		backend:  backend,
+		adapter:  adapter,
+		httpDoer: newSidecarHTTPClient(cfg),
+		logger:   componentLogger,
 	}, nil
 }
 
@@ -138,34 +135,40 @@ func (s *sidecarAnalyzer) Name() Backend { return s.backend }
 // sidecarAdapterCapabilities is the Strategy table consulted by
 // (*sidecarAnalyzer).Capabilities. Adding a new adapter is a one-line entry
 // here plus a factory branch in factory.go — no switch statement to keep in
-// sync. The Version field is stamped at call time from the adapter name so
-// the table only needs to describe feature toggles.
+// sync. The Async, MaxConcurrentScans, and Version fields are stamped at call
+// time, so the table only describes the per-adapter feature toggles that
+// actually differ.
 //
-// Adapter feature matrix mirrors the Python sidecar's declared capabilities:
-//
-//   - builtin    : SupportsScanProfile (XSS/SQLi/CSRF active scanning).
-//   - nuclei     : SupportsAuth + SupportsScanProfile (templated scanner).
-//   - nikto      : SupportsScanProfile (legacy web-server scanner).
-//   - shodan     : no extra knobs (passive host enrichment).
-//   - virustotal : no extra knobs (passive URL reputation).
+// These values are kept in lock-step with the Python adapters' declared
+// capabilities() via the shared manifest at testdata/capabilities.json; a
+// conformance test on each side fails if they drift. Only the builtin adapter
+// currently honours ScanRequest.Auth (cookies + basic/bearer); the CLI/passive
+// adapters ignore auth/scope/profile, so they advertise nothing extra.
 var sidecarAdapterCapabilities = map[string]Capabilities{
-	"builtin":    {SupportsScanProfile: true},
-	"nuclei":     {SupportsAuth: true, SupportsScanProfile: true},
-	"nikto":      {SupportsScanProfile: true},
+	"builtin":    {SupportsAuth: true},
+	"nuclei":     {},
+	"nikto":      {},
 	"shodan":     {},
 	"virustotal": {},
 }
 
-// Capabilities returns a static, adapter-specific snapshot. Looks the adapter
-// up in sidecarAdapterCapabilities and stamps Async + Version on the result.
-// Unknown adapters fall back to "async only" — safe because every adapter
-// served by this client is async by construction.
+// sidecarMaxConcurrentScans is the per-adapter concurrency ceiling reported to
+// callers. The sidecar serialises scans per adapter, so it is 1 for every
+// adapter; kept as a named constant to match the shared capabilities manifest.
+const sidecarMaxConcurrentScans = 1
+
+// Capabilities returns a static, adapter-specific snapshot. It looks the
+// adapter up in sidecarAdapterCapabilities and stamps the invariant fields
+// (Async, MaxConcurrentScans, Version). Unknown adapters fall back to the
+// stamped defaults — safe because every adapter served by this client is async
+// and single-flight by construction (enforced by an exhaustiveness test).
 //
 // No network call is made; this satisfies the LSP contract that Capabilities
 // is side-effect free.
 func (s *sidecarAnalyzer) Capabilities() Capabilities {
 	caps := sidecarAdapterCapabilities[s.adapter] // zero-value when missing
 	caps.Async = true
+	caps.MaxConcurrentScans = sidecarMaxConcurrentScans
 	caps.Version = fmt.Sprintf("sidecar-%s", s.adapter)
 	return caps
 }
@@ -285,7 +288,8 @@ func (s *sidecarAnalyzer) Health(ctx context.Context) (string, error) {
 		return "unavailable", s.statusError(resp, "Health")
 	}
 	var decoded struct {
-		Status string `json:"status"`
+		Status          string `json:"status"`
+		ContractVersion string `json:"contract_version"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		return "unavailable", fmt.Errorf("Health: decode response: %w", err)
@@ -293,7 +297,24 @@ func (s *sidecarAnalyzer) Health(ctx context.Context) (string, error) {
 	if decoded.Status == "" {
 		return "unavailable", errors.New("Health: sidecar returned empty status")
 	}
+	s.warnOnContractMismatch(decoded.ContractVersion)
 	return decoded.Status, nil
+}
+
+// warnOnContractMismatch logs a warning when the sidecar reports a wire-contract
+// version different from the one this client was built against. Empty (an older
+// sidecar that predates the field) is tolerated silently; only an explicit,
+// differing version is flagged, so Go/Python skew surfaces in logs without
+// failing the health probe.
+func (s *sidecarAnalyzer) warnOnContractMismatch(reported string) {
+	if reported == "" || reported == SidecarContractVersion {
+		return
+	}
+	s.logger.Warn(
+		"sidecar contract version mismatch",
+		logging.Field{Key: "sidecar_contract_version", Value: reported},
+		logging.Field{Key: "client_contract_version", Value: SidecarContractVersion},
+	)
 }
 
 // Close is a no-op: the sidecar analyzer holds no resources of its own. The
@@ -318,7 +339,9 @@ func (s *sidecarAnalyzer) encodeSubmitBody(req *ScanRequest) ([]byte, error) {
 		payload["auth"] = req.Auth
 	}
 	if req.MaxDuration > 0 {
-		payload["max_duration"] = goDurationToString(req.MaxDuration)
+		// Go's native duration string (e.g. "5m30s"); the Python sidecar
+		// parses it via its _parse_go_duration helper.
+		payload["max_duration"] = req.MaxDuration.String()
 	}
 	if len(req.RawOptions) > 0 {
 		payload["raw_options"] = req.RawOptions
@@ -338,7 +361,7 @@ func (s *sidecarAnalyzer) post(ctx context.Context, path string, body []byte) (*
 	}
 	req.Header.Set("Content-Type", sidecarContentTypeJSON)
 	s.attachAuthHeader(req)
-	return s.do(req)
+	return s.do(ctx, req)
 }
 
 // get performs a GET request against the sidecar.
@@ -350,7 +373,7 @@ func (s *sidecarAnalyzer) get(ctx context.Context, path string) (*http.Response,
 		return nil, fmt.Errorf("sidecar: build GET: %w", err)
 	}
 	s.attachAuthHeader(req)
-	return s.do(req)
+	return s.do(ctx, req)
 }
 
 // withRequestTimeout derives a per-call context bounded by cfg.RequestTimeout
@@ -366,12 +389,22 @@ func (s *sidecarAnalyzer) withRequestTimeout(ctx context.Context) (context.Conte
 // do dispatches the request through the analyzer's dedicated HTTP client. The
 // client is owned by sidecarAnalyzer (constructed from SidecarConfig) so its
 // TLS posture and timeout semantics are independent of the orchestrator's
-// general webclient. Network failures are wrapped with ErrSidecarUnreachable
-// so the orchestrator can render a "scanner offline" message distinct from
-// in-band sidecar failures.
-func (s *sidecarAnalyzer) do(req *http.Request) (*http.Response, error) {
+// general webclient.
+//
+// Error classification: if the supplied (parent) context has been canceled or
+// its deadline exceeded, that is caller-driven — the request was aborted, the
+// scanner is not necessarily offline — so the context error is returned
+// unwrapped, preserving errors.Is(err, context.Canceled / DeadlineExceeded).
+// Any other transport failure (connection refused, DNS, TLS, or a per-call
+// RequestTimeout firing while the parent context is still live) is wrapped
+// with ErrSidecarUnreachable so the orchestrator can render a "scanner
+// offline" message distinct from in-band sidecar failures.
+func (s *sidecarAnalyzer) do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	resp, err := s.httpDoer.Do(req)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("%w: %v", ErrSidecarUnreachable, err)
 	}
 	return resp, nil
@@ -398,11 +431,4 @@ func (s *sidecarAnalyzer) statusError(resp *http.Response, op string) error {
 	const maxExcerpt = 256
 	excerpt, _ := io.ReadAll(io.LimitReader(resp.Body, maxExcerpt))
 	return fmt.Errorf("%s: sidecar returned %d: %s: %w", op, resp.StatusCode, strings.TrimSpace(string(excerpt)), errSidecarBadStatus)
-}
-
-// goDurationToString formats a time.Duration using Go's native string
-// representation (e.g. "5m30s") which the Python sidecar parses via its
-// own _parse_go_duration helper.
-func goDurationToString(d time.Duration) string {
-	return d.String()
 }

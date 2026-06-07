@@ -1,373 +1,206 @@
 # moku-analyzer
 
-A production-ready vulnerability analyzer service built for the moku platform. This service receives scan requests from moku's Go client, analyzes them using a pluggable adapter system, and returns structured vulnerability findings.
+A vulnerability-analyzer sidecar for the [Moku](https://github.com/Raysh454/moku)
+platform. Moku's Go orchestrator dispatches scan requests here over HTTP; this
+service runs them through a pluggable adapter system and returns structured
+findings.
 
-Built with Python + FastAPI + SQLite as part of a Final Year Project at DHA Suffa University.
+Built with Python + FastAPI. State is held in-memory (no database); evidence
+blobs are content-addressed on the filesystem.
 
-## What This Does
+## What this does
 
-Moku crawls websites and monitors for changes. When it finds a page, it sends it here for vulnerability analysis. This service:
+When Moku wants a target analyzed it POSTs a scan request to this service. The
+service:
 
-- Receives a scan request (URL or HTML) from moku
-- Runs it through a selected vulnerability scanner (adapter)
-- Saves all results to SQLite database
-- Generates professional reports (CSV auto-download, TXT optional)
-- Returns structured vulnerability findings back to moku
+- accepts the request (`POST /scan`) and returns a server-generated job id
+- runs the scan in the background on a bounded thread pool
+- exposes status + structured findings for polling (`GET /scan/{job_id}`)
+- dispatches to the requested **adapter** (built-in dynamic analyzer, or a
+  wrapper around an external tool / API)
 
-The key design is the **Adapter Pattern** — any vulnerability scanner can be plugged in without changing the core system.
+The core design is the **Adapter Pattern**: a new scanner is added by
+implementing one small interface and registering it — no core changes.
 
 ## Architecture
 
 ```
-moku (Go client)
-│
-▼  HTTP
-┌─────────────────────────────────────────┐
-│          moku-analyzer                  │
-│         (FastAPI Service)               │
-│                                         │
-│  POST /scan (submit job)                │
-│  GET  /scan/{id} (poll results)         │
-│  GET  /scan/{id}/download (get report)  │
-│  GET  /health (status check)            │
-│  GET  /adapters (list scanners)         │
-│  GET  /scans (history)                  │
-│                                         │
-│  ┌───────────────────────────────────┐  │
-│  │    Adapter System + Plugins       │  │
-│  │                                   │  │
-│  │  ┌─ Adapters (external tools)    │  │
-│  │  │  builtin | nuclei | nikto     │  │
-│  │  │  shodan  | virustotal | zap   │  │
-│  │  │                               │  │
-│  │  └─ Plugins (dynamic analysis)   │  │
-│  │     xss | sqli | csrf            │  │
-│  └───────────────────────────────────┘  │
-│                                         │
-│  ┌───────────────────────────────────┐  │
-│  │    SQLite Database                │  │
-│  │  • Scan history (permanent)       │  │
-│  │  • Vulnerability findings         │  │
-│  │  • Evidence blobs (SHA256)        │  │
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
-│
-├─→ Nuclei CLI
-├─→ Nikto CLI
-├─→ OWASP ZAP
-├─→ Shodan API
-├─→ VirusTotal API
-└─→ Built-in Dynamic Analyzer (Phase 2)
+Moku (Go orchestrator)  ──HTTP──▶  moku-analyzer (FastAPI)
+
+  POST /scan               submit a scan          → 202 {job_id}
+  GET  /scan/{job_id}      poll status + findings → ScanResult
+  GET  /health             liveness + adapter list + contract_version
+  GET  /capabilities?backend=<name>               → Capabilities
+
+  api/        FastAPI routes + token auth dependency
+  core/       job_store (in-memory, UUID, TTL pruning), runner
+              (ThreadPoolExecutor), executor, evidence_store (sha256)
+  adapters/   builtin · nuclei · nikto · shodan · virustotal · zap
+              (CLI scanners share CliScannerAdapter; registry holds them)
+  plugins/    xss · sqli · csrf  (built-in dynamic analysis, via PluginManager)
+  net_guard   centralised SSRF guard (private/loopback/rebind rejection)
 ```
 
-## Key Features
+External dependencies are per-adapter: the `nuclei`/`nikto`/`zap` adapters shell
+out to those CLIs; `shodan`/`virustotal` call their HTTP APIs with a key.
 
-✅ **Async Job Engine** — Submit scans and poll for results, never block  
-✅ **6 Vulnerability Scanners** — Nuclei, Nikto, Shodan, VirusTotal, ZAP, built-in  
-✅ **3 Dynamic Plugins** — XSS detection, SQL injection detection, CSRF detection  
-✅ **SQLite Database** — Permanent scan history, query anytime  
-✅ **Professional Reports** — CSV (auto) + TXT (optional), auto-download  
-✅ **Sequential Scan IDs** — scan_00001, scan_00002, etc.  
-✅ **Authenticated Scanning** — Support for cookies, API tokens, session auth  
-✅ **CLI Tool** — Simple one-command scanner from terminal  
-✅ **44 Passing Tests** — Full test coverage  
+## Key properties
 
-## Real-World Vulnerability Discoveries
+- **Async job engine** — submit returns immediately; scans run in the
+  background and are polled.
+- **6 adapters** — `builtin`, `nuclei`, `nikto`, `shodan`, `virustotal`, `zap`.
+- **3 built-in plugins** — reflected XSS, SQL injection, CSRF.
+- **In-memory job store** — UUIDv4 ids, soft cap, TTL pruning of *terminal*
+  jobs only (active scans are never evicted; a full store returns `429`).
+- **Filesystem evidence store** — request/response blobs addressed by sha256,
+  partitioned per job, path-traversal hardened.
+- **Security-first** — centralised SSRF guard (with redirect re-validation),
+  constant-time shared-secret auth, fail-closed startup posture, secret
+  redaction in error messages.
 
-### Discovery 1: CSRF Vulnerability
-**Target:** daraz.pk/account/change-email  
-**Finding:** Cross-Site Request Forgery (CSRF) - No token validation  
-**Severity:** Medium (CVSS 6.5)  
-**Status:** Reported to Daraz & OpenBugBounty
-
-### Discovery 2: XSS-CSRF Vulnerability  
-**Target:** daraz.pk (all pages)  
-**Finding:** Missing SameSite Cookie Attribute  
-**Severity:** Medium (CVSS 6.5)  
-**Status:** Reported to Daraz & OpenBugBounty
-
-### Responsible Disclosure
-- Email sent to customer.pk@care.daraz.com
-- Submitted to OpenBugBounty for public tracking
-- Professional reports generated in DOCX format
-- Following 90-day disclosure timeline
-
-## Project Structure
-
-```
-moku-analyzer/
-├── main.py                        # FastAPI app entry point
-├── run.py                         # Server startup
-├── scan.py                        # CLI scanner tool
-├── requirements.txt               # Python dependencies
-├── moku_analyzer.db               # SQLite database
-├── README.md                      # This file
-│
-├── app/
-│   ├── api/
-│   │   └── routes.py              # REST API endpoints
-│   │
-│   ├── core/
-│   │   ├── database.py            # SQLite manager
-│   │   ├── job_store.py           # Job queue
-│   │   ├── runner.py              # Scan executor
-│   │   ├── executor.py            # Test payload sender
-│   │   ├── report_generator.py    # CSV/TXT report generation
-│   │   └── evidence_store.py      # SHA256 evidence storage
-│   │
-│   ├── models/
-│   │   └── schemas.py             # Pydantic data models
-│   │
-│   ├── adapters/
-│   │   ├── base.py                # Abstract adapter interface
-│   │   ├── registry.py            # Adapter registry
-│   │   ├── builtin_adapter.py     # Dynamic analyzer (Phase 2)
-│   │   ├── nuclei_adapter.py      # Nuclei CLI wrapper
-│   │   ├── nikto_adapter.py       # Nikto CLI wrapper
-│   │   ├── shodan_adapter.py      # Shodan API client
-│   │   ├── virustotal_adapter.py  # VirusTotal API client
-│   │   └── zap_adapter.py         # OWASP ZAP wrapper
-│   │
-│   └── plugins/
-│       ├── base_plugin.py         # Abstract plugin interface
-│       ├── xss_plugin.py          # XSS detection
-│       ├── sqli_plugin.py         # SQL injection detection
-│       ├── csrf_plugin.py         # CSRF detection
-│       └── plugin_manager.py      # Plugin orchestrator
-│
-└── tests/                         # Test suite (44 tests)
-```
-
-## Setup & Installation
-
-### Requirements
-
-- Python 3.11+
-- pip
-- (Optional) Nuclei, Nikto, OWASP ZAP installed for those adapters
-- (Optional) Shodan API key from [shodan.io](https://shodan.io)
-- (Optional) VirusTotal API key from [virustotal.com](https://virustotal.com)
-
-### Installation
-
-**Step 1 — Clone:**
-```bash
-git clone https://github.com/Shaheer005/moku-analyzer.git
-cd moku-analyzer
-```
-
-**Step 2 — Virtual environment:**
-```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-source .venv/bin/activate       # Mac/Linux
-```
-
-**Step 3 — Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
-
-**Step 4 — Create .env file (project root):**
-```
-SHODAN_API_KEY=your_key_here
-VIRUSTOTAL_API_KEY=your_key_here
-```
-
-**Step 5 — Run the server:**
-```bash
-python run.py
-```
-
-Server starts at http://127.0.0.1:8080
-
-## Usage
-
-### From FastAPI Swagger UI
-
-Open http://127.0.0.1:8080/docs in your browser.
-
-### From CLI Tool
-
-**Run a scan:**
-```bash
-python scan.py https://target.com
-# CSV report auto-downloads to Downloads folder
-# Asked if you want TXT as well
-```
-
-**View scan history:**
-```bash
-python scan.py --history
-# Shows all past scans with IDs
-```
-
-**Download old scan report:**
-```bash
-python scan.py --download scan_00001 csv
-python scan.py --download scan_00001 txt
-```
-
-**Export all scans:**
-```bash
-python scan.py --export-all
-```
-
-### From moku Go Client
-
-**Submit scan:**
-```bash
-POST http://moku-analyzer-url/scan
-{
-  "method": "url",
-  "url": "http://target.com",
-  "adapter": "nuclei"
-}
-```
-
-**Poll results:**
-```bash
-GET http://moku-analyzer-url/scan/{job_id}
-# Returns: {status, vulnerabilities[]}
-```
-
-**Download report:**
-```bash
-GET http://moku-analyzer-url/scan/{job_id}/download?format=csv
-# Returns: CSV file for download
-```
-
-## API Endpoints
+## Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/health` | Health check + adapter list |
-| GET | `/adapters` | Available analyzers for UI |
-| GET | `/scans` | Scan history |
-| POST | `/scan` | Submit scan job (returns job_id) |
-| GET | `/scan/{id}` | Poll for results |
-| GET | `/scan/{id}/download` | Download report (CSV/TXT) |
+| `GET`  | `/health` | `{status, contract_version, backend, adapters_available}` |
+| `GET`  | `/capabilities?backend=<name>` | `Capabilities` for one adapter |
+| `POST` | `/scan` | Submit a scan; `202` + `{job_id}` (or `429` when full, `422` on unknown backend / disallowed target) |
+| `GET`  | `/scan/{job_id}` | Poll; returns `ScanResult` (`404` if unknown) |
 
-### Environment Variables
+All routes sit behind the `X-Moku-Token` auth dependency (a no-op when
+`MOKU_ANALYZER_TOKEN` is unset — see below).
+
+## Setup
+
+Requirements: Python 3.11+. Optionally the `nuclei`/`nikto`/`zap` CLIs and
+Shodan/VirusTotal API keys for those adapters.
+
+From the repo root, the Makefile drives the lifecycle:
+
+```bash
+make sidecar-install    # create .venv + install requirements + requirements-dev
+make sidecar-start      # boot uvicorn (default 127.0.0.1:8181)
+make sidecar-health     # probe /health
+make sidecar-stop       # stop via PID file under services/analyzer/.run/
+make sidecar-test       # pytest tests/
+make schema-check       # round-trip the Go testdata fixtures through Pydantic
+```
+
+`make run` (Go API server) depends on `sidecar-start`, so booting the API also
+boots the sidecar.
+
+Manual launch:
+
+```bash
+cd services/analyzer
+python -m venv .venv && . .venv/bin/activate        # or .venv\Scripts\activate
+pip install -r requirements.txt -r requirements-dev.txt
+python run.py                                        # serves 127.0.0.1:8181
+```
+
+Swagger UI is at `http://127.0.0.1:8181/docs`.
+
+## Environment variables
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `SIDECAR_HOST` | `127.0.0.1` | Interface uvicorn binds to. |
-| `SIDECAR_PORT` | `8181` | Port uvicorn binds to. |
-| `SIDECAR_SHARED_SECRET` | unset | When set, the Go client sends it as `X-Shared-Secret`; sidecar enforces it. |
-| `SHODAN_API_KEY` | unset | API key consumed by the `shodan` adapter. |
-| `VIRUSTOTAL_API_KEY` | unset | API key consumed by the `virustotal` adapter. |
-| `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` | unset | When `1`/`true`/`yes` (case-insensitive), bypasses the `ScanRequest` SSRF guard that rejects loopback/RFC1918 hosts. Intended for local development and verification against the demo server only; leave unset in production. The bypass is logged as a warning. |
+| `MOKU_ANALYZER_HOST` | `127.0.0.1` | Interface uvicorn binds to (read by `run.py` and the start scripts). |
+| `MOKU_ANALYZER_PORT` | `8181` | Port uvicorn binds to. |
+| `MOKU_ANALYZER_TOKEN` | unset | Shared secret. When set, every request must carry a matching `X-Moku-Token` header (constant-time compare); unset = no-op, for loopback dev. **Required** to start on a non-loopback host. |
+| `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` | unset | When `1`/`true`/`yes`, bypasses the SSRF guard that rejects loopback/RFC1918 targets. Local/demo use only; **refused at startup on a non-loopback bind**. Logged as a warning. |
+| `MOKU_ANALYZER_WORKERS` | `4` | Size of the background scan thread pool. |
+| `MOKU_ANALYZER_MAX_JOBS` | `1024` | Soft cap on resident jobs before terminal-job eviction / `429`. |
+| `MOKU_EVIDENCE_DIR` | `~/.config/moku/evidence` | Root of the sha256 evidence store. |
+| `SHODAN_API_KEY` | unset | Consumed by the `shodan` adapter. |
+| `VIRUSTOTAL_API_KEY` | unset | Consumed by the `virustotal` adapter. |
 
-### Schema Notes for Integrators
+`main.py` calls `load_dotenv()`, so a `.env` in the service root is honored for
+local development. Do not ship a `.env` that enables
+`MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` to a networked deployment — startup will
+refuse it.
 
-The Pydantic models in `app/models/schemas.py` are designed to round-trip
-with Moku's Go-side `analyzer.Capabilities` / `analyzer.ScanResult` structs.
-One field on `Capabilities` uses a name alias because `async` is a reserved
-keyword in Python:
+## Available adapters
 
-| JSON key (wire) | Python field name | Notes |
-|-----------------|-------------------|-------|
-| `async`         | `async_`          | Defined as `Field(False, alias="async")`. `_BASE_CONFIG` sets `populate_by_name=True`, so callers can construct `Capabilities(async_=True)` or `Capabilities(async=True)` — both work. Serialization always emits `"async"`. |
+| Adapter | Type | Requires | What it does |
+|---------|------|----------|--------------|
+| `builtin` | dynamic | nothing | reflected XSS, SQLi, CSRF probing (honors cookie/basic/bearer auth) |
+| `nuclei` | CLI | `nuclei` | templated vulnerability scanning |
+| `nikto` | CLI | `nikto` | web-server misconfiguration scan |
+| `zap` | CLI | `zap.sh` | OWASP ZAP quick scan |
+| `shodan` | API | `SHODAN_API_KEY` | passive host enrichment (open ports, CVEs) |
+| `virustotal` | API | `VIRUSTOTAL_API_KEY` | URL reputation (requires explicit `raw_options.virustotal_consent=true`) |
 
-If you write a new adapter or consumer in Python, prefer the alias
-(`async_`) for attribute access and rely on Pydantic's serializer to emit
-the correct JSON key. Go and other clients should always use `"async"` on
-the wire.
+The CLI adapters (`nuclei`/`nikto`/`zap`) share the `CliScannerAdapter` base,
+which provides their common `capabilities()` and honors `ScanRequest.max_duration`
+as the subprocess timeout.
 
-## Available Analyzers
+## Adding an adapter
 
-| Analyzer | Type | Requires | What It Does |
-|----------|------|----------|--------------|
-| builtin | Dynamic | Nothing | XSS, SQL injection, CSRF, headers checks |
-| nuclei | CLI | nuclei tool | 9000+ vulnerability templates |
-| nikto | CLI | nikto tool | Web server misconfigurations |
-| shodan | API | API key | Open ports, services, CVEs (passive) |
-| virustotal | API | API key | URL reputation (90+ vendors) |
-| zap | CLI | ZAP tool | Active web vulnerability scanner |
+Implement the `BaseAdapter` contract and register it in
+`register_default_adapters` (`app/app_factory.py`):
 
-## Adding Your Own Analyzer
-
-Create a new adapter in 3 steps:
-
-**Step 1 — Create `app/adapters/myanalyzer_adapter.py`:**
 ```python
 from app.adapters.base import BaseAdapter
-from app.models.schemas import Vulnerability, Severity
-from typing import List
+from app.models.schemas import Capabilities, Finding, ScanRequest
 
-class MyAnalyzerAdapter(BaseAdapter):
-    name = "myanalyzer"
-    description = "My custom analyzer"
 
-    def scan_url(self, url: str) -> List[Vulnerability]:
-        # Your scanning logic here
+class MyAdapter(BaseAdapter):
+    name = "myscanner"
+    description = "My custom scanner"
+
+    def run_scan(self, request: ScanRequest) -> list[Finding]:
+        ...   # validate_target_url(str(request.url)) first, then scan
         return []
 
-    def scan_html(self, html: str, source_url: str = "") -> List[Vulnerability]:
-        # Optional: scan raw HTML
-        return []
+    def capabilities(self) -> Capabilities:
+        return Capabilities(async_=True, max_concurrent_scans=1)
 ```
 
-**Step 2 — Register in `main.py`:**
-```python
-from app.adapters.myanalyzer_adapter import MyAnalyzerAdapter
-registry.register(MyAnalyzerAdapter())
+A CLI-backed scanner should subclass `CliScannerAdapter` instead and implement
+`run_scan` using `run_subprocess` + a parser; it inherits `capabilities()` and
+the `max_duration` timeout policy.
+
+Adapter capabilities are kept in lock-step with the Go client via the shared
+manifest at `../../internal/analyzer/testdata/capabilities.json`
+(`test_capabilities_conformance.py` asserts it on the Python side; a Go test
+asserts the other).
+
+## Go ↔ Python contract
+
+The Pydantic models in `app/models/schemas.py` round-trip with Moku's Go
+`analyzer.ScanResult` / `analyzer.Capabilities` structs. Two integration notes:
+
+- **`async` alias** — `Capabilities.async_` serializes to the JSON key `async`
+  (`async` is reserved in Python). `populate_by_name=True`, so either name
+  constructs the model; the wire form is always `"async"`.
+- **Contract version** — `/health` reports `contract_version` (`CONTRACT_VERSION`
+  in `schemas.py`); the Go client logs a warning on mismatch with its own
+  `analyzer.SidecarContractVersion`.
+
+`make schema-check` validates the committed Go fixtures against the Pydantic
+`ScanResult`; `tests/test_contract_golden.py` pins the Python serializer output
+to a golden the Go side decodes, so the contract is guarded in both directions.
+
+## CLI tool
+
+`scan.py` is a thin client against a running service:
+
+```bash
+python scan.py https://target.com [backend]   # defaults to builtin
 ```
 
-**Step 3 — Done. It works immediately.**
-
-## Database
-
-All scans are stored in SQLite (`moku_analyzer.db`):
-
-- **scans table** — scan metadata, severity counts, timestamps
-- **vulnerabilities table** — individual findings with confidence scores
-
-Query anytime with `python scan.py --history` or via the API.
+It honors `MOKU_ANALYZER_URL` (default `http://127.0.0.1:8181` — set this if you
+changed the port) and `MOKU_ANALYZER_TOKEN`.
 
 ## Testing
 
-Run all 44 tests:
 ```bash
-python -m pytest tests/ -v
+make sidecar-test          # or: cd services/analyzer && pytest tests/ -v
 ```
 
-## Development
-
-**With auto-reload (clears jobs on restart):**
-```bash
-python -m uvicorn main:app --reload --port 8080
-```
-
-**Production (persistent jobs):**
-```bash
-python run.py
-```
-
-**Interactive docs:**
-http://127.0.0.1:8080/docs
-
-## Phase Roadmap
-
-| Phase | Features | Deadline | Status |
-|-------|----------|----------|--------|
-| Phase 1 | FastAPI service, 6 adapters, async job engine, 44 tests | April 2026 | ✅ Complete |
-| Phase 2 | Built-in analyzer: XSS, SQLi, CSRF detection, plugins, evidence storage | May 2026 | ✅ Complete |
-
-## Related Projects
-
-- [moku](https://github.com/Shaheer005/moku) — Main platform (Go)
-- [Nuclei](https://nuclei.projectdiscovery.io/) — Template scanner
-- [OWASP ZAP](https://www.zaproxy.org/) — Web app security scanner
-- [Shodan](https://www.shodan.io/) — Internet scan database
-- [VirusTotal](https://virustotal.com/) — Malware/URL reputation
+CI (`.github/workflows/ci.yml`) runs `ruff`, the full `pytest` suite, and
+`schema_check.py` on every push/PR.
 
 ## License
 
-See LICENSE file.
-
-## Author
-
-**Shaheer Ahmed**  
-2026
+See [LICENSE](LICENSE).

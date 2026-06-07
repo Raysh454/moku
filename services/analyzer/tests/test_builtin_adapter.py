@@ -1,6 +1,6 @@
 """Tests for the BuiltinAdapter wiring and result mapping."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -9,6 +9,13 @@ from app.core.finding import EvidenceRef
 from app.core.finding import Finding as InternalFinding
 from app.core.test_case import TestCase, TestMode
 from app.models.schemas import Backend, Confidence, ScanRequest, Severity
+
+
+def _stub_plugin_manager(test_cases):
+    pm = MagicMock()
+    pm.generate_tests.return_value = test_cases
+    pm.get_plugins.return_value = []
+    return pm
 
 
 def _stub_test_case() -> TestCase:
@@ -59,15 +66,8 @@ class TestSSRFGuard:
 
 class TestMapping:
     def test_title_is_plugin_name_uppercased(self, request_for):
-        adapter = BuiltinAdapter()
-        with patch.object(
-            adapter,
-            "_plugins",
-            new=[],
-        ), patch("app.adapters.builtin_adapter.plugin_manager") as pm, patch(
-            "app.adapters.builtin_adapter.Executor"
-        ) as exec_cls:
-            pm.generate_tests.return_value = [_stub_test_case()]
+        adapter = BuiltinAdapter(plugins=_stub_plugin_manager([_stub_test_case()]))
+        with patch("app.adapters.builtin_adapter.Executor") as exec_cls:
             exec_cls.return_value.run.return_value = [_internal_finding("sqli", 0.95)]
             result = adapter.run_scan(request_for())
         assert len(result) == 1
@@ -75,16 +75,13 @@ class TestMapping:
         assert result[0].severity == Severity.CRITICAL.value
         assert result[0].confidence == Confidence.CERTAIN.value
 
-    def test_dedup_keeps_highest_severity(self, request_for):
-        adapter = BuiltinAdapter()
-        with patch.object(adapter, "_plugins", new=[]), patch(
-            "app.adapters.builtin_adapter.plugin_manager"
-        ) as pm, patch("app.adapters.builtin_adapter.Executor") as exec_cls:
-            pm.generate_tests.return_value = [_stub_test_case()]
+    def test_returns_mapped_findings_without_local_dedup(self, request_for):
+        # Dedup is the runner's responsibility now; the adapter maps 1:1.
+        adapter = BuiltinAdapter(plugins=_stub_plugin_manager([_stub_test_case()]))
+        with patch("app.adapters.builtin_adapter.Executor") as exec_cls:
             exec_cls.return_value.run.return_value = [
                 _internal_finding("xss", 0.4),
                 _internal_finding("xss", 0.95),
             ]
             result = adapter.run_scan(request_for())
-        assert len(result) == 1
-        assert result[0].severity == Severity.CRITICAL.value
+        assert len(result) == 2

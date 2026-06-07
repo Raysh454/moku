@@ -2,8 +2,10 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.core import job_store as job_store_module
-from app.core.job_store import JobStore
+from app.core.job_store import JobStore, JobStoreFull
 from app.models.schemas import (
     Backend,
     Progress,
@@ -62,31 +64,54 @@ class TestUpdateStatus:
 
 
 class TestPurgeOlderThan:
-    def test_drops_expired_entries(self):
+    def test_drops_expired_terminal_entries(self):
         now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         store = JobStore(now_factory=lambda: now)
         old_job = store.create(_build_request())
         store.create(_build_request())
 
-        result = store.get(old_job)
-        result.submitted_at = now - timedelta(days=2)
+        store.update_status(
+            old_job,
+            status=ScanStatus.COMPLETED,
+            completed_at=now - timedelta(days=2),
+        )
 
         purged = store.purge_older_than(timedelta(days=1))
         assert purged == 1
         assert store.get(old_job) is None
 
+    def test_keeps_active_entries_even_when_old(self):
+        now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        store = JobStore(now_factory=lambda: now)
+        job_id = store.create(_build_request())
+        # Old, but still pending — must never be purged out from under the runner.
+        store.get(job_id).submitted_at = now - timedelta(days=2)
+
+        assert store.purge_older_than(timedelta(days=1)) == 0
+        assert store.get(job_id) is not None
+
 
 class TestEviction:
-    def test_eviction_when_max_jobs_exceeded(self, monkeypatch):
+    def test_evicts_oldest_terminal_when_full(self, monkeypatch):
         monkeypatch.setattr(job_store_module, "MAX_JOBS", 2)
         store = JobStore()
         first = store.create(_build_request())
-        second = store.create(_build_request())
-        third = store.create(_build_request())
-        # First entry must have been evicted to make room.
+        store.update_status(
+            first, status=ScanStatus.COMPLETED, completed_at=datetime.now(UTC)
+        )
+        second = store.create(_build_request())  # pending
+        third = store.create(_build_request())  # full -> evict terminal 'first'
         assert store.get(first) is None
         assert store.get(second) is not None
         assert store.get(third) is not None
+
+    def test_refuses_new_job_when_full_of_active(self, monkeypatch):
+        monkeypatch.setattr(job_store_module, "MAX_JOBS", 2)
+        store = JobStore()
+        store.create(_build_request())  # pending
+        store.create(_build_request())  # pending
+        with pytest.raises(JobStoreFull):
+            store.create(_build_request())
 
     def test_delete_removes_entry(self):
         store = JobStore()
@@ -102,3 +127,54 @@ def test_all_ids_returns_current_set():
     ids = store.all_ids()
     assert first in ids
     assert second in ids
+
+
+class TestPruner:
+    def test_loop_purges_then_honors_cancel(self, monkeypatch):
+        import asyncio
+
+        calls: list = []
+        monkeypatch.setattr(
+            job_store_module.job_store,
+            "purge_older_than",
+            lambda age: calls.append(age) or 0,
+        )
+
+        async def drive():
+            task = asyncio.ensure_future(job_store_module._prune_forever(0, 10))
+            for _ in range(5):
+                await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(drive())
+        assert calls  # at least one prune iteration ran
+
+    def test_loop_swallows_transient_oserror_and_continues(self, monkeypatch):
+        import asyncio
+
+        state = {"n": 0}
+
+        def flaky(age):
+            state["n"] += 1
+            if state["n"] == 1:
+                raise OSError("disk blip")
+            return 0
+
+        monkeypatch.setattr(
+            job_store_module.job_store, "purge_older_than", flaky
+        )
+
+        async def drive():
+            task = asyncio.ensure_future(job_store_module._prune_forever(0, 10))
+            for _ in range(8):
+                await asyncio.sleep(0)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(drive())
+        assert state["n"] >= 2  # survived the OSError and kept looping

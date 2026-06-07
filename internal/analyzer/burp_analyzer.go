@@ -46,7 +46,7 @@ func NewBurpAnalyzer(cfg BurpConfig, poll PollOptions, httpClient webclient.WebC
 		return nil, errors.New("burp analyzer: BurpConfig.BaseURL is required")
 	}
 	componentLogger := logger.With(logging.Field{Key: "component", Value: "burp_analyzer"})
-	componentLogger.Info("burp analyzer constructed (scaffold; REST pipeline not yet implemented)")
+	componentLogger.Warn("burp backend selected but NOT YET IMPLEMENTED (scaffold only); scans will fail until the REST pipeline lands")
 	return &burpAnalyzer{
 		cfg:        cfg,
 		poll:       poll,
