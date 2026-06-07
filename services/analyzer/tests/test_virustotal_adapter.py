@@ -62,6 +62,79 @@ def test_maps_completed_report(monkeypatch):
     assert "virustotal-summary" in titles
 
 
+def test_polls_until_completed(monkeypatch):
+    monkeypatch.setenv("VIRUSTOTAL_API_KEY", "k")
+    monkeypatch.setattr("app.adapters.virustotal_adapter._POLL_DELAY_SECONDS", 0)
+    monkeypatch.setattr(
+        "app.adapters.virustotal_adapter.requests.post",
+        lambda *a, **kw: _response(200, {"data": {"id": "a1"}}),
+    )
+    statuses = iter(
+        [
+            _response(200, {"data": {"attributes": {"status": "queued"}}}),
+            _response(
+                200,
+                {"data": {"attributes": {"status": "completed", "results": {}}}},
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "app.adapters.virustotal_adapter.requests.get",
+        lambda *a, **kw: next(statuses),
+    )
+    adapter = VirusTotalAdapter()
+    findings = adapter.run_scan(
+        ScanRequest(
+            url="https://example.com",
+            backend=Backend.VIRUSTOTAL,
+            raw_options={"virustotal_consent": "true"},
+        )
+    )
+    assert any(f.title == "virustotal-summary" for f in findings)
+
+
+def test_never_completes_raises(monkeypatch):
+    monkeypatch.setenv("VIRUSTOTAL_API_KEY", "k")
+    monkeypatch.setattr("app.adapters.virustotal_adapter._POLL_DELAY_SECONDS", 0)
+    monkeypatch.setattr("app.adapters.virustotal_adapter._POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(
+        "app.adapters.virustotal_adapter.requests.post",
+        lambda *a, **kw: _response(200, {"data": {"id": "a1"}}),
+    )
+    monkeypatch.setattr(
+        "app.adapters.virustotal_adapter.requests.get",
+        lambda *a, **kw: _response(200, {"data": {"attributes": {"status": "queued"}}}),
+    )
+    adapter = VirusTotalAdapter()
+    with pytest.raises(RuntimeError):
+        adapter.run_scan(
+            ScanRequest(
+                url="https://example.com",
+                backend=Backend.VIRUSTOTAL,
+                raw_options={"virustotal_consent": "true"},
+            )
+        )
+
+
+def test_submit_non_2xx_raises_without_leaking_key(monkeypatch):
+    monkeypatch.setenv("VIRUSTOTAL_API_KEY", "super-secret")
+    monkeypatch.setattr(
+        "app.adapters.virustotal_adapter.requests.post",
+        lambda *a, **kw: _response(429, {}),
+    )
+    adapter = VirusTotalAdapter()
+    with pytest.raises(RuntimeError) as exc_info:
+        adapter.run_scan(
+            ScanRequest(
+                url="https://example.com",
+                backend=Backend.VIRUSTOTAL,
+                raw_options={"virustotal_consent": "true"},
+            )
+        )
+    assert "429" in str(exc_info.value)
+    assert "super-secret" not in str(exc_info.value)
+
+
 def test_transport_error_does_not_leak_api_key(monkeypatch):
     import requests as real_requests
 

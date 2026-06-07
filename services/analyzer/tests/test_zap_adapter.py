@@ -50,6 +50,29 @@ def test_writes_inside_temp_dir_and_parses(monkeypatch):
     assert findings[0].severity == Severity.HIGH.value
 
 
+def test_command_contains_validated_target_and_output_flag(monkeypatch):
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        Path(cmd[-1]).write_text(json.dumps({"site": []}), encoding="utf-8")
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stdout = ""
+        completed.stderr = ""
+        return completed
+
+    monkeypatch.setattr("app.adapters._helpers.subprocess.run", fake_run)
+    ZAPAdapter().run_scan(
+        ScanRequest(url="https://example.com/", backend=Backend.ZAP)
+    )
+    cmd = captured["cmd"]
+    # Guard the argv contract so a reorder / dropped target is caught.
+    assert cmd[0] == "zap.sh"
+    assert "-quickout" in cmd
+    assert "https://example.com/" in cmd
+
+
 def test_rejects_private_target():
     adapter = ZAPAdapter()
     with pytest.raises(ValueError):

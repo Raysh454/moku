@@ -1,18 +1,13 @@
 """Shared adapter helpers: URL guards, subprocess wrappers, tempdir builders."""
 
-import ipaddress
 import logging
 import shutil
-import socket
 import subprocess
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-from app.models.schemas import (
-    _ALLOW_PRIVATE_HOSTS_ENV_VAR,
-    _private_host_bypass_enabled,
-)
+from app.net_guard import assert_public_host
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +15,11 @@ logger = logging.getLogger(__name__)
 def validate_target_url(url: str) -> str:
     """Validate a target URL, rejecting unsafe schemes and private addresses.
 
-    Honors the `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` env flag so adapter-side
-    validation matches the request-level guard in `app.models.schemas`. When
-    the bypass is active, loopback/RFC1918 addresses are permitted with a
-    warning logged; scheme/hostname/argument-injection checks still apply.
+    Delegates the private/loopback host rejection to the shared
+    :func:`app.net_guard.assert_public_host` guard (which honours the
+    `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` dev bypass), then adds the
+    adapter-specific scheme and argument-injection checks. Returns the URL
+    unchanged on success.
     """
     if not url or not isinstance(url, str):
         raise ValueError("url must be a non-empty string")
@@ -38,42 +34,7 @@ def validate_target_url(url: str) -> str:
     if not host:
         raise ValueError("url must include a hostname")
 
-    if _private_host_bypass_enabled():
-        logger.warning(
-            "adapter SSRF private-host guard bypassed for host %r via %s env flag",
-            host,
-            _ALLOW_PRIVATE_HOSTS_ENV_VAR,
-        )
-        return url
-
-    candidates: list[str] = []
-    try:
-        ipaddress.ip_address(host)
-        candidates.append(host)
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, None)
-        except socket.gaierror as exc:
-            raise ValueError(f"failed to resolve host {host!r}: {exc}") from exc
-        candidates.extend(info[4][0] for info in infos if info[4])
-
-    for candidate in candidates:
-        try:
-            addr = ipaddress.ip_address(candidate)
-        except ValueError:
-            continue
-        if (
-            addr.is_private
-            or addr.is_loopback
-            or addr.is_link_local
-            or addr.is_reserved
-            or addr.is_multicast
-            or addr.is_unspecified
-        ):
-            raise ValueError(
-                f"host {host!r} resolves to a disallowed address: {candidate}"
-            )
-
+    assert_public_host(host)
     return url
 
 

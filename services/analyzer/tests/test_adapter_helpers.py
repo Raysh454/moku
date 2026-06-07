@@ -23,7 +23,7 @@ class TestValidateTargetUrl:
 
     def test_rejects_private_after_resolution(self):
         with patch(
-            "app.adapters._helpers.socket.getaddrinfo",
+            "app.net_guard.socket.getaddrinfo",
             return_value=[(0, 0, 0, "", ("10.0.0.5", 0))],
         ):
             with pytest.raises(ValueError):
@@ -31,7 +31,7 @@ class TestValidateTargetUrl:
 
     def test_accepts_public_target(self):
         with patch(
-            "app.adapters._helpers.socket.getaddrinfo",
+            "app.net_guard.socket.getaddrinfo",
             return_value=[(0, 0, 0, "", ("8.8.8.8", 0))],
         ):
             assert validate_target_url("https://example.com") == "https://example.com"

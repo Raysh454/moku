@@ -59,14 +59,23 @@ def isolated_runner(monkeypatch):
 
 
 class TestRedaction:
-    def test_redacts_api_key(self):
-        redacted = runner_module._redact_error("oops api_key=abcdef")
+    def test_redacts_api_key_with_placeholder(self):
+        # Positive assertion: value gone AND key name + placeholder preserved.
+        redacted = runner_module._redact_error("oops api_key=abcdef tail")
         assert "abcdef" not in redacted
+        assert "api_key=<redacted>" in redacted
+        assert "tail" in redacted
 
     def test_redacts_token(self):
         redacted = runner_module._redact_error("token=xxx and key=yyy")
         assert "xxx" not in redacted
         assert "yyy" not in redacted
+
+    def test_redacts_colon_separated_secret(self):
+        # The regex must also catch "key: value" form, not only "key=value".
+        redacted = runner_module._redact_error("auth failed password: hunter2")
+        assert "hunter2" not in redacted
+        assert "password=<redacted>" in redacted
 
     def test_leaves_unrelated_messages(self):
         assert runner_module._redact_error("plain error") == "plain error"
@@ -111,23 +120,37 @@ class TestRunJob:
 
 
 class TestDedupe:
-    def test_drops_lower_confidence_duplicate(self):
-        a = Finding(
+    def test_keeps_highest_severity_duplicate(self):
+        # Severity is the tiebreak: the lower-severity entry is dropped even
+        # though it has higher confidence, pinning the canonical rule.
+        high_sev = Finding(
             id="1",
             title="XSS",
-            severity=Severity.LOW,
+            severity=Severity.HIGH,
             confidence=Confidence.TENTATIVE,
             url="https://example.com",
             parameter="q",
         )
-        b = Finding(
+        low_sev = Finding(
             id="2",
             title="XSS",
-            severity=Severity.HIGH,
+            severity=Severity.LOW,
             confidence=Confidence.CERTAIN,
             url="https://example.com",
             parameter="q",
         )
-        deduped = runner_module._dedupe_findings([a, b])
+        deduped = runner_module._dedupe_findings([low_sev, high_sev])
         assert len(deduped) == 1
-        assert deduped[0].id == "2"
+        assert deduped[0].id == "1"
+
+    def test_keeps_distinct_findings(self):
+        a = Finding(
+            id="1", title="XSS", severity=Severity.LOW,
+            confidence=Confidence.FIRM, url="https://example.com", parameter="q",
+        )
+        b = Finding(
+            id="2", title="SQLI", severity=Severity.HIGH,
+            confidence=Confidence.FIRM, url="https://example.com", parameter="q",
+        )
+        deduped = runner_module._dedupe_findings([a, b])
+        assert len(deduped) == 2

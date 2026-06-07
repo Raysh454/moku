@@ -19,7 +19,7 @@ from app.core.cli_display import (
     print_success,
 )
 
-API = os.environ.get("MOKU_ANALYZER_URL", "http://127.0.0.1:8080")
+API = os.environ.get("MOKU_ANALYZER_URL", "http://127.0.0.1:8181")
 TOKEN = os.environ.get("MOKU_ANALYZER_TOKEN", "")
 
 
@@ -73,7 +73,6 @@ if __name__ == "__main__":
 
     print_banner()
     print_status(
-        db_ok=True,
         adapter_statuses=[
             ("Builtin", "ok", "ready"),
         ],

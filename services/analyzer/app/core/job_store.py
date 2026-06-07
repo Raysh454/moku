@@ -26,6 +26,25 @@ _logger = logging.getLogger(__name__)
 _DEFAULT_MAX_JOBS = 1024
 MAX_JOBS = int(os.getenv("MOKU_ANALYZER_MAX_JOBS", str(_DEFAULT_MAX_JOBS)))
 
+_TERMINAL_STATUS_VALUES = frozenset(
+    {ScanStatus.COMPLETED.value, ScanStatus.FAILED.value, ScanStatus.CANCELED.value}
+)
+
+
+def _is_terminal(status: ScanStatus | str) -> bool:
+    """True for finished scans (completed/failed/canceled).
+
+    Normalises both the enum (set via update_status) and the plain string
+    (produced by Pydantic's use_enum_values on construction) representations.
+    """
+    value = status.value if isinstance(status, ScanStatus) else str(status)
+    return value in _TERMINAL_STATUS_VALUES
+
+
+class JobStoreFull(Exception):
+    """Raised when a new job cannot be admitted because the store is full of
+    still-active (pending/running) scans."""
+
 
 class JobStore:
     """Thread-safe in-memory store keyed by job id."""
@@ -50,8 +69,10 @@ class JobStore:
             raw_data={},
         )
         with self._lock:
-            if len(self._jobs) >= MAX_JOBS:
-                self._evict_oldest_locked()
+            if len(self._jobs) >= MAX_JOBS and not self._evict_oldest_terminal_locked():
+                raise JobStoreFull(
+                    f"job store is full ({MAX_JOBS} active scans); retry later"
+                )
             self._jobs[job_id] = result
             self._requests[job_id] = request
         return job_id
@@ -102,14 +123,22 @@ class JobStore:
             return list(self._jobs.keys())
 
     def purge_older_than(self, age: timedelta) -> int:
+        """Drop terminal jobs older than `age`.
+
+        Only finished scans are eligible: a pending/running scan is never
+        purged out from under the runner, regardless of how old it is. The age
+        is measured from `completed_at` (falling back to `submitted_at`).
+        """
         cutoff = self._now() - age
         purged: list[str] = []
         with self._lock:
             for job_id, result in list(self._jobs.items()):
-                submitted = result.submitted_at
-                if submitted.tzinfo is None:
-                    submitted = submitted.replace(tzinfo=UTC)
-                if submitted < cutoff:
+                if not _is_terminal(result.status):
+                    continue
+                reference = result.completed_at or result.submitted_at
+                if reference.tzinfo is None:
+                    reference = reference.replace(tzinfo=UTC)
+                if reference < cutoff:
                     purged.append(job_id)
                     self._jobs.pop(job_id, None)
                     self._requests.pop(job_id, None)
@@ -117,16 +146,25 @@ class JobStore:
             self._dispose_evidence(purged)
         return len(purged)
 
-    def _evict_oldest_locked(self) -> None:
-        if not self._jobs:
-            return
+    def _evict_oldest_terminal_locked(self) -> bool:
+        """Evict the oldest finished job to make room. Returns False (evicting
+        nothing) when every resident job is still active, so the caller can
+        refuse the new submission rather than drop an in-flight scan."""
+        terminal = [
+            (job_id, result)
+            for job_id, result in self._jobs.items()
+            if _is_terminal(result.status)
+        ]
+        if not terminal:
+            return False
         oldest_id = min(
-            self._jobs,
-            key=lambda jid: self._jobs[jid].submitted_at,
-        )
+            terminal,
+            key=lambda item: item[1].completed_at or item[1].submitted_at,
+        )[0]
         self._jobs.pop(oldest_id, None)
         self._requests.pop(oldest_id, None)
         self._dispose_evidence([oldest_id])
+        return True
 
     def _dispose_evidence(self, job_ids: list[str]) -> None:
         try:

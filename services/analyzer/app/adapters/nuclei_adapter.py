@@ -2,14 +2,13 @@
 
 import json
 import logging
-import uuid
 from typing import Any
 
 from app.adapters._helpers import run_subprocess, validate_target_url
-from app.adapters.base import BaseAdapter
+from app.adapters.cli_scanner import CliScannerAdapter
+from app.core.finding import make_finding_id
 from app.models.schemas import (
     Backend,
-    Capabilities,
     Confidence,
     Finding,
     ScanRequest,
@@ -27,25 +26,16 @@ _SEVERITY_MAP: dict[str, Severity] = {
 }
 
 
-class NucleiAdapter(BaseAdapter):
+class NucleiAdapter(CliScannerAdapter):
     name = Backend.NUCLEI.value
     description = "Nuclei vulnerability scanner"
-
-    def capabilities(self) -> Capabilities:
-        return Capabilities(
-            async_=False,
-            supports_auth=False,
-            supports_scope=False,
-            supports_scan_profile=False,
-            max_concurrent_scans=1,
-            version="0.1.0",
-        )
+    default_timeout_seconds = 300
 
     def run_scan(self, request: ScanRequest) -> list[Finding]:
         target = validate_target_url(str(request.url))
         output = run_subprocess(
             ["nuclei", "-u", target, "-silent", "-jsonl"],
-            timeout=300,
+            timeout=self._timeout_seconds(request.max_duration),
             name="nuclei",
         )
         return self._parse_jsonl(output, target)
@@ -78,7 +68,7 @@ class NucleiAdapter(BaseAdapter):
 
             findings.append(
                 Finding(
-                    id=f"nuclei-{uuid.uuid4().hex[:8]}",
+                    id=make_finding_id("nuclei"),
                     title=title,
                     severity=severity,
                     confidence=Confidence.FIRM,

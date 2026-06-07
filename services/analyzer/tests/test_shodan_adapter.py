@@ -19,7 +19,7 @@ def _response(status_code: int = 200, body: dict | None = None):
 def test_parses_userinfo_url(monkeypatch):
     monkeypatch.setenv("SHODAN_API_KEY", "secret-key")
     monkeypatch.setattr(
-        "app.adapters.shodan_adapter.socket.getaddrinfo",
+        "app.net_guard.socket.getaddrinfo",
         lambda host, port: [(0, 0, 0, "", ("8.8.8.8", 0))],
     )
     monkeypatch.setattr(
@@ -42,7 +42,7 @@ def test_parses_userinfo_url(monkeypatch):
 def test_rejects_private_target(monkeypatch):
     monkeypatch.setenv("SHODAN_API_KEY", "secret-key")
     monkeypatch.setattr(
-        "app.adapters.shodan_adapter.socket.getaddrinfo",
+        "app.net_guard.socket.getaddrinfo",
         lambda host, port: [(0, 0, 0, "", ("127.0.0.1", 0))],
     )
     adapter = ShodanAdapter()
@@ -52,12 +52,30 @@ def test_rejects_private_target(monkeypatch):
         )
 
 
+def test_non_200_status_raises(monkeypatch):
+    monkeypatch.setenv("SHODAN_API_KEY", "secret-key")
+    monkeypatch.setattr(
+        "app.net_guard.socket.getaddrinfo",
+        lambda host, port: [(0, 0, 0, "", ("8.8.8.8", 0))],
+    )
+    monkeypatch.setattr(
+        "app.adapters.shodan_adapter.requests.get",
+        lambda *a, **kw: _response(403, {}),
+    )
+    adapter = ShodanAdapter()
+    with pytest.raises(RuntimeError) as exc_info:
+        adapter.run_scan(
+            ScanRequest(url="https://example.com", backend=Backend.SHODAN)
+        )
+    assert "403" in str(exc_info.value)
+
+
 def test_transport_failure_does_not_leak_api_key(monkeypatch):
     import requests as real_requests
 
     monkeypatch.setenv("SHODAN_API_KEY", "super-secret-key")
     monkeypatch.setattr(
-        "app.adapters.shodan_adapter.socket.getaddrinfo",
+        "app.net_guard.socket.getaddrinfo",
         lambda host, port: [(0, 0, 0, "", ("8.8.8.8", 0))],
     )
 

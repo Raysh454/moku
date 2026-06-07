@@ -3,14 +3,13 @@
 import json
 import logging
 import tempfile
-import uuid
 from pathlib import Path
 
 from app.adapters._helpers import run_subprocess, validate_target_url
-from app.adapters.base import BaseAdapter
+from app.adapters.cli_scanner import CliScannerAdapter
+from app.core.finding import make_finding_id
 from app.models.schemas import (
     Backend,
-    Capabilities,
     Confidence,
     Finding,
     ScanRequest,
@@ -28,19 +27,10 @@ _RISK_TO_SEVERITY: dict[str, Severity] = {
 }
 
 
-class ZAPAdapter(BaseAdapter):
+class ZAPAdapter(CliScannerAdapter):
     name = Backend.ZAP.value
     description = "OWASP ZAP active web vulnerability scanner"
-
-    def capabilities(self) -> Capabilities:
-        return Capabilities(
-            async_=False,
-            supports_auth=False,
-            supports_scope=False,
-            supports_scan_profile=False,
-            max_concurrent_scans=1,
-            version="0.1.0",
-        )
+    default_timeout_seconds = 600
 
     def run_scan(self, request: ScanRequest) -> list[Finding]:
         target = validate_target_url(str(request.url))
@@ -55,7 +45,11 @@ class ZAPAdapter(BaseAdapter):
                 "-quickout",
                 str(output_file),
             ]
-            run_subprocess(cmd, timeout=600, name="zap")
+            run_subprocess(
+                cmd,
+                timeout=self._timeout_seconds(request.max_duration),
+                name="zap",
+            )
 
             if not output_file.exists():
                 raise RuntimeError("zap did not produce an output file")
@@ -75,7 +69,7 @@ class ZAPAdapter(BaseAdapter):
                 severity = _RISK_TO_SEVERITY.get(risk, Severity.INFO)
                 findings.append(
                     Finding(
-                        id=f"zap-{uuid.uuid4().hex[:8]}",
+                        id=make_finding_id("zap"),
                         title=alert.get("alert", "zap-alert"),
                         severity=severity,
                         confidence=Confidence.FIRM,

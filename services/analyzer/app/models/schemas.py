@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import ipaddress
-import logging
-import os
 import re
-import socket
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -22,22 +18,12 @@ from pydantic import (
     model_validator,
 )
 
-logger = logging.getLogger(__name__)
+from app.net_guard import assert_public_host
 
-# Env var that, when truthy, instructs the schema validator to skip the SSRF
-# rejection of private/loopback hosts. Intended for local development and
-# automated verification runs against the demo server (localhost:9999).
-# Production deployments MUST leave this unset.
-_ALLOW_PRIVATE_HOSTS_ENV_VAR = "MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS"
-_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes"})
-
-
-def _private_host_bypass_enabled() -> bool:
-    """Return True iff the SSRF private-host bypass env flag is set truthy."""
-    raw = os.getenv(_ALLOW_PRIVATE_HOSTS_ENV_VAR)
-    if raw is None:
-        return False
-    return raw.strip().lower() in _TRUTHY_ENV_VALUES
+# Version of the Go<->Python wire contract (request/response shapes). Bumped
+# only on a breaking change to the JSON payloads. Exposed on /health so the Go
+# client can detect skew against its own analyzer.SidecarContractVersion.
+CONTRACT_VERSION = "1"
 
 
 class ScanStatus(str, Enum):
@@ -150,54 +136,6 @@ class Auth(BaseModel):
     extra: dict[str, str] = Field(default_factory=dict)
 
 
-def _reject_private_host(host: str) -> None:
-    """Raise `ValueError` for private/loopback/link-local/reserved addresses.
-
-    Honors the `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS` env flag for local
-    development and automated verification: when the flag is truthy, the
-    private-host rejection is bypassed (with a warning logged) so callers
-    can scan localhost/RFC1918 targets such as the demo server.
-    """
-    if _private_host_bypass_enabled():
-        logger.warning(
-            "SSRF private-host guard bypassed for host %r via %s env flag",
-            host,
-            _ALLOW_PRIVATE_HOSTS_ENV_VAR,
-        )
-        return
-
-    candidates: list[str] = []
-    try:
-        ipaddress.ip_address(host)
-        candidates.append(host)
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, None)
-        except socket.gaierror as exc:
-            raise ValueError(f"failed to resolve host {host!r}: {exc}") from exc
-        for info in infos:
-            sockaddr = info[4]
-            if sockaddr:
-                candidates.append(sockaddr[0])
-
-    for candidate in candidates:
-        try:
-            addr = ipaddress.ip_address(candidate)
-        except ValueError:
-            continue
-        if (
-            addr.is_private
-            or addr.is_loopback
-            or addr.is_link_local
-            or addr.is_reserved
-            or addr.is_multicast
-            or addr.is_unspecified
-        ):
-            raise ValueError(
-                f"host {host!r} resolves to a disallowed address: {candidate}"
-            )
-
-
 class ScanRequest(BaseModel):
     model_config = _BASE_CONFIG
 
@@ -222,7 +160,7 @@ class ScanRequest(BaseModel):
         host = parsed.hostname
         if not host:
             raise ValueError("url must include a hostname")
-        _reject_private_host(host)
+        assert_public_host(host)
         return self
 
 
@@ -314,6 +252,7 @@ class HealthResponse(BaseModel):
     model_config = _BASE_CONFIG
 
     status: HealthStatus
+    contract_version: str = CONTRACT_VERSION
     backend: Backend | None = None
     adapters_available: list[str] = Field(default_factory=list)
 

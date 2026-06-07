@@ -1,0 +1,42 @@
+{
+  "job_id": "abc123def456abc123def456abc12345",
+  "backend": "builtin",
+  "status": "completed",
+  "url": "https://example.com/",
+  "error": null,
+  "submitted_at": "2026-01-15T10:30:45.123Z",
+  "completed_at": "2026-01-15T10:31:15.456Z",
+  "progress": {
+    "percent": 100,
+    "phase": "completed",
+    "note": ""
+  },
+  "findings": [
+    {
+      "id": "f1",
+      "title": "XSS",
+      "severity": "high",
+      "confidence": "firm",
+      "url": "https://example.com/",
+      "path": null,
+      "method": null,
+      "parameter": "q",
+      "cwe": null,
+      "wasc": null,
+      "description": "reflected",
+      "evidence": "<script>",
+      "remediation": null,
+      "references": null,
+      "raw_data": null
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "info": 0,
+    "low": 0,
+    "medium": 0,
+    "high": 1,
+    "critical": 0
+  },
+  "raw_data": {}
+}

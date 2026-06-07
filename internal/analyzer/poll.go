@@ -11,9 +11,6 @@ import (
 // terminal status, the timeout elapses, or ctx is canceled. Applying the
 // Template Method pattern at function level (rather than subclass) is the
 // idiomatic Go shape.
-//
-// Step A status: skeleton. Step B fleshes out the backoff logic and wires the
-// Moku backend to call this helper from ScanAndWait.
 func pollUntilDone(ctx context.Context, a Analyzer, jobID string, opts PollOptions) (*ScanResult, error) {
 	if a == nil {
 		return nil, fmt.Errorf("pollUntilDone: nil analyzer")

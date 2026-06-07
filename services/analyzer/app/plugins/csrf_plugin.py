@@ -8,7 +8,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup, FeatureNotFound
 
 from app.core.evidence_store import get_evidence_store
-from app.core.finding import Finding
+from app.core.finding import Finding, make_finding_id
 from app.core.scan_unit import ScanUnit
 from app.core.test_case import TestCase, TestMode
 from app.plugins.base_plugin import BasePlugin
@@ -110,7 +110,7 @@ class CSRFPlugin(BasePlugin):
         )
 
         return Finding(
-            finding_id=f"csrf-{uuid.uuid4().hex[:8]}",
+            finding_id=make_finding_id("csrf"),
             plugin=self.name,
             scan_unit_url=test_case.injection_point,
             http_method="GET",

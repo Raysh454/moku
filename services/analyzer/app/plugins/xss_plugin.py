@@ -1,11 +1,10 @@
 """XSS plugin — detects reflected Cross-Site Scripting via unique markers."""
 
 import secrets
-import uuid
 from datetime import UTC, datetime
 
 from app.core.evidence_store import get_evidence_store
-from app.core.finding import Finding
+from app.core.finding import Finding, make_finding_id
 from app.core.scan_unit import ScanUnit, ScanUnitType
 from app.core.test_case import TestCase, TestMode
 from app.plugins.base_plugin import BasePlugin
@@ -97,7 +96,7 @@ class XSSPlugin(BasePlugin):
         confidence = 0.4 if test_case.mode == TestMode.DETECT else 0.85
 
         return Finding(
-            finding_id=f"xss-{uuid.uuid4().hex[:8]}",
+            finding_id=make_finding_id("xss"),
             plugin=self.name,
             scan_unit_url=test_case.injection_point,
             http_method="POST" if test_case.meta.get("mode") == "body" else "GET",

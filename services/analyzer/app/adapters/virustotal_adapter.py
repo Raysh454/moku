@@ -3,12 +3,12 @@
 import logging
 import os
 import time
-import uuid
 
 import requests
 
 from app.adapters._helpers import validate_target_url
 from app.adapters.base import BaseAdapter
+from app.core.finding import make_finding_id
 from app.models.schemas import (
     Backend,
     Capabilities,
@@ -33,7 +33,7 @@ class VirusTotalAdapter(BaseAdapter):
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
-            async_=False,
+            async_=True,
             supports_auth=False,
             supports_scope=False,
             supports_scan_profile=False,
@@ -112,7 +112,7 @@ class VirusTotalAdapter(BaseAdapter):
                 malicious_count += 1
                 findings.append(
                     Finding(
-                        id=f"virustotal-{uuid.uuid4().hex[:8]}",
+                        id=make_finding_id("virustotal"),
                         title="malicious-url",
                         severity=Severity.CRITICAL,
                         confidence=Confidence.FIRM,
@@ -125,7 +125,7 @@ class VirusTotalAdapter(BaseAdapter):
 
         findings.append(
             Finding(
-                id=f"virustotal-{uuid.uuid4().hex[:8]}",
+                id=make_finding_id("virustotal"),
                 title="virustotal-summary",
                 severity=Severity.HIGH if malicious_count > 0 else Severity.INFO,
                 confidence=Confidence.FIRM,
