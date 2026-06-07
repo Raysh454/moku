@@ -80,13 +80,20 @@ class JobStore:
             summary=None,
             raw_data={},
         )
+        evicted: str | None = None
         with self._lock:
-            if len(self._jobs) >= MAX_JOBS and not self._evict_oldest_terminal_locked():
-                raise JobStoreFull(
-                    f"job store is full ({MAX_JOBS} active scans); retry later"
-                )
+            if len(self._jobs) >= MAX_JOBS:
+                evicted = self._evict_oldest_terminal_locked()
+                if evicted is None:
+                    raise JobStoreFull(
+                        f"job store is full ({MAX_JOBS} active scans); retry later"
+                    )
             self._jobs[job_id] = result
             self._requests[job_id] = request
+        # Dispose evidence (blocking rmtree) AFTER releasing the lock, mirroring
+        # purge_older_than, so disk I/O never stalls concurrent store operations.
+        if evicted is not None:
+            self._dispose_evidence([evicted])
         return job_id
 
     def get(self, job_id: str) -> ScanResult | None:
@@ -155,22 +162,22 @@ class JobStore:
             self._dispose_evidence(purged)
         return len(purged)
 
-    def _evict_oldest_terminal_locked(self) -> bool:
-        """Evict the oldest finished job to make room. Returns False (evicting
-        nothing) when every resident job is still active, so the caller can
-        refuse the new submission rather than drop an in-flight scan."""
+    def _evict_oldest_terminal_locked(self) -> str | None:
+        """Evict the oldest finished job to make room and return its id, or None
+        when every resident job is still active (so the caller refuses the new
+        submission rather than dropping an in-flight scan). Evidence disposal is
+        left to the caller to run OUTSIDE the lock."""
         terminal = [
             (job_id, result)
             for job_id, result in self._jobs.items()
             if _is_terminal(result.status)
         ]
         if not terminal:
-            return False
+            return None
         oldest_id = min(terminal, key=lambda item: _age_reference(item[1]))[0]
         self._jobs.pop(oldest_id, None)
         self._requests.pop(oldest_id, None)
-        self._dispose_evidence([oldest_id])
-        return True
+        return oldest_id
 
     def _dispose_evidence(self, job_ids: list[str]) -> None:
         try:

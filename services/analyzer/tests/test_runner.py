@@ -106,11 +106,29 @@ class TestRedaction:
             ("auth failed x-auth-token: ghp_REALTOKEN", "ghp_REALTOKEN"),
             ("refresh_token=rt_SECRET", "rt_SECRET"),
             ("Set-Cookie: session=abcSECRET; Path=/", "abcSECRET"),
+            ("pwd=hunter2", "hunter2"),
+            ("pass=hunter2", "hunter2"),
         ],
     )
     def test_redacts_compound_secret_keys(self, message, secret):
         # Regression: a too-broad lookbehind once leaked compound keys.
         assert secret not in runner_module._redact_error(message)
+
+    @pytest.mark.parametrize(
+        "message,token",
+        [
+            ("upstream echoed 'Bearer eyJhbGci.PAYLOAD.SIG' back", "eyJhbGci.PAYLOAD.SIG"),
+            ("retry with Basic dXNlcjpwYXNzd29yZA== failed", "dXNlcjpwYXNzd29yZA=="),
+        ],
+    )
+    def test_redacts_bare_auth_scheme_without_key(self, message, token):
+        assert token not in runner_module._redact_error(message)
+
+    @pytest.mark.parametrize(
+        "message", ["passenger=Alice", "compass=North", "monkey=banana", "turnkey=ready"]
+    )
+    def test_does_not_over_redact_lookalike_words(self, message):
+        assert runner_module._redact_error(message) == message
 
     def test_leaves_unrelated_messages(self):
         assert runner_module._redact_error("plain error") == "plain error"
