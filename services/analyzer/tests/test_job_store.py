@@ -173,7 +173,82 @@ def test_all_ids_returns_current_set():
     assert second in ids
 
 
+def test_active_ids_excludes_terminal_jobs():
+    store = JobStore()
+    pending = store.create(_build_request())
+    done = store.create(_build_request())
+    store.update_status(done, status=ScanStatus.COMPLETED, completed_at=datetime.now(UTC))
+    ids = store.active_ids()
+    assert pending in ids
+    assert done not in ids
+
+
 class TestPruner:
+    def test_enforces_evidence_size_cap_and_protects_active_jobs(self, monkeypatch):
+        import asyncio
+
+        captured: dict = {}
+
+        class _FakeEvidenceStore:
+            def prune(self, max_bytes=None, protect=None):
+                captured["max_bytes"] = max_bytes
+                captured["protect"] = protect
+                return 0
+
+        monkeypatch.setattr(
+            "app.core.evidence_store.get_evidence_store", lambda: _FakeEvidenceStore()
+        )
+        fresh = JobStore()
+        monkeypatch.setattr(job_store_module, "job_store", fresh)
+        active = fresh.create(_build_request())  # pending -> must be protected
+
+        async def drive():
+            task = asyncio.ensure_future(
+                job_store_module._prune_forever(0, 10, max_evidence_bytes=4096)
+            )
+            for _ in range(5):
+                await asyncio.sleep(0)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(drive())
+        assert captured.get("max_bytes") == 4096
+        assert active in captured.get("protect", set())
+
+    def test_no_evidence_prune_when_cap_disabled(self, monkeypatch):
+        import asyncio
+
+        called = {"prune": False}
+
+        class _FakeEvidenceStore:
+            def prune(self, **kwargs):
+                called["prune"] = True
+                return 0
+
+        monkeypatch.setattr(
+            "app.core.evidence_store.get_evidence_store", lambda: _FakeEvidenceStore()
+        )
+        fresh = JobStore()
+        monkeypatch.setattr(job_store_module, "job_store", fresh)
+
+        async def drive():
+            task = asyncio.ensure_future(
+                job_store_module._prune_forever(0, 10, max_evidence_bytes=0)
+            )
+            for _ in range(5):
+                await asyncio.sleep(0)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(drive())
+        assert called["prune"] is False  # 0 = no size cap
+
     def test_loop_purges_then_honors_cancel(self, monkeypatch):
         import asyncio
 

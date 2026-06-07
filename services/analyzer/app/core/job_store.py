@@ -26,6 +26,11 @@ _logger = logging.getLogger(__name__)
 _DEFAULT_MAX_JOBS = 1024
 MAX_JOBS = int(os.getenv("MOKU_ANALYZER_MAX_JOBS", str(_DEFAULT_MAX_JOBS)))
 
+# Optional hard ceiling on total on-disk evidence (bytes). 0 = no size cap
+# (retention is then bounded only by the TTL). The background pruner enforces
+# it via EvidenceStore.prune, protecting active jobs' evidence from deletion.
+MAX_EVIDENCE_BYTES = int(os.getenv("MOKU_EVIDENCE_MAX_BYTES", "0"))
+
 _TERMINAL_STATUS_VALUES = frozenset(
     {ScanStatus.COMPLETED.value, ScanStatus.FAILED.value, ScanStatus.CANCELED.value}
 )
@@ -141,6 +146,16 @@ class JobStore:
         with self._lock:
             return list(self._jobs.keys())
 
+    def active_ids(self) -> set[str]:
+        """Job ids that are still pending/running — their evidence must be
+        protected from size-based pruning while a scan is in flight."""
+        with self._lock:
+            return {
+                job_id
+                for job_id, result in self._jobs.items()
+                if not _is_terminal(result.status)
+            }
+
     def purge_older_than(self, age: timedelta) -> int:
         """Drop terminal jobs older than `age`.
 
@@ -193,11 +208,24 @@ class JobStore:
 job_store = JobStore()
 
 
-async def _prune_forever(interval_seconds: int, ttl_seconds: int) -> None:
+async def _prune_forever(
+    interval_seconds: int,
+    ttl_seconds: int,
+    max_evidence_bytes: int = 0,
+) -> None:
     while True:
         try:
             await asyncio.sleep(interval_seconds)
             job_store.purge_older_than(timedelta(seconds=ttl_seconds))
+            if max_evidence_bytes > 0:
+                # Enforce the size cap OUTSIDE any store lock, protecting the
+                # evidence of jobs still in flight from being trimmed.
+                from app.core.evidence_store import get_evidence_store
+
+                get_evidence_store().prune(
+                    max_bytes=max_evidence_bytes,
+                    protect=job_store.active_ids(),
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 -- one bad iteration must not kill the loop
@@ -208,5 +236,10 @@ def start_pruner(
     loop: asyncio.AbstractEventLoop,
     interval_seconds: int = 300,
     ttl_seconds: int = 86400,
+    max_evidence_bytes: int | None = None,
 ) -> asyncio.Task:
-    return loop.create_task(_prune_forever(interval_seconds, ttl_seconds))
+    if max_evidence_bytes is None:
+        max_evidence_bytes = MAX_EVIDENCE_BYTES
+    return loop.create_task(
+        _prune_forever(interval_seconds, ttl_seconds, max_evidence_bytes)
+    )

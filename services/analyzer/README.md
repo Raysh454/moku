@@ -111,6 +111,7 @@ Swagger UI is at `http://127.0.0.1:8181/docs`.
 | `MOKU_ANALYZER_WORKERS` | `4` | Size of the background scan thread pool. |
 | `MOKU_ANALYZER_MAX_JOBS` | `1024` | Soft cap on resident jobs before terminal-job eviction / `429`. |
 | `MOKU_EVIDENCE_DIR` | `~/.config/moku/evidence` | Root of the sha256 evidence store. |
+| `MOKU_EVIDENCE_MAX_BYTES` | `0` (no cap) | Hard ceiling on total on-disk evidence. When >0 the background pruner trims the oldest blobs past this size (active scans' evidence is never trimmed). Retention is otherwise TTL-bound only. |
 | `SHODAN_API_KEY` | unset | Consumed by the `shodan` adapter. |
 | `VIRUSTOTAL_API_KEY` | unset | Consumed by the `virustotal` adapter. |
 
