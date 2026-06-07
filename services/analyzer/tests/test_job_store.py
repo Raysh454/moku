@@ -1,5 +1,7 @@
 """Tests for the rewritten in-memory `JobStore`."""
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -118,6 +120,48 @@ class TestEviction:
         job_id = store.create(_build_request())
         store.delete(job_id)
         assert store.get(job_id) is None
+
+    def test_eviction_does_not_hold_lock_during_evidence_disposal(self, monkeypatch):
+        # Eviction disposes the evicted job's evidence (a blocking shutil.rmtree).
+        # That disposal must happen AFTER the store lock is released, or every
+        # concurrent get()/create() stalls behind disk I/O. Reproduce with a
+        # deliberately slow delete_for_job and assert a concurrent get() is not
+        # blocked for its duration.
+        monkeypatch.setattr(job_store_module, "MAX_JOBS", 1)
+        delete_started = threading.Event()
+        slow_delete_seconds = 0.5
+
+        def slow_delete(self, job_id):
+            delete_started.set()
+            time.sleep(slow_delete_seconds)
+            return 0
+
+        monkeypatch.setattr(
+            "app.core.evidence_store.EvidenceStore.delete_for_job", slow_delete
+        )
+
+        store = JobStore()
+        first = store.create(_build_request())
+        store.update_status(
+            first, status=ScanStatus.COMPLETED, completed_at=datetime.now(UTC)
+        )
+
+        # This create() hits the cap, evicts the terminal job, and disposes its
+        # evidence (slow) — with the fix, after releasing the lock.
+        creator = threading.Thread(target=lambda: store.create(_build_request()))
+        creator.start()
+        try:
+            assert delete_started.wait(timeout=2.0), "eviction disposal never started"
+            start = time.perf_counter()
+            store.get("does-not-matter")
+            elapsed = time.perf_counter() - start
+        finally:
+            creator.join()
+
+        assert elapsed < slow_delete_seconds / 2, (
+            f"get() blocked {elapsed:.3f}s during eviction rmtree — the store "
+            "lock is held across filesystem I/O"
+        )
 
 
 def test_all_ids_returns_current_set():
