@@ -32,6 +32,3 @@ class PluginManager:
 
     def get_plugins(self) -> list[BasePlugin]:
         return self._plugins
-
-
-plugin_manager = PluginManager()
