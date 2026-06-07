@@ -153,10 +153,16 @@ class Executor:
     def _apply_cookies(self, cookies: dict[str, str] | None, host: str) -> None:
         if not cookies:
             return
+        if not host:
+            # Never emit a domain-less cookie: that matches every host and would
+            # leak the caller's credentials cross-host. Skip (fail safe) — the
+            # adapter validates the URL has a hostname before we get here.
+            return
         for key, value in cookies.items():
-            # Scope to the target host (no leading dot = exact-host match) so a
-            # cross-host redirect does not carry the caller's authenticated
-            # session cookies to a third-party host.
+            # Scope to the target host. requests stores a Netscape (v0) cookie,
+            # so this matches the target AND its subdomains (standard cookie
+            # domain semantics) but NOT unrelated third-party hosts — a
+            # cross-domain redirect to an attacker host gets no cookie.
             self._session.cookies.set(key, value, domain=host, path="/")
 
     def _fetch_baseline(self, scan_unit: ScanUnit) -> str | None:

@@ -31,6 +31,11 @@ _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="mok
 _AUTH_SCHEME_PATTERN = re.compile(
     r"(?i)\b(authorization)[\"']?\s*[:=]\s*[\"']?(?:bearer|basic|digest|negotiate)\s+[^\s\"']+"
 )
+# Bare auth scheme + token with no preceding "Authorization" key (e.g. an echoed
+# upstream header or WWW-Authenticate string): redact the whole "Bearer <tok>".
+_BARE_SCHEME_PATTERN = re.compile(
+    r"(?i)\b(?:bearer|basic|digest|negotiate)\s+[A-Za-z0-9._~+/=-]{8,}"
+)
 # key=value / key: value, tolerating a quote on either side (JSON: "key": "v").
 # An optional compound prefix ending in a separator lets `access_token`,
 # `db_password`, `X-Api-Key`, `set-cookie` etc. match, while the leading
@@ -38,7 +43,7 @@ _AUTH_SCHEME_PATTERN = re.compile(
 _SECRET_KV_PATTERN = re.compile(
     r"(?i)(?<![\w-])"
     r"((?:[\w-]*[_-])?(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token"
-    r"|auth[_-]?token|token|password|passwd|secret|authorization|cookie|key))"
+    r"|auth[_-]?token|token|password|passwd|pwd|pass|secret|authorization|cookie|key))"
     r"[\"']?\s*[:=]\s*[\"']?[^\s\"'&]+[\"']?"
 )
 # Credentials embedded in a URL: scheme://user:pass@host
@@ -54,6 +59,7 @@ def _redact_error(message: str) -> str:
     diagnostics while the value never leaks.
     """
     redacted = _AUTH_SCHEME_PATTERN.sub(r"\1=<redacted>", message)
+    redacted = _BARE_SCHEME_PATTERN.sub("<redacted>", redacted)
     redacted = _SECRET_KV_PATTERN.sub(r"\1=<redacted>", redacted)
     redacted = _URL_CRED_PATTERN.sub(r"\1<redacted>@", redacted)
     return redacted

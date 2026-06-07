@@ -233,6 +233,13 @@ def test_apply_cookies_no_op_when_empty():
     executor._apply_cookies({}, "example.com")
 
 
+def test_apply_cookies_skips_empty_host():
+    # A domain-less cookie would match every host; the guard must drop it.
+    executor = Executor()
+    executor._apply_cookies({"sid": "V"}, "")
+    assert len(executor._session.cookies) == 0
+
+
 class TestRun:
     def test_dispatches_to_matching_plugin(self, monkeypatch):
         monkeypatch.setattr(executor_module, "REQUEST_DELAY_SECONDS", 0)
