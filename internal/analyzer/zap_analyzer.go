@@ -69,9 +69,12 @@ var errZAPNotImplemented = errors.New("zap analyzer: REST pipeline not yet imple
 
 func (z *zapAnalyzer) Name() Backend { return BackendZAP }
 
-// Capabilities reports what the ZAP adapter WILL support once implemented.
-// ZAP supports context-based authentication, scope rules via include/exclude
-// regex, and ascan policy selection — all honored once the pipeline lands.
+// Capabilities reports what THIS standalone ZAP analyzer WILL support once
+// implemented (ZAP context-based auth, scope regex, ascan policy). NOTE: this
+// is a distinct implementation from the Python sidecar's "zap" adapter, which
+// shells out to zap.sh and intentionally advertises no auth/scope/profile (see
+// testdata/capabilities.json). No Go Backend routes to the sidecar zap adapter,
+// so the two never serve the same request; the capability sets differ by design.
 func (z *zapAnalyzer) Capabilities() Capabilities {
 	return Capabilities{
 		Async:               true,

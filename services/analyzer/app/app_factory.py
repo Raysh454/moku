@@ -34,28 +34,43 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
-def enforce_startup_security_posture() -> None:
+def enforce_startup_security_posture(host: str | None = None) -> None:
     """Fail closed when exposing the service to a non-loopback interface.
 
     A network-reachable bind (e.g. ``0.0.0.0`` in a container) must require an
     authentication token and must not have the SSRF private-host bypass
     enabled — otherwise the service is an unauthenticated open SSRF proxy.
-    Loopback binds (the dev/demo default) are left unrestricted. The bind host
-    is read from ``MOKU_ANALYZER_HOST``, which the launcher and start scripts
-    set.
+    Loopback binds (the dev/demo default) are left unrestricted.
+
+    The bind host comes from the explicit ``host`` argument (run.py passes the
+    value it hands to ``uvicorn.run``) or, failing that, ``MOKU_ANALYZER_HOST``.
+    LIMITATION: a bare ``uvicorn main:app --host <addr>`` cannot communicate its
+    ``--host`` to this guard — production MUST launch via run.py / the start
+    scripts (which set ``MOKU_ANALYZER_HOST``) or set ``MOKU_ANALYZER_TOKEN``.
+    When the host cannot be determined we assume loopback but log a warning so
+    an unguarded non-loopback bind is at least visible.
     """
-    host = os.environ.get(_HOST_ENV, "127.0.0.1")
-    if _is_loopback_host(host):
+    resolved = host if host is not None else os.environ.get(_HOST_ENV)
+    if resolved is None:
+        _logger.warning(
+            "%s is unset and no bind host was provided; assuming loopback for "
+            "the auth-posture check. Set %s (or launch via run.py) when binding "
+            "to a non-loopback interface, or the token requirement is skipped.",
+            _HOST_ENV,
+            _HOST_ENV,
+        )
+        resolved = "127.0.0.1"
+    if _is_loopback_host(resolved):
         return
     if not os.environ.get(_TOKEN_ENV):
         raise RuntimeError(
-            f"refusing to start: binding to non-loopback host {host!r} requires "
+            f"refusing to start: binding to non-loopback host {resolved!r} requires "
             f"{_TOKEN_ENV} to be set so inbound requests are authenticated"
         )
     if private_host_bypass_enabled():
         raise RuntimeError(
             f"refusing to start: {_ALLOW_PRIVATE_HOSTS_ENV} (SSRF guard bypass) "
-            f"must not be enabled when binding to non-loopback host {host!r}"
+            f"must not be enabled when binding to non-loopback host {resolved!r}"
         )
 
 

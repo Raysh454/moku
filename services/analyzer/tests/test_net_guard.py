@@ -16,6 +16,7 @@ class TestIsDisallowedAddress:
             "192.168.1.1",  # private
             "169.254.169.254",  # link-local (cloud metadata)
             "0.0.0.0",  # unspecified
+            "100.64.0.1",  # CGNAT (RFC 6598) — caught via not-is-global
             "224.0.0.1",  # multicast
             "::1",  # ipv6 loopback
             "::ffff:127.0.0.1",  # ipv4-mapped loopback

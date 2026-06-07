@@ -407,6 +407,19 @@ func (s *sidecarAnalyzer) do(ctx context.Context, req *http.Request) (*http.Resp
 		}
 		return nil, fmt.Errorf("%w: %v", ErrSidecarUnreachable, err)
 	}
+	// Buffer the body now, while the per-call RequestTimeout context is still
+	// live: post()/get() defer cancel() on that context, and a streamed/chunked
+	// body left unread would have its read aborted the moment they return. The
+	// sidecar is a trusted loopback process, so reading fully is safe.
+	body, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, fmt.Errorf("%w: %v", ErrSidecarUnreachable, readErr)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
 	return resp, nil
 }
 

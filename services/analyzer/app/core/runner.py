@@ -10,6 +10,7 @@ from app.adapters.registry import registry
 from app.core.job_store import job_store
 from app.models.schemas import (
     Backend,
+    Confidence,
     Progress,
     ScanStatus,
     ScanSummary,
@@ -24,19 +25,34 @@ _logger = logging.getLogger(__name__)
 _MAX_WORKERS = int(os.getenv("MOKU_ANALYZER_WORKERS", "4"))
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="moku-scan")
 
-_SECRET_KV_PATTERN = re.compile(
-    r"(?i)(api[_-]?key|token|password|authorization|key)\s*[:=]\s*([^&\s\"']+)"
+# Authorization header carrying an auth scheme + token: redact scheme AND token
+# (the value runs past the first space, so a plain key=value rule would leak the
+# token after "Bearer ").
+_AUTH_SCHEME_PATTERN = re.compile(
+    r"(?i)\b(authorization)[\"']?\s*[:=]\s*[\"']?(?:bearer|basic|digest|negotiate)\s+[^\s\"']+"
 )
+# key=value / key: value, tolerating a quote on either side (JSON: "key": "v").
+# The lookbehind stops `key` matching inside words like monkey / turnkey.
+_SECRET_KV_PATTERN = re.compile(
+    r"(?i)(?<![\w-])(api[_-]?key|token|password|secret|authorization|key)"
+    r"[\"']?\s*[:=]\s*[\"']?[^\s\"'&]+[\"']?"
+)
+# Credentials embedded in a URL: scheme://user:pass@host
+_URL_CRED_PATTERN = re.compile(r"(://)[^/@\s:]+:[^/@\s]+@")
 
 
 def _redact_error(message: str) -> str:
     """Strip recognisable secrets out of error messages before logging/exposing.
 
-    Matches ``key=value`` and ``key: value`` (with optional surrounding
-    whitespace), normalising the redacted form to ``key=<redacted>`` so the
-    key name survives for diagnostics while the value never leaks.
+    Covers ``Authorization: Bearer <token>`` (scheme + token), ``key=value`` and
+    ``key: value`` including JSON-quoted values, and URL-embedded credentials,
+    normalising the redacted form to ``<key>=<redacted>`` so the key survives for
+    diagnostics while the value never leaks.
     """
-    return _SECRET_KV_PATTERN.sub(r"\1=<redacted>", message)
+    redacted = _AUTH_SCHEME_PATTERN.sub(r"\1=<redacted>", message)
+    redacted = _SECRET_KV_PATTERN.sub(r"\1=<redacted>", redacted)
+    redacted = _URL_CRED_PATTERN.sub(r"\1<redacted>@", redacted)
+    return redacted
 
 
 def submit_scan_job(job_id: str) -> None:
@@ -101,22 +117,33 @@ _SEVERITY_RANK: dict[Severity, int] = {
     Severity.CRITICAL: 4,
 }
 
+_CONFIDENCE_RANK: dict[Confidence, int] = {
+    Confidence.TENTATIVE: 0,
+    Confidence.FIRM: 1,
+    Confidence.CERTAIN: 2,
+}
+
 
 def _dedupe_findings(findings: list[ApiFinding]) -> list[ApiFinding]:
     """Collapse findings sharing (title, parameter, url), keeping the most
-    severe. This is the single dedup policy for every adapter — applied once,
-    here, so adapters never carry their own (potentially divergent) copy."""
+    severe and, on a severity tie, the most confident. This is the single dedup
+    policy for every adapter — applied once, here, so adapters never carry their
+    own (potentially divergent) copy."""
     best: dict[tuple[str, str | None, str | None], ApiFinding] = {}
     for finding in findings:
         key = (finding.title, finding.parameter, finding.url)
         current = best.get(key)
-        if current is None or _severity_rank(finding) > _severity_rank(current):
+        if current is None or _rank(finding) > _rank(current):
             best[key] = finding
     return list(best.values())
 
 
-def _severity_rank(finding: ApiFinding) -> int:
-    return _SEVERITY_RANK.get(Severity(finding.severity), 0)
+def _rank(finding: ApiFinding) -> tuple[int, int]:
+    """Dedup ordering key: severity first, then confidence as the tiebreak."""
+    return (
+        _SEVERITY_RANK.get(Severity(finding.severity), 0),
+        _CONFIDENCE_RANK.get(Confidence(finding.confidence), 0),
+    )
 
 
 def _build_summary(findings: list[ApiFinding]) -> ScanSummary:

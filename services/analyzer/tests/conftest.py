@@ -100,3 +100,19 @@ def _isolate_evidence_dir(tmp_path, monkeypatch):
     evidence_store_module._reset_evidence_store_for_tests()
     yield
     evidence_store_module._reset_evidence_store_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _stub_dns(monkeypatch):
+    """Resolve hostnames to a fixed public IP so the suite never hits real DNS.
+
+    ScanRequest validation (and the SSRF guard) resolve any non-IP hostname;
+    without this, ~dozens of tests constructing ScanRequest(url="https://...")
+    would do real network DNS, violating F.I.R.S.T. and flaking in CI. Tests
+    that need specific resolution (test_net_guard, adapter SSRF tests) override
+    this with their own monkeypatch, which takes precedence.
+    """
+    monkeypatch.setattr(
+        "app.net_guard.socket.getaddrinfo",
+        lambda *a, **kw: [(0, 0, 0, "", ("93.184.216.34", 0))],
+    )

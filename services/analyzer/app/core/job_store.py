@@ -41,6 +41,18 @@ def _is_terminal(status: ScanStatus | str) -> bool:
     return value in _TERMINAL_STATUS_VALUES
 
 
+def _age_reference(result: ScanResult) -> datetime:
+    """Always-aware timestamp used to age a job: completed_at, else submitted_at.
+
+    Normalises naive datetimes to UTC so eviction/purge never mix offset-naive
+    and offset-aware values (which would raise TypeError).
+    """
+    reference = result.completed_at or result.submitted_at
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    return reference
+
+
 class JobStoreFull(Exception):
     """Raised when a new job cannot be admitted because the store is full of
     still-active (pending/running) scans."""
@@ -135,10 +147,7 @@ class JobStore:
             for job_id, result in list(self._jobs.items()):
                 if not _is_terminal(result.status):
                     continue
-                reference = result.completed_at or result.submitted_at
-                if reference.tzinfo is None:
-                    reference = reference.replace(tzinfo=UTC)
-                if reference < cutoff:
+                if _age_reference(result) < cutoff:
                     purged.append(job_id)
                     self._jobs.pop(job_id, None)
                     self._requests.pop(job_id, None)
@@ -157,10 +166,7 @@ class JobStore:
         ]
         if not terminal:
             return False
-        oldest_id = min(
-            terminal,
-            key=lambda item: item[1].completed_at or item[1].submitted_at,
-        )[0]
+        oldest_id = min(terminal, key=lambda item: _age_reference(item[1]))[0]
         self._jobs.pop(oldest_id, None)
         self._requests.pop(oldest_id, None)
         self._dispose_evidence([oldest_id])
@@ -187,7 +193,7 @@ async def _prune_forever(interval_seconds: int, ttl_seconds: int) -> None:
             job_store.purge_older_than(timedelta(seconds=ttl_seconds))
         except asyncio.CancelledError:
             raise
-        except (OSError, RuntimeError) as exc:
+        except Exception as exc:  # noqa: BLE001 -- one bad iteration must not kill the loop
             _logger.warning("job-store prune iteration failed: %s", exc)
 
 
