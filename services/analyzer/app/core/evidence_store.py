@@ -90,23 +90,39 @@ class EvidenceStore:
         self,
         max_age: timedelta | None = None,
         max_bytes: int | None = None,
+        protect: set[str] | None = None,
     ) -> int:
-        """Drop blobs older than `max_age` and trim total size to `max_bytes`."""
+        """Drop blobs older than `max_age`, then (when `max_bytes` is set) trim
+        the oldest remaining blobs until the total fits under it.
+
+        `protect` is a set of job ids whose evidence must never be touched —
+        pass the still-active (pending/running) jobs so an in-flight scan's
+        evidence is never deleted out from under it. Filesystem races are
+        tolerated: a blob that vanishes or is locked between discovery and
+        deletion (a concurrent purge/eviction, or a Windows writer lock) is
+        skipped rather than fatal.
+        """
         if not self.base_dir.exists():
             return 0
 
+        protected = protect or set()
         now = time.time()
         cutoff = now - max_age.total_seconds() if max_age is not None else None
         removed = 0
 
         files: list[tuple[float, int, Path]] = []
         for path in self.base_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            stat = path.stat()
+            try:
+                if not path.is_file():
+                    continue
+                if self._owning_job(path) in protected:
+                    continue
+                stat = path.stat()
+            except OSError:
+                continue  # vanished mid-walk; nothing to do
             if cutoff is not None and stat.st_mtime < cutoff:
-                path.unlink(missing_ok=True)
-                removed += 1
+                if self._safe_unlink(path):
+                    removed += 1
                 continue
             files.append((stat.st_mtime, stat.st_size, path))
 
@@ -116,11 +132,28 @@ class EvidenceStore:
             for _, size, path in files:
                 if total <= max_bytes:
                     break
-                path.unlink(missing_ok=True)
-                total -= size
-                removed += 1
+                if self._safe_unlink(path):
+                    total -= size
+                    removed += 1
 
         return removed
+
+    def _owning_job(self, path: Path) -> str | None:
+        """Return the job-id directory a blob path belongs to, or None."""
+        try:
+            parts = path.relative_to(self.base_dir).parts
+        except ValueError:
+            return None
+        return parts[0] if parts else None
+
+    @staticmethod
+    def _safe_unlink(path: Path) -> bool:
+        """Delete a blob, tolerating concurrent removal / writer locks."""
+        try:
+            path.unlink(missing_ok=True)
+            return True
+        except OSError:
+            return False
 
 
 _store: EvidenceStore | None = None

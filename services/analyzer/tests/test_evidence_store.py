@@ -79,6 +79,45 @@ def test_prune_max_age_drops_old_files(tmp_path):
     assert removed == 1
 
 
+def test_prune_max_bytes_trims_oldest_to_under_cap(tmp_path):
+    store = EvidenceStore(str(tmp_path))
+    keep = store.save(b"k" * 400, label="x", job_id="newer")
+    drop = store.save(b"d" * 400, label="x", job_id="older")
+    # Make 'older' genuinely older so it is trimmed first.
+    old_time = Path(drop.path).stat().st_mtime - 10_000
+    os.utime(Path(drop.path), (old_time, old_time))
+
+    removed = store.prune(max_bytes=500)
+    assert removed == 1
+    assert Path(keep.path).exists()
+    assert not Path(drop.path).exists()
+
+
+def test_prune_never_deletes_protected_job_evidence(tmp_path):
+    store = EvidenceStore(str(tmp_path))
+    running = store.save(b"r" * 1000, label="x", job_id="running")
+    terminal = store.save(b"t" * 1000, label="x", job_id="terminal")
+
+    # Tiny cap forces trimming, but the running job's evidence must survive.
+    store.prune(max_bytes=100, protect={"running"})
+
+    assert Path(running.path).exists()  # protected
+    assert not Path(terminal.path).exists()  # trimmed
+
+
+def test_prune_tolerates_unlink_failure(tmp_path, monkeypatch):
+    store = EvidenceStore(str(tmp_path))
+    store.save(b"z" * 2000, label="x", job_id="j")
+
+    def boom(self, *args, **kwargs):
+        raise PermissionError("file locked by a concurrent writer")
+
+    monkeypatch.setattr(Path, "unlink", boom)
+    # A blob locked/removed by a concurrent scan must not crash the pruner.
+    removed = store.prune(max_bytes=10)
+    assert removed == 0
+
+
 def test_directory_not_created_on_import(monkeypatch, tmp_path):
     base = tmp_path / "evidence-no-touch"
     monkeypatch.setenv("MOKU_EVIDENCE_DIR", str(base))
