@@ -66,6 +66,11 @@ const (
 	sidecarTokenHeader     = "X-Moku-Token"
 	sidecarContentTypeJSON = "application/json"
 
+	// maxSidecarBodyBytes caps the buffered response body — far above any
+	// legitimate ScanResult, but a hard ceiling so a misbehaving/compromised
+	// sidecar cannot drive the client to OOM (esp. with RequestTimeout unset).
+	maxSidecarBodyBytes = 64 << 20 // 64 MiB
+
 	// SidecarContractVersion is the wire-contract version this client expects.
 	// The sidecar reports its own version on /health; a mismatch is logged so
 	// operators can spot Go/Python version skew. Must match the Python
@@ -409,15 +414,19 @@ func (s *sidecarAnalyzer) do(ctx context.Context, req *http.Request) (*http.Resp
 	}
 	// Buffer the body now, while the per-call RequestTimeout context is still
 	// live: post()/get() defer cancel() on that context, and a streamed/chunked
-	// body left unread would have its read aborted the moment they return. The
-	// sidecar is a trusted loopback process, so reading fully is safe.
-	body, readErr := io.ReadAll(resp.Body)
+	// body left unread would have its read aborted the moment they return.
+	// LimitReader caps the buffer so a misbehaving sidecar cannot exhaust
+	// memory even when RequestTimeout is left at 0 (no per-call deadline).
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxSidecarBodyBytes+1))
 	_ = resp.Body.Close()
 	if readErr != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
 		return nil, fmt.Errorf("%w: %v", ErrSidecarUnreachable, readErr)
+	}
+	if int64(len(body)) > maxSidecarBodyBytes {
+		return nil, fmt.Errorf("sidecar response body exceeds %d bytes: %w", maxSidecarBodyBytes, errSidecarBadStatus)
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	return resp, nil

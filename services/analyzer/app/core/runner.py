@@ -32,9 +32,13 @@ _AUTH_SCHEME_PATTERN = re.compile(
     r"(?i)\b(authorization)[\"']?\s*[:=]\s*[\"']?(?:bearer|basic|digest|negotiate)\s+[^\s\"']+"
 )
 # key=value / key: value, tolerating a quote on either side (JSON: "key": "v").
-# The lookbehind stops `key` matching inside words like monkey / turnkey.
+# An optional compound prefix ending in a separator lets `access_token`,
+# `db_password`, `X-Api-Key`, `set-cookie` etc. match, while the leading
+# (?<![\w-]) anchors the whole key so `monkey=`/`turnkey=` are NOT matched.
 _SECRET_KV_PATTERN = re.compile(
-    r"(?i)(?<![\w-])(api[_-]?key|token|password|secret|authorization|key)"
+    r"(?i)(?<![\w-])"
+    r"((?:[\w-]*[_-])?(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token"
+    r"|auth[_-]?token|token|password|passwd|secret|authorization|cookie|key))"
     r"[\"']?\s*[:=]\s*[\"']?[^\s\"'&]+[\"']?"
 )
 # Credentials embedded in a URL: scheme://user:pass@host

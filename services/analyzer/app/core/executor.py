@@ -38,9 +38,15 @@ class _SSRFGuardedAdapter(HTTPAdapter):
 
     Mounted on the scan session so the SSRF guard runs not just on the initial
     URL but on each redirect hop requests follows internally — closing the
-    redirect-to-internal-host bypass. Because redirects are still resolved by
-    requests itself (not hand-rolled), requests' own cross-host
-    ``Authorization`` stripping and cookie rebuilding remain in force.
+    redirect-to-internal-host bypass. Because redirects are resolved by requests
+    itself (not hand-rolled), requests' own cross-host ``Authorization`` header
+    stripping stays in force. Caller cookies are separately scoped to the target
+    host in ``_apply_cookies`` so they are not carried cross-host either.
+
+    NOTE: 307/308 redirects preserve method + body per RFC 7231, so an injected
+    scan payload may be re-sent to a redirect target. That target is still
+    SSRF-vetted (public only), and no credentials ride along, so this is an
+    accepted property of active scanning rather than a leak.
     """
 
     def send(self, request, *args, **kwargs):
@@ -144,11 +150,14 @@ class Executor:
 
         return findings
 
-    def _apply_cookies(self, cookies: dict[str, str] | None) -> None:
+    def _apply_cookies(self, cookies: dict[str, str] | None, host: str) -> None:
         if not cookies:
             return
         for key, value in cookies.items():
-            self._session.cookies.set(key, value)
+            # Scope to the target host (no leading dot = exact-host match) so a
+            # cross-host redirect does not carry the caller's authenticated
+            # session cookies to a third-party host.
+            self._session.cookies.set(key, value, domain=host, path="/")
 
     def _fetch_baseline(self, scan_unit: ScanUnit) -> str | None:
         """Fetch the page with no injected payload — `None` on failure.
@@ -158,7 +167,7 @@ class Executor:
         re-validates every hop's host.
         """
         try:
-            self._apply_cookies(scan_unit.cookies)
+            self._apply_cookies(scan_unit.cookies, urlparse(scan_unit.url).hostname or "")
             resp = self._session.request(
                 method="GET",
                 url=scan_unit.url,
@@ -178,7 +187,7 @@ class Executor:
     ) -> tuple[str | None, dict]:
         """Inject the payload into the targeted parameter and send the request."""
         try:
-            self._apply_cookies(scan_unit.cookies)
+            self._apply_cookies(scan_unit.cookies, urlparse(scan_unit.url).hostname or "")
             params = dict(scan_unit.params)
             params[test_case.target_name] = test_case.payload
 
