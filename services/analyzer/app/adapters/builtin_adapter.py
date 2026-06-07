@@ -1,6 +1,7 @@
 """BuiltinAdapter — Moku's reference active-scan analyzer (XSS, SQLi, CSRF)."""
 
 import base64
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -20,7 +21,7 @@ from app.models.schemas import (
 from app.models.schemas import (
     Finding as ApiFinding,
 )
-from app.plugins.plugin_manager import PluginManager, plugin_manager
+from app.plugins.plugin_manager import PluginManager
 
 
 def _auth_header(auth: Auth | None) -> str | None:
@@ -52,10 +53,14 @@ class BuiltinAdapter(BaseAdapter):
     name = Backend.BUILTIN.value
     description = "Moku built-in dynamic vulnerability analyzer"
 
-    def __init__(self, plugins: PluginManager | None = None) -> None:
-        # PluginManager is the single source of truth for the plugin roster;
-        # injectable so tests can supply a stub without monkeypatching globals.
-        self._plugin_manager = plugins or plugin_manager
+    def __init__(
+        self, plugin_manager_factory: Callable[[], PluginManager] | None = None
+    ) -> None:
+        # A FRESH plugin set is built per scan (run_scan) so stateful detection
+        # — e.g. the SQLi boolean-differential correlation — is scan-scoped and
+        # never shared/raced across concurrent scans. Injectable so tests can
+        # supply a stub factory.
+        self._make_plugin_manager = plugin_manager_factory or PluginManager
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
@@ -91,7 +96,11 @@ class BuiltinAdapter(BaseAdapter):
             meta={"job_id": request.raw_options.get("job_id")},
         )
 
-        test_cases = self._plugin_manager.generate_tests(scan_unit)
+        # Fresh, scan-scoped plugin instances: the same set generates the tests
+        # and analyzes the responses, so stateful detection correlates within
+        # this scan only.
+        manager = self._make_plugin_manager()
+        test_cases = manager.generate_tests(scan_unit)
         if not test_cases:
             return []
 
@@ -102,7 +111,7 @@ class BuiltinAdapter(BaseAdapter):
         internal_findings = executor.run(
             scan_unit=scan_unit,
             test_cases=test_cases,
-            plugins=self._plugin_manager.get_plugins(),
+            plugins=manager.get_plugins(),
             max_duration=request.max_duration,
         )
 

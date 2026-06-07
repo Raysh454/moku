@@ -1,4 +1,14 @@
-"""SQLi plugin — boolean-differential + error-pattern SQL injection detection."""
+"""SQLi plugin — boolean-differential + error-pattern SQL injection detection.
+
+Boolean-blind detection correlates the always-true (`' OR '1'='1`) and
+always-false (`' OR '1'='2`) responses for the same parameter: a finding is
+raised only when those two responses diverge materially. Comparing each
+payload against the baseline instead would false-positive on any endpoint that
+merely reflects the parameter (the equal-length true/false payloads inflate the
+body identically). Correlation state is kept per plugin instance; the builtin
+adapter constructs a fresh plugin set per scan, so the state is scan-scoped and
+needs no locking.
+"""
 
 import re
 import uuid
@@ -26,10 +36,18 @@ SQL_ERROR_PATTERNS = [
 ]
 
 _DIFF_THRESHOLD = 0.2
+_ERROR_CONFIDENCE = 0.85
+_DIFFERENTIAL_CONFIDENCE = 0.5
 
 
 class SQLiPlugin(BasePlugin):
     name = "sqli"
+
+    def __init__(self) -> None:
+        # marker -> {"variant", "body", "payload"} for the first-seen half of a
+        # true/false pair, awaiting its sibling. Scan-scoped (fresh plugin per
+        # scan), so single-threaded access — no lock required.
+        self._pending: dict[str, dict[str, str]] = {}
 
     def generate_tests(self, scan_unit: ScanUnit) -> list[TestCase]:
         targets: dict[str, str] = {}
@@ -55,7 +73,7 @@ class SQLiPlugin(BasePlugin):
                     marker=marker,
                     mode=TestMode.DETECT,
                     timeout=10,
-                    meta=dict(base_meta),
+                    meta={**base_meta, "sqli_variant": "true"},
                 )
             )
             tests.append(
@@ -68,7 +86,7 @@ class SQLiPlugin(BasePlugin):
                     marker=marker,
                     mode=TestMode.DETECT,
                     timeout=10,
-                    meta=dict(base_meta),
+                    meta={**base_meta, "sqli_variant": "false"},
                 )
             )
             tests.append(
@@ -94,76 +112,112 @@ class SQLiPlugin(BasePlugin):
         response_headers: dict,
         baseline_body: str = "",
     ) -> Finding | None:
-        body_lower = response_body.lower()
+        # 1) SQL error signature — independent, high-confidence, emit immediately.
+        matched_error = self._match_sql_error(response_body)
+        if matched_error:
+            return self._build_finding(
+                test_case=test_case,
+                payload=test_case.payload,
+                snippet=self._error_snippet(response_body, matched_error),
+                matched_pattern=f"SQL error pattern detected: '{matched_error}'",
+                confidence=_ERROR_CONFIDENCE,
+                signal="SQL error",
+            )
 
-        matched_error: str | None = None
+        # 2) Boolean-blind: correlate the always-true and always-false responses.
+        variant = test_case.meta.get("sqli_variant")
+        if (
+            test_case.mode == TestMode.DETECT
+            and variant in ("true", "false")
+            and test_case.marker
+        ):
+            pending = self._pending.pop(test_case.marker, None)
+            if pending is None:
+                # First half of the pair — stash and wait for its sibling.
+                self._pending[test_case.marker] = {
+                    "variant": variant,
+                    "body": response_body,
+                    "payload": test_case.payload,
+                }
+                return None
+
+            if variant == "true":
+                true_body, true_payload = response_body, test_case.payload
+                false_body = pending["body"]
+            else:
+                true_body, true_payload = pending["body"], pending["payload"]
+                false_body = response_body
+
+            if self._responses_diverge(true_body, false_body):
+                return self._build_finding(
+                    test_case=test_case,
+                    payload=true_payload,
+                    snippet=true_body[:500],
+                    matched_pattern=(
+                        "Boolean differential detected — the always-true and "
+                        "always-false payloads produced materially different responses"
+                    ),
+                    confidence=_DIFFERENTIAL_CONFIDENCE,
+                    signal="boolean differential",
+                )
+
+        return None
+
+    def _match_sql_error(self, response_body: str) -> str | None:
+        body_lower = response_body.lower()
         for pattern in SQL_ERROR_PATTERNS:
             match = re.search(pattern, body_lower)
             if match:
-                matched_error = match.group(0)
-                break
+                return match.group(0)
+        return None
 
-        differential_detected = False
-        meta_warning: str | None = None
-        if test_case.mode == TestMode.DETECT:
-            if baseline_body is not None and baseline_body != "":
-                size_diff = abs(len(response_body) - len(baseline_body))
-                diff_ratio = size_diff / len(baseline_body)
-                if diff_ratio > _DIFF_THRESHOLD:
-                    differential_detected = True
-            else:
-                meta_warning = "baseline_unavailable"
+    def _error_snippet(self, response_body: str, matched_error: str) -> str:
+        idx = response_body.lower().find(matched_error[:20])
+        start = max(0, idx - 100)
+        end = min(len(response_body), idx + 300)
+        return response_body[start:end]
 
-        if not matched_error and not differential_detected:
-            return None
+    @staticmethod
+    def _responses_diverge(true_body: str, false_body: str) -> bool:
+        largest = max(len(true_body), len(false_body), 1)
+        return abs(len(true_body) - len(false_body)) / largest > _DIFF_THRESHOLD
 
-        if matched_error:
-            idx = body_lower.find(matched_error[:20])
-            snippet_start = max(0, idx - 100)
-            snippet_end = min(len(response_body), idx + 300)
-            snippet = response_body[snippet_start:snippet_end]
-            matched_pattern = f"SQL error pattern detected: '{matched_error}'"
-            confidence = 0.85
-        else:
-            snippet = response_body[:500]
-            matched_pattern = (
-                "Boolean differential detected — response size differs significantly "
-                "from baseline"
-            )
-            confidence = 0.5
-
+    def _build_finding(
+        self,
+        test_case: TestCase,
+        payload: str,
+        snippet: str,
+        matched_pattern: str,
+        confidence: float,
+        signal: str,
+    ) -> Finding:
         evidence_payload = (
-            f"PAYLOAD: {test_case.payload}\nRESPONSE SNIPPET:\n{snippet}"
+            f"PAYLOAD: {payload}\nRESPONSE SNIPPET:\n{snippet}"
         ).encode("utf-8", errors="replace")
         evidence_ref = get_evidence_store().save(
             data=evidence_payload,
             label=f"sqli_{test_case.mode.value}_response",
             job_id=test_case.meta.get("job_id"),
         )
-
-        finding_meta: dict[str, object] = {
-            "parameter": test_case.target_name,
-            "mode": test_case.meta.get("mode"),
-        }
-        if meta_warning:
-            finding_meta["warning"] = meta_warning
-
         return Finding(
             finding_id=make_finding_id("sqli"),
             plugin=self.name,
             scan_unit_url=test_case.injection_point,
             http_method="POST" if test_case.meta.get("mode") == "body" else "GET",
-            payload_used=test_case.payload,
+            payload_used=payload,
             matched_pattern=matched_pattern,
             response_snippet=snippet[:2048],
             evidence_refs=[evidence_ref],
             confidence=confidence,
             repro_steps=[
                 f"1. Send request to {test_case.injection_point}",
-                f"2. Set parameter '{test_case.target_name}' = '{test_case.payload}'",
+                f"2. Set parameter '{test_case.target_name}' = '{payload}'",
                 f"3. Observe: {matched_pattern}",
             ],
             timestamp=datetime.now(UTC),
-            notes=f"Signal: {'SQL error' if matched_error else 'boolean differential'}",
-            meta=finding_meta,
+            notes=f"Signal: {signal}",
+            meta={
+                "parameter": test_case.target_name,
+                "mode": test_case.meta.get("mode"),
+            },
         )

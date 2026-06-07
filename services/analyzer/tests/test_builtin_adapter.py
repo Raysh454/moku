@@ -66,7 +66,8 @@ class TestSSRFGuard:
 
 class TestMapping:
     def test_title_is_plugin_name_uppercased(self, request_for):
-        adapter = BuiltinAdapter(plugins=_stub_plugin_manager([_stub_test_case()]))
+        stub = _stub_plugin_manager([_stub_test_case()])
+        adapter = BuiltinAdapter(plugin_manager_factory=lambda: stub)
         with patch("app.adapters.builtin_adapter.Executor") as exec_cls:
             exec_cls.return_value.run.return_value = [_internal_finding("sqli", 0.95)]
             result = adapter.run_scan(request_for())
@@ -77,7 +78,8 @@ class TestMapping:
 
     def test_returns_mapped_findings_without_local_dedup(self, request_for):
         # Dedup is the runner's responsibility now; the adapter maps 1:1.
-        adapter = BuiltinAdapter(plugins=_stub_plugin_manager([_stub_test_case()]))
+        stub = _stub_plugin_manager([_stub_test_case()])
+        adapter = BuiltinAdapter(plugin_manager_factory=lambda: stub)
         with patch("app.adapters.builtin_adapter.Executor") as exec_cls:
             exec_cls.return_value.run.return_value = [
                 _internal_finding("xss", 0.4),
