@@ -5,9 +5,10 @@ import os
 import threading
 import time
 from datetime import timedelta
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from app.core.evidence_store import get_evidence_store
 from app.core.finding import Finding
@@ -23,7 +24,6 @@ _DEFAULT_REQUEST_DELAY_SECONDS = 0.5
 _DEFAULT_USER_AGENT = "moku-analyzer/1.0 (security research)"
 _EVIDENCE_TRUNCATE_BYTES = 4096
 _MAX_REDIRECTS = 5
-_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 MAX_REQUESTS_PER_HOST = int(
     os.environ.get("MOKU_ANALYZER_MAX_REQ_PER_HOST", str(_DEFAULT_MAX_REQUESTS_PER_HOST))
@@ -33,6 +33,28 @@ REQUEST_DELAY_SECONDS = float(
 )
 
 
+class _SSRFGuardedAdapter(HTTPAdapter):
+    """Transport adapter that re-validates the destination host on EVERY send.
+
+    Mounted on the scan session so the SSRF guard runs not just on the initial
+    URL but on each redirect hop requests follows internally — closing the
+    redirect-to-internal-host bypass. Because redirects are still resolved by
+    requests itself (not hand-rolled), requests' own cross-host
+    ``Authorization`` stripping and cookie rebuilding remain in force.
+    """
+
+    def send(self, request, *args, **kwargs):
+        host = urlparse(request.url).hostname
+        if host is not None:
+            try:
+                assert_public_host(host)
+            except ValueError as exc:
+                raise requests.RequestException(
+                    f"blocked request to disallowed host: {host}"
+                ) from exc
+        return super().send(request, *args, **kwargs)
+
+
 class Executor:
     """Send test payloads to the target, hand responses to plugins."""
 
@@ -40,6 +62,10 @@ class Executor:
         self._request_counts: dict[str, int] = {}
         self._counter_lock = threading.Lock()
         self._session = requests.Session()
+        self._session.max_redirects = _MAX_REDIRECTS
+        guarded = _SSRFGuardedAdapter()
+        self._session.mount("http://", guarded)
+        self._session.mount("https://", guarded)
         self._user_agent = os.environ.get("MOKU_ANALYZER_UA", _DEFAULT_USER_AGENT)
         self._session.headers.update({"User-Agent": self._user_agent})
 
@@ -124,53 +150,18 @@ class Executor:
         for key, value in cookies.items():
             self._session.cookies.set(key, value)
 
-    def _guarded_request(
-        self, method: str, url: str, **kwargs
-    ) -> requests.Response:
-        """Send a request, following redirects only to vetted public hosts.
-
-        Automatic redirect following is disabled and each ``Location`` is
-        re-validated with the shared SSRF guard before it is followed. This
-        closes the redirect-to-internal-host bypass (a public target that
-        302s to cloud metadata or an RFC1918 service). After the first hop the
-        redirect is followed as a plain GET so injected payloads are never
-        replayed to a different origin. Raises ``requests.RequestException``
-        when a redirect targets a disallowed host or the chain is too long.
-        """
-        kwargs["allow_redirects"] = False
-        current = url
-        for _ in range(_MAX_REDIRECTS + 1):
-            resp = self._session.request(method=method, url=current, **kwargs)
-            if resp.status_code not in _REDIRECT_STATUSES:
-                return resp
-            location = resp.headers.get("Location")
-            if not location:
-                return resp
-            nxt = urljoin(current, location)
-            parsed = urlparse(nxt)
-            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-                raise requests.RequestException(
-                    f"blocked redirect to unsafe location: {location!r}"
-                )
-            try:
-                assert_public_host(parsed.hostname)
-            except ValueError as exc:
-                raise requests.RequestException(
-                    f"blocked redirect to disallowed host: {parsed.hostname}"
-                ) from exc
-            current = nxt
-            method = "GET"
-            kwargs.pop("data", None)
-            kwargs.pop("params", None)
-        raise requests.RequestException(f"too many redirects (>{_MAX_REDIRECTS})")
-
     def _fetch_baseline(self, scan_unit: ScanUnit) -> str | None:
-        """Fetch the page with no injected payload — `None` on failure."""
+        """Fetch the page with no injected payload — `None` on failure.
+
+        Redirects are followed by requests itself (so cross-host auth/cookie
+        stripping applies); the session's mounted SSRF-guarded adapter
+        re-validates every hop's host.
+        """
         try:
             self._apply_cookies(scan_unit.cookies)
-            resp = self._guarded_request(
-                "GET",
-                scan_unit.url,
+            resp = self._session.request(
+                method="GET",
+                url=scan_unit.url,
                 params=scan_unit.params,
                 headers=scan_unit.headers,
                 timeout=10,
@@ -191,9 +182,9 @@ class Executor:
             params = dict(scan_unit.params)
             params[test_case.target_name] = test_case.payload
 
-            resp = self._guarded_request(
-                scan_unit.method,
-                scan_unit.url,
+            resp = self._session.request(
+                method=scan_unit.method,
+                url=scan_unit.url,
                 params=params if scan_unit.method == "GET" else None,
                 data=params if scan_unit.method == "POST" else None,
                 headers=scan_unit.headers,

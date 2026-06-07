@@ -1,5 +1,7 @@
 """Nikto adapter — wraps the `nikto` CLI and parses line-based output."""
 
+import logging
+
 from app.adapters._helpers import run_subprocess, validate_target_url
 from app.adapters.cli_scanner import CliScannerAdapter
 from app.core.finding import make_finding_id
@@ -11,6 +13,7 @@ from app.models.schemas import (
     Severity,
 )
 
+_logger = logging.getLogger(__name__)
 _TITLE_MAX_LENGTH = 80
 
 
@@ -34,15 +37,20 @@ class NiktoAdapter(CliScannerAdapter):
             line = raw_line.strip()
             if not line.startswith("+"):
                 continue
-            findings.append(
-                Finding(
-                    id=make_finding_id("nikto"),
-                    title=line[:_TITLE_MAX_LENGTH],
-                    severity=Severity.INFO,
-                    confidence=Confidence.TENTATIVE,
-                    url=target,
-                    description=line,
-                    raw_data={"raw_line": line},
+            try:
+                findings.append(
+                    Finding(
+                        id=make_finding_id("nikto"),
+                        title=line[:_TITLE_MAX_LENGTH],
+                        severity=Severity.INFO,
+                        confidence=Confidence.TENTATIVE,
+                        url=target,
+                        description=line,
+                        raw_data={"raw_line": line},
+                    )
                 )
-            )
+            except (ValueError, TypeError):
+                # One unparseable line must not abort the whole scan.
+                _logger.warning("nikto: skipped malformed output line")
+                continue
         return findings

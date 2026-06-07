@@ -8,6 +8,7 @@ and output parsing genuinely differ per tool — nikto/nuclei parse stdout, zap
 reads a JSON report file).
 """
 
+import math
 from datetime import timedelta
 from typing import ClassVar
 
@@ -36,10 +37,14 @@ class CliScannerAdapter(BaseAdapter):
     def _timeout_seconds(self, max_duration: timedelta | None) -> int:
         """Honor ScanRequest.max_duration as the subprocess timeout.
 
-        Falls back to ``default_timeout_seconds`` when the request omits a
+        Rounds UP so a sub-second budget (e.g. 500ms) becomes a 1s cap rather
+        than truncating to 0 and silently falling back to the (large) default.
+        Falls back to ``default_timeout_seconds`` only when the request omits a
         duration or supplies a non-positive one.
         """
         if max_duration is None:
             return self.default_timeout_seconds
-        seconds = int(max_duration.total_seconds())
-        return seconds if seconds > 0 else self.default_timeout_seconds
+        total = max_duration.total_seconds()
+        if total <= 0:
+            return self.default_timeout_seconds
+        return max(1, math.ceil(total))

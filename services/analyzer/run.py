@@ -14,5 +14,8 @@ from app.app_factory import enforce_startup_security_posture
 if __name__ == "__main__":
     host = os.environ.get("MOKU_ANALYZER_HOST", "127.0.0.1")
     port = int(os.environ.get("MOKU_ANALYZER_PORT", "8181"))
-    enforce_startup_security_posture()
+    # Make the bind host authoritative for the in-app lifespan guard too, then
+    # enforce the posture up front with the exact host we are about to bind.
+    os.environ["MOKU_ANALYZER_HOST"] = host
+    enforce_startup_security_posture(host)
     uvicorn.run("main:app", host=host, port=port, reload=False)

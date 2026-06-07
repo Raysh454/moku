@@ -47,6 +47,10 @@ def is_disallowed_address(addr: _IPAddress) -> bool:
     """
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
         addr = addr.ipv4_mapped
+    # `not is_global` is the catch-all: it also covers ranges the explicit
+    # predicates miss, notably CGNAT 100.64.0.0/10 (RFC 6598) and the
+    # benchmarking/documentation reserved blocks. The explicit checks are kept
+    # for readability and as belt-and-suspenders.
     return (
         addr.is_private
         or addr.is_loopback
@@ -54,6 +58,7 @@ def is_disallowed_address(addr: _IPAddress) -> bool:
         or addr.is_reserved
         or addr.is_multicast
         or addr.is_unspecified
+        or not addr.is_global
     )
 
 

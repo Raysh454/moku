@@ -383,6 +383,27 @@ func TestSidecarAnalyzer_Health_OKStatus_ReturnsOK(t *testing.T) {
 	}
 }
 
+func TestSidecarAnalyzer_Health_ContractVersionMismatch_StillReturnsStatus(t *testing.T) {
+	t.Parallel()
+	env := newSidecarEnv(t)
+	env.healthResponse = func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// A contract_version the client was NOT built against: exercises the
+		// decode of the new field and the warnOnContractMismatch branch. The
+		// probe must still succeed (warn, don't fail).
+		_, _ = w.Write([]byte(`{"status":"ok","contract_version":"999","adapters_available":[]}`))
+	}
+	a := env.newAnalyzer(t)
+
+	status, err := a.Health(context.Background())
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if status != "ok" {
+		t.Errorf("Health status = %q, want %q", status, "ok")
+	}
+}
+
 func TestSidecarAnalyzer_Health_DegradedStatus_PropagatesString(t *testing.T) {
 	t.Parallel()
 	env := newSidecarEnv(t)
@@ -616,6 +637,25 @@ func TestSidecarFixtures_DecodeCleanly(t *testing.T) {
 			if err := json.Unmarshal(data, &result); err != nil {
 				t.Fatalf("unmarshal: %v", err)
 			}
+			// json.Unmarshal silently zero-fills mismatched fields, so a
+			// no-error parse alone does not prove the wire contract. Assert
+			// the key fields of the Python-serialized golden actually mapped,
+			// so a field rename / datetime-format change on the Python side
+			// fails here (genuine bidirectional guard with test_contract_golden.py).
+			if name == "scan_result_python_serialized.json" {
+				if result.JobID == "" {
+					t.Error("JobID did not decode (field-name drift?)")
+				}
+				if string(result.Status) == "" {
+					t.Error("Status did not decode")
+				}
+				if result.SubmittedAt.IsZero() {
+					t.Error("SubmittedAt did not decode (datetime-format drift?)")
+				}
+				if len(result.Findings) != 1 || result.Findings[0].Title != "XSS" {
+					t.Errorf("Findings did not decode as expected: %+v", result.Findings)
+				}
+			}
 		})
 	}
 }
@@ -822,6 +862,36 @@ func TestSidecarAnalyzer_SubmitScan_CallerCancelIsNotUnreachable(t *testing.T) {
 	}
 	if errors.Is(err, analyzer.ErrSidecarUnreachable) {
 		t.Errorf("caller cancellation must not be reported as ErrSidecarUnreachable: %v", err)
+	}
+}
+
+// TestSidecarAnalyzer_SubmitScan_BuffersBodyAcrossRequestTimeoutCancel proves
+// the response body survives the deferred per-call cancel(): the server flushes
+// the 202 headers, then delays the body, with a generous RequestTimeout. The
+// body must still decode (do() buffers it while the timeout context is live).
+func TestSidecarAnalyzer_SubmitScan_BuffersBodyAcrossRequestTimeoutCancel(t *testing.T) {
+	t.Parallel()
+	env := newSidecarEnv(t)
+	env.submitResponse = func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"job_id":"buffered-job"}`))
+	}
+	a := env.newAnalyzerWith(t, analyzer.BackendDAST, analyzer.SidecarConfig{
+		BaseURL:        env.server.URL,
+		RequestTimeout: 2 * time.Second, // generous; body arrives ~100ms in
+	})
+
+	jobID, err := a.SubmitScan(context.Background(), &analyzer.ScanRequest{URL: "https://example.com/"})
+	if err != nil {
+		t.Fatalf("SubmitScan returned %v; body should buffer before the timeout cancel", err)
+	}
+	if jobID != "buffered-job" {
+		t.Errorf("job id = %q, want %q", jobID, "buffered-job")
 	}
 }
 

@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.app_factory import create_app
+from app.app_factory import create_app, enforce_startup_security_posture
 
 
 def _register_nothing(_registry) -> None:
@@ -58,3 +58,15 @@ class TestStartupPosture:
         with pytest.raises(RuntimeError):
             with TestClient(create_app(register=_register_nothing)):
                 pass
+
+    def test_explicit_host_param_overrides_env(self, monkeypatch):
+        # run.py passes the real bind host explicitly; it must win over the env.
+        monkeypatch.delenv("MOKU_ANALYZER_HOST", raising=False)
+        monkeypatch.delenv("MOKU_ANALYZER_TOKEN", raising=False)
+        with pytest.raises(RuntimeError):
+            enforce_startup_security_posture("0.0.0.0")
+
+    def test_unknown_host_assumes_loopback(self, monkeypatch):
+        monkeypatch.delenv("MOKU_ANALYZER_HOST", raising=False)
+        monkeypatch.delenv("MOKU_ANALYZER_TOKEN", raising=False)
+        enforce_startup_security_posture()  # no host, no env -> loopback, no raise

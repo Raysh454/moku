@@ -77,6 +77,26 @@ class TestRedaction:
         assert "hunter2" not in redacted
         assert "password=<redacted>" in redacted
 
+    def test_redacts_bearer_token_after_scheme(self):
+        redacted = runner_module._redact_error(
+            "401 from Authorization: Bearer eyJhbGciOi.JIUzI1.secretpart tail"
+        )
+        assert "eyJhbGciOi.JIUzI1.secretpart" not in redacted
+        assert "tail" in redacted
+
+    def test_redacts_json_quoted_secret(self):
+        redacted = runner_module._redact_error('{"api_key": "leakme123"}')
+        assert "leakme123" not in redacted
+
+    def test_redacts_url_embedded_credentials(self):
+        redacted = runner_module._redact_error("dial https://user:s3cr3t@host/path failed")
+        assert "s3cr3t" not in redacted
+
+    def test_does_not_over_redact_key_suffixed_words(self):
+        # "monkey"/"turnkey" must not trip the bare-"key" alternative.
+        assert runner_module._redact_error("monkey=banana") == "monkey=banana"
+        assert runner_module._redact_error("turnkey=ready") == "turnkey=ready"
+
     def test_leaves_unrelated_messages(self):
         assert runner_module._redact_error("plain error") == "plain error"
 
@@ -142,6 +162,21 @@ class TestDedupe:
         deduped = runner_module._dedupe_findings([low_sev, high_sev])
         assert len(deduped) == 1
         assert deduped[0].id == "1"
+
+    def test_equal_severity_tie_breaks_on_confidence(self):
+        # Same (title,parameter,url) and severity but different confidence:
+        # the higher-confidence finding must win deterministically.
+        low_conf = Finding(
+            id="1", title="XSS", severity=Severity.HIGH,
+            confidence=Confidence.TENTATIVE, url="https://example.com", parameter="q",
+        )
+        high_conf = Finding(
+            id="2", title="XSS", severity=Severity.HIGH,
+            confidence=Confidence.CERTAIN, url="https://example.com", parameter="q",
+        )
+        deduped = runner_module._dedupe_findings([low_conf, high_conf])
+        assert len(deduped) == 1
+        assert deduped[0].id == "2"
 
     def test_keeps_distinct_findings(self):
         a = Finding(

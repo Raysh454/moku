@@ -90,13 +90,6 @@ def test_fetch_baseline_returns_none_on_failure(monkeypatch):
     assert executor._fetch_baseline(scan_unit) is None
 
 
-def _redirect_response(location: str, status: int = 302):
-    resp = MagicMock()
-    resp.status_code = status
-    resp.headers = {"Location": location}
-    return resp
-
-
 def _ok_response(text: str = "final"):
     resp = MagicMock()
     resp.status_code = 200
@@ -105,42 +98,39 @@ def _ok_response(text: str = "final"):
     return resp
 
 
-def test_guarded_request_blocks_redirect_to_internal_host():
-    executor = Executor()
-    executor._session.request = MagicMock(
-        return_value=_redirect_response("http://169.254.169.254/latest/meta-data/")
-    )
-    with pytest.raises(requests.RequestException):
-        executor._guarded_request("GET", "https://example.com", timeout=5)
+class TestSSRFGuardedAdapter:
+    def test_blocks_disallowed_host_before_send(self):
+        # A request to a link-local/metadata host is refused before any I/O.
+        adapter = executor_module._SSRFGuardedAdapter()
+        prepared = requests.Request(
+            "GET", "http://169.254.169.254/latest/meta-data/"
+        ).prepare()
+        with pytest.raises(requests.RequestException):
+            adapter.send(prepared)
 
+    def test_allows_public_host_and_delegates(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.net_guard.socket.getaddrinfo",
+            lambda *a, **kw: [(0, 0, 0, "", ("8.8.8.8", 0))],
+        )
+        sentinel = object()
+        monkeypatch.setattr(
+            "app.core.executor.HTTPAdapter.send",
+            lambda self, request, *a, **kw: sentinel,
+        )
+        adapter = executor_module._SSRFGuardedAdapter()
+        prepared = requests.Request("GET", "https://example.com/").prepare()
+        assert adapter.send(prepared) is sentinel
 
-def test_guarded_request_follows_redirect_to_public_host(monkeypatch):
-    monkeypatch.setattr(
-        "app.net_guard.socket.getaddrinfo",
-        lambda *a, **kw: [(0, 0, 0, "", ("8.8.8.8", 0))],
-    )
-    executor = Executor()
-    executor._session.request = MagicMock(
-        side_effect=[
-            _redirect_response("https://other.example.org/next"),
-            _ok_response("final-body"),
-        ]
-    )
-    resp = executor._guarded_request("GET", "https://example.com", timeout=5)
-    assert resp.text == "final-body"
-
-
-def test_guarded_request_raises_on_redirect_loop(monkeypatch):
-    monkeypatch.setattr(
-        "app.net_guard.socket.getaddrinfo",
-        lambda *a, **kw: [(0, 0, 0, "", ("8.8.8.8", 0))],
-    )
-    executor = Executor()
-    executor._session.request = MagicMock(
-        return_value=_redirect_response("https://other.example.org/loop")
-    )
-    with pytest.raises(requests.RequestException):
-        executor._guarded_request("GET", "https://example.com", timeout=5)
+    def test_session_mounts_guarded_adapter(self):
+        # Every executor session validates hosts on both schemes.
+        executor = Executor()
+        assert isinstance(
+            executor._session.get_adapter("https://x/"), executor_module._SSRFGuardedAdapter
+        )
+        assert isinstance(
+            executor._session.get_adapter("http://x/"), executor_module._SSRFGuardedAdapter
+        )
 
 
 def test_truncation_marker_added_on_large_body():
@@ -203,15 +193,29 @@ class TestRun:
         assert executor._session.request.call_count == 2
 
     def test_honors_max_duration_deadline(self, monkeypatch):
-        monkeypatch.setattr(executor_module, "REQUEST_DELAY_SECONDS", 0)
+        # Deterministic clock (avoids real-monotonic resolution flakiness): the
+        # first call sets the deadline at t=0; the next read jumps past it so the
+        # very first loop iteration trips the deadline and no payload is sent.
+        class _FakeClock:
+            def __init__(self):
+                self.n = 0
+
+            def monotonic(self):
+                self.n += 1
+                return 0.0 if self.n == 1 else 10.0
+
+            def sleep(self, _seconds):
+                return None
+
+        monkeypatch.setattr(executor_module, "time", _FakeClock())
         executor = Executor()
         executor._session.request = MagicMock(return_value=_ok_response())
-        tcs = [_test_case(f"t{i}") for i in range(20)]
+        tcs = [_test_case(f"t{i}") for i in range(5)]
         findings = executor.run(
-            _scan_unit(), tcs, [_MatchPlugin()], max_duration=timedelta(microseconds=1)
+            _scan_unit(), tcs, [_MatchPlugin()], max_duration=timedelta(seconds=0.5)
         )
-        # A 1µs budget must cut the loop short well before all 20 cases run.
-        assert len(findings) < len(tcs)
+        assert findings == []  # deadline crossed before the first payload
+        assert executor._session.request.call_count == 1  # baseline only
 
     def test_baseline_unavailable_is_flagged(self, monkeypatch):
         monkeypatch.setattr(executor_module, "REQUEST_DELAY_SECONDS", 0)
