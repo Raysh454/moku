@@ -3,6 +3,7 @@
 import threading
 from datetime import timedelta
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 import pytest
 import requests
@@ -132,6 +133,78 @@ class TestSSRFGuardedAdapter:
             executor._session.get_adapter("http://x/"), executor_module._SSRFGuardedAdapter
         )
 
+    def test_cross_host_redirect_strips_authorization(self, monkeypatch):
+        # End-to-end through the real executor session + mounted adapter: a
+        # cross-host 302 is followed (host re-validated) but the Authorization
+        # header is dropped, so a scan target cannot exfiltrate creds via an
+        # open redirect. This is the regression guard for the prior leak.
+        monkeypatch.setattr(
+            "app.net_guard.socket.getaddrinfo",
+            lambda *a, **kw: [(0, 0, 0, "", ("93.184.216.34", 0))],
+        )
+        seen: list[tuple[str, dict]] = []
+
+        def fake_send(self, request, **kwargs):
+            seen.append((request.url, dict(request.headers)))
+            resp = requests.Response()
+            resp.request = request
+            resp.url = request.url
+            resp.raw = None
+            if urlparse(request.url).hostname == "victim.example.com":
+                resp.status_code = 302
+                resp.headers["Location"] = "https://attacker.example.org/collect"
+            else:
+                resp.status_code = 200
+                resp._content = b"ok"
+            return resp
+
+        monkeypatch.setattr("app.core.executor.HTTPAdapter.send", fake_send)
+        executor = Executor()
+        executor._session.request(
+            "GET",
+            "https://victim.example.com/login",
+            headers={"Authorization": "Bearer SECRET"},
+        )
+        hops = {urlparse(url).hostname: headers for url, headers in seen}
+        assert "attacker.example.org" in hops, "redirect was not followed"
+        assert "Authorization" in hops["victim.example.com"]
+        assert "Authorization" not in hops["attacker.example.org"]
+
+    def test_cross_host_redirect_does_not_leak_cookies(self, monkeypatch):
+        # Caller (authenticated-session) cookies must be scoped to the target
+        # host and must NOT ride a cross-host redirect to a third party.
+        monkeypatch.setattr(
+            "app.net_guard.socket.getaddrinfo",
+            lambda *a, **kw: [(0, 0, 0, "", ("93.184.216.34", 0))],
+        )
+        seen: list[tuple[str, str | None]] = []
+
+        def fake_send(self, request, **kwargs):
+            seen.append((request.url, request.headers.get("Cookie")))
+            resp = requests.Response()
+            resp.request = request
+            resp.url = request.url
+            resp.raw = None
+            if urlparse(request.url).hostname == "victim.example.com":
+                resp.status_code = 302
+                resp.headers["Location"] = "https://attacker.example.org/collect"
+            else:
+                resp.status_code = 200
+                resp._content = b"ok"
+            return resp
+
+        monkeypatch.setattr("app.core.executor.HTTPAdapter.send", fake_send)
+        executor = Executor()
+        scan_unit = ScanUnit(
+            type=ScanUnitType.URL,
+            url="https://victim.example.com/login",
+            cookies={"session": "COOKIEVAL"},
+        )
+        executor._fetch_baseline(scan_unit)
+        cookies = {urlparse(url).hostname: c for url, c in seen}
+        assert "COOKIEVAL" in (cookies["victim.example.com"] or "")
+        assert "COOKIEVAL" not in (cookies.get("attacker.example.org") or "")
+
 
 def test_truncation_marker_added_on_large_body():
     executor = Executor()
@@ -156,8 +229,8 @@ def test_user_agent_honors_env(monkeypatch):
 
 def test_apply_cookies_no_op_when_empty():
     executor = Executor()
-    executor._apply_cookies(None)
-    executor._apply_cookies({})
+    executor._apply_cookies(None, "example.com")
+    executor._apply_cookies({}, "example.com")
 
 
 class TestRun:
@@ -193,29 +266,35 @@ class TestRun:
         assert executor._session.request.call_count == 2
 
     def test_honors_max_duration_deadline(self, monkeypatch):
-        # Deterministic clock (avoids real-monotonic resolution flakiness): the
-        # first call sets the deadline at t=0; the next read jumps past it so the
-        # very first loop iteration trips the deadline and no payload is sent.
+        # Deterministic clock (avoids real-monotonic resolution flakiness).
+        # Sequence: call#1 sets deadline (0.0 -> 0.5); call#2 (iter1) = 0.1 < 0.5
+        # so one payload runs; call#3 (iter2) = 0.6 >= 0.5 so the loop BREAKS.
+        # Asserting the clock was read exactly 3 times distinguishes a real
+        # `break` (stops the loop) from a `continue` (which would keep iterating
+        # and read the clock once per remaining case).
         class _FakeClock:
             def __init__(self):
-                self.n = 0
+                self.calls = 0
+                self._seq = [0.0, 0.1]
 
             def monotonic(self):
-                self.n += 1
-                return 0.0 if self.n == 1 else 10.0
+                self.calls += 1
+                return self._seq[self.calls - 1] if self.calls <= len(self._seq) else 0.6
 
             def sleep(self, _seconds):
                 return None
 
-        monkeypatch.setattr(executor_module, "time", _FakeClock())
+        clock = _FakeClock()
+        monkeypatch.setattr(executor_module, "time", clock)
         executor = Executor()
         executor._session.request = MagicMock(return_value=_ok_response())
         tcs = [_test_case(f"t{i}") for i in range(5)]
         findings = executor.run(
             _scan_unit(), tcs, [_MatchPlugin()], max_duration=timedelta(seconds=0.5)
         )
-        assert findings == []  # deadline crossed before the first payload
-        assert executor._session.request.call_count == 1  # baseline only
+        assert len(findings) == 1  # exactly one payload before the deadline
+        assert executor._session.request.call_count == 2  # baseline + 1 payload
+        assert clock.calls == 3  # deadline-set + iter1 + iter2(break); not 5+
 
     def test_baseline_unavailable_is_flagged(self, monkeypatch):
         monkeypatch.setattr(executor_module, "REQUEST_DELAY_SECONDS", 0)

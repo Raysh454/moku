@@ -97,6 +97,21 @@ class TestRedaction:
         assert runner_module._redact_error("monkey=banana") == "monkey=banana"
         assert runner_module._redact_error("turnkey=ready") == "turnkey=ready"
 
+    @pytest.mark.parametrize(
+        "message,secret",
+        [
+            ("access_token=ya29.SECRETTOK", "ya29.SECRETTOK"),
+            ("db_password=Secret123!", "Secret123"),
+            ("headers={'X-Api-Key': 'sk_live_ABC'}", "sk_live_ABC"),
+            ("auth failed x-auth-token: ghp_REALTOKEN", "ghp_REALTOKEN"),
+            ("refresh_token=rt_SECRET", "rt_SECRET"),
+            ("Set-Cookie: session=abcSECRET; Path=/", "abcSECRET"),
+        ],
+    )
+    def test_redacts_compound_secret_keys(self, message, secret):
+        # Regression: a too-broad lookbehind once leaked compound keys.
+        assert secret not in runner_module._redact_error(message)
+
     def test_leaves_unrelated_messages(self):
         assert runner_module._redact_error("plain error") == "plain error"
 
