@@ -18,12 +18,7 @@ func TestOrchestrator_Broker(t *testing.T) {
 	sub2 := o.Subscribe(ctx)
 
 	// Mock a job
-	o.jobsMu.Lock()
-	if o.jobs == nil {
-		o.jobs = make(map[string]*Job)
-	}
-	o.jobs["job1"] = &Job{ID: "job1", Project: "p1", Website: "s1"}
-	o.jobsMu.Unlock()
+	o.jobs.set(&Job{ID: "job1", Project: "p1", Website: "s1"})
 
 	ev := JobEvent{Type: JobEventStatus, Status: JobRunning}
 
@@ -67,9 +62,7 @@ func TestOrchestrator_Unsubscribe(t *testing.T) {
 
 	sub := o.Subscribe(ctx)
 
-	o.subsMu.RLock()
-	count := len(o.subscribers)
-	o.subsMu.RUnlock()
+	count := o.broker.subscriberCount()
 	if count != 1 {
 		t.Errorf("expected 1 subscriber, got %d", count)
 	}
@@ -79,9 +72,7 @@ func TestOrchestrator_Unsubscribe(t *testing.T) {
 	// Wait for goroutine to process cancellation
 	time.Sleep(50 * time.Millisecond)
 
-	o.subsMu.RLock()
-	count = len(o.subscribers)
-	o.subsMu.RUnlock()
+	count = o.broker.subscriberCount()
 	if count != 0 {
 		t.Errorf("expected 0 subscribers after cancel, got %d", count)
 	}
@@ -104,12 +95,7 @@ func TestOrchestrator_SlowSubscriber(t *testing.T) {
 	// Normal subscriber
 	sub2 := o.Subscribe(ctx)
 
-	o.jobsMu.Lock()
-	if o.jobs == nil {
-		o.jobs = make(map[string]*Job)
-	}
-	o.jobs["job1"] = &Job{ID: "job1", Project: "p1", Website: "s1"}
-	o.jobsMu.Unlock()
+	o.jobs.set(&Job{ID: "job1", Project: "p1", Website: "s1"})
 
 	// Emit many events
 	for i := 0; i < 200; i++ {
