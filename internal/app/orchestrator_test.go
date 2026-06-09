@@ -82,12 +82,7 @@ func injectFakeComponents(t *testing.T, o *Orchestrator, projectSlug, websiteSlu
 		Analyzer:  an,
 	}
 
-	o.siteCompMutex.Lock()
-	if o.siteComponentsCache == nil {
-		o.siteComponentsCache = make(map[string]*SiteComponents)
-	}
-	o.siteComponentsCache[web.ID] = comps
-	o.siteCompMutex.Unlock()
+	o.sites.put(web.ID, comps)
 }
 
 // ─── Construction ──────────────────────────────────────────────────────
@@ -252,12 +247,7 @@ func TestOrchestrator_DeleteWebsite_ClosesCachedComponents(t *testing.T) {
 		t.Fatalf("new fetcher: %v", err)
 	}
 
-	o.siteCompMutex.Lock()
-	if o.siteComponentsCache == nil {
-		o.siteComponentsCache = make(map[string]*SiteComponents)
-	}
-	o.siteComponentsCache[web.ID] = &SiteComponents{Tracker: tr, Index: idx, Fetcher: f, WebClient: wc, Analyzer: an}
-	o.siteCompMutex.Unlock()
+	o.sites.put(web.ID, &SiteComponents{Tracker: tr, Index: idx, Fetcher: f, WebClient: wc, Analyzer: an})
 
 	if err := o.DeleteWebsite(ctx, "proj", "site"); err != nil {
 		t.Fatalf("DeleteWebsite: %v", err)
@@ -265,10 +255,7 @@ func TestOrchestrator_DeleteWebsite_ClosesCachedComponents(t *testing.T) {
 	if !closed {
 		t.Fatal("expected cached tracker to be closed before deletion")
 	}
-	o.siteCompMutex.Lock()
-	_, ok := o.siteComponentsCache[web.ID]
-	o.siteCompMutex.Unlock()
-	if ok {
+	if o.sites.get(web.ID) != nil {
 		t.Fatal("expected cached site components to be evicted after deletion")
 	}
 	if _, err := os.Stat(web.StoragePath); !os.IsNotExist(err) {
@@ -295,9 +282,7 @@ func TestOrchestrator_DeleteWebsite_CancelsInFlightScanJob(t *testing.T) {
 
 	scanStarted := make(chan struct{})
 	scanExited := make(chan struct{})
-	o.siteCompMutex.Lock()
-	comps := o.siteComponentsCache[web.ID]
-	o.siteCompMutex.Unlock()
+	comps := o.sites.get(web.ID)
 	comps.Analyzer = &testutil.DummyAnalyzer{
 		ScanAndWaitFunc: func(ctx context.Context, _ *analyzer.ScanRequest, _ analyzer.PollOptions) (*analyzer.ScanResult, error) {
 			close(scanStarted)
@@ -503,10 +488,9 @@ func TestClose_CancelsRunningJobs(t *testing.T) {
 func TestProgressCallback_EmitsProgressEvents(t *testing.T) {
 	t.Parallel()
 	o := newTestOrchestrator(t)
-	o.ensureJobMaps()
 
-	job := o.newJob("fetch", "proj", "site")
-	o.setJob(job)
+	job := o.jobs.newJob("fetch", "proj", "site")
+	o.jobs.set(job)
 
 	cb := o.progressCallback(job.ID)
 	// Subscribe before emitting
@@ -612,12 +596,7 @@ func TestGetEndpointDetails_BothVersions_CallsTrackerCorrectly(t *testing.T) {
 		WebClient: wc,
 	}
 
-	o.siteCompMutex.Lock()
-	if o.siteComponentsCache == nil {
-		o.siteComponentsCache = make(map[string]*SiteComponents)
-	}
-	o.siteComponentsCache[web.ID] = comps
-	o.siteCompMutex.Unlock()
+	o.sites.put(web.ID, comps)
 
 	// Call with both version IDs
 	_, err = o.GetEndpointDetails(ctx, "proj", "site", "https://example.com/page", "v1", "v2")
@@ -763,9 +742,7 @@ func TestOrchestrator_StartScanJob_SidecarOffline_MarksJobFailed(t *testing.T) {
 		t.Fatalf("GetWebsiteBySlug: %v", err)
 	}
 
-	o.siteCompMutex.Lock()
-	comps := o.siteComponentsCache[web.ID]
-	o.siteCompMutex.Unlock()
+	comps := o.sites.get(web.ID)
 	comps.Analyzer = &testutil.DummyAnalyzer{
 		ScanAndWaitFunc: func(_ context.Context, _ *analyzer.ScanRequest, _ analyzer.PollOptions) (*analyzer.ScanResult, error) {
 			// Mimic what sidecarAnalyzer.do() returns when the sidecar is
@@ -811,9 +788,7 @@ func TestOrchestrator_StartScanJob_GenericAnalyzerError_MarksJobFailed(t *testin
 		t.Fatalf("GetWebsiteBySlug: %v", err)
 	}
 
-	o.siteCompMutex.Lock()
-	comps := o.siteComponentsCache[web.ID]
-	o.siteCompMutex.Unlock()
+	comps := o.sites.get(web.ID)
 	comps.Analyzer = &testutil.DummyAnalyzer{
 		ScanAndWaitFunc: func(_ context.Context, _ *analyzer.ScanRequest, _ analyzer.PollOptions) (*analyzer.ScanResult, error) {
 			return nil, fmt.Errorf("scan engine exploded mid-run")
