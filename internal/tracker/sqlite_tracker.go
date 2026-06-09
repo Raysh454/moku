@@ -159,8 +159,6 @@ func (t *SQLiteTracker) SetProjectID(ctx context.Context, projectID string, forc
 	return nil
 }
 
-var _ Tracker = (*SQLiteTracker)(nil)
-
 func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *models.Snapshot, message string, author string) (*models.CommitResult, error) {
 	if snapshot == nil {
 		return nil, errors.New("snapshot cannot be nil")
