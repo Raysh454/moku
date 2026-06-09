@@ -16,24 +16,17 @@ import (
 //go:embed schema.sql
 var schemaFS embed.FS
 
-// applySchema applies the SQLite schema to the database and sets appropriate pragmas.
+// applySchema applies the SQLite schema to the database.
+//
+// Per-connection pragmas (busy_timeout, foreign_keys, ...) live in the DSN
+// built by utils.SQLiteDSN — a db.Exec'd pragma reaches only the single
+// pooled connection it runs on. Only persistent, set-once pragmas belong
+// here.
 func applySchema(db *sql.DB) error {
-	// Set pragmas for better performance and safety
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL",        // Write-Ahead Logging for better concurrency
-		"PRAGMA synchronous=NORMAL",      // Balance between safety and performance
-		"PRAGMA foreign_keys=ON",         // Enable foreign key constraints
-		"PRAGMA busy_timeout=5000",       // Wait up to 5 seconds on locked database
-		"PRAGMA cache_size=-64000",       // 64MB cache (negative means KB)
-		"PRAGMA temp_store=MEMORY",       // Store temp tables in memory
-		"PRAGMA mmap_size=268435456",     // 256MB memory-mapped I/O
-		"PRAGMA auto_vacuum=INCREMENTAL", // Incremental auto-vacuum
-	}
-
-	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma); err != nil {
-			return fmt.Errorf("failed to set pragma %q: %w", pragma, err)
-		}
+	// auto_vacuum is stored in the database file and must be set before the
+	// first tables are created.
+	if _, err := db.Exec("PRAGMA auto_vacuum=INCREMENTAL"); err != nil {
+		return fmt.Errorf("failed to set pragma auto_vacuum: %w", err)
 	}
 
 	// Read and execute schema
