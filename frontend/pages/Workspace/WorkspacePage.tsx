@@ -8,13 +8,14 @@ import { useProject } from "../../context/ProjectContext";
 import type { Snapshot } from "../../types/project";
 import { projectService } from "../../services/projectService";
 import { api } from "../../src/api/client";
-import type { Version } from "../../src/api/types";
+import type { Job, Version } from "../../src/api/types";
 import { getSnapshotContentInfo } from "../../lib/contentView";
 import RenderedDiffViews, { type RenderedViewMode } from "../../components/analysis/RenderedDiffViews";
 import { ScoreBreakdownPanel } from "../../components/analysis/ScoreBreakdownPanel";
 import { SecurityDiffPanel } from "../../components/analysis/SecurityDiffPanel";
 import { AttackSurfaceElementsPanel } from "../../components/analysis/AttackSurfaceElementsPanel";
 import { SnapshotContentView } from "../../components/analysis/SnapshotContentView";
+import { ScanFindingsPanel } from "../../components/scan/ScanFindingsPanel";
 import { FilterSettingsModal } from "../../components/settings/FilterSettingsModal";
 
 type WorkspaceTab = "Preview" | "TextDiff" | "Analysis";
@@ -53,6 +54,13 @@ function parsePagesFetchedFromMessage(message?: string): number | null {
   return Number(match[1]);
 }
 
+function scanStatusMessage(job: Job): string {
+  if (job.status === "failed") return `Scan failed: ${job.error || "unknown error"}`;
+  if (job.status === "canceled") return "Scan was canceled.";
+  if (job.status === "done") return "Loading scan results...";
+  return "Scan in progress — findings will appear here when it completes.";
+}
+
 const WorkspacePage: React.FC = () => {
   const {
     activeProject,
@@ -68,6 +76,7 @@ const WorkspacePage: React.FC = () => {
     compareSecurityOverview,
     compareIsLoading,
     setCompareVersions,
+    latestScanJob,
   } = useProject();
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("Preview");
@@ -650,6 +659,21 @@ const WorkspacePage: React.FC = () => {
                         Attack surface elements
                       </h3>
                       <AttackSurfaceElementsPanel snapshot={activeSnapshot} />
+                    </div>
+
+                    <div className="bg-card border border-border rounded-2xl p-5">
+                      <h3 className="text-[11px] font-black text-helper uppercase tracking-[0.25em] mb-4">
+                        Vulnerability scan
+                      </h3>
+                      {latestScanJob?.scan_result ? (
+                        <ScanFindingsPanel result={latestScanJob.scan_result} />
+                      ) : (
+                        <p className="text-xs text-slate-500">
+                          {latestScanJob
+                            ? scanStatusMessage(latestScanJob)
+                            : "No scans for this domain yet. Start one from the domain menu in the sidebar."}
+                        </p>
+                      )}
                     </div>
                   </section>
                 )}
