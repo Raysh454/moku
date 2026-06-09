@@ -15,6 +15,7 @@ import type {
   EnumerateRequest,
   FetchRequest,
   Project,
+  ScanRequest,
   Snapshot,
 } from "../types/project";
 import { projectService } from "../services/projectService";
@@ -38,6 +39,7 @@ interface ProjectContextType {
   compareSecurityOverview: SecurityDiffOverviewEntry[] | null;
   compareIsLoading: boolean;
   domainOverviews: Map<string, SecurityDiffOverviewEntry[]>;
+  latestScanJob: Job | null;
 
   refreshProjects: () => Promise<void>;
   refreshActiveProject: () => Promise<void>;
@@ -56,6 +58,7 @@ interface ProjectContextType {
   addEndpointsForDomain: (domainId: string, urls: string[], source?: string) => Promise<number>;
   runEnumerateForDomain: (domainId: string, request: EnumerateRequest) => Promise<void>;
   runFetchForDomain: (domainId: string, request: FetchRequest) => Promise<void>;
+  runScanForDomain: (domainId: string, request: ScanRequest) => Promise<Job>;
   setCompareVersions: (baseVersionId: string, headVersionId: string) => Promise<void>;
   clearMessage: () => void;
   openSettings: () => void;
@@ -273,6 +276,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       if (isTerminal) {
         processedEventIdRef.current = eventKey;
+
+        // SSE patches only carry status/progress; re-pull the job list so
+        // terminal-only payloads (e.g. scan_result) land in state.
+        void refreshJobs();
 
         const isProjectRelevant = activeProject && event.project === activeProject.slug;
 
@@ -587,6 +594,43 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [activeProject, clearMessage, setError, setNotice],
   );
 
+  const runScanForDomain = useCallback(
+    async (domainId: string, request: ScanRequest): Promise<Job> => {
+      if (!activeProject) throw new Error("No active project selected");
+      const domain = activeProject.domains.find((item) => item.id === domainId);
+      if (!domain) throw new Error("Unknown domain for scan");
+
+      setIsBusy(true);
+      clearMessage();
+      try {
+        const started = await api.startScan(activeProject.slug, domain.slug, {
+          url: request.url,
+          profile: request.profile,
+        });
+        setJobs((prev) => [started, ...prev.filter((item) => item.id !== started.id)]);
+        setNotice("Scan job started");
+        return started;
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [activeProject, clearMessage, setNotice],
+  );
+
+  const latestScanJob = useMemo<Job | null>(() => {
+    if (!activeProject || !selectedDomain) return null;
+    const scanJobs = jobs.filter(
+      (job) =>
+        job.type === "scan" &&
+        job.project === activeProject.slug &&
+        job.website === selectedDomain.slug,
+    );
+    if (scanJobs.length === 0) return null;
+    return scanJobs.reduce((latest, job) =>
+      new Date(job.started_at).getTime() > new Date(latest.started_at).getTime() ? job : latest,
+    );
+  }, [jobs, activeProject, selectedDomain]);
+
   const setCompareVersions = useCallback(
     async (baseVersionId: string, headVersionId: string) => {
       if (!activeProject || !selectedDomain) {
@@ -759,9 +803,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       addEndpointsForDomain,
       runEnumerateForDomain,
       runFetchForDomain,
+      runScanForDomain,
       setCompareVersions,
       clearMessage,
       domainOverviews,
+      latestScanJob,
       openSettings: () => setSettingsOpen(true),
       closeSettings: () => setSettingsOpen(false),
     }),
@@ -795,9 +841,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       addEndpointsForDomain,
       runEnumerateForDomain,
       runFetchForDomain,
+      runScanForDomain,
       setCompareVersions,
       clearMessage,
       domainOverviews,
+      latestScanJob,
     ],
   );
 

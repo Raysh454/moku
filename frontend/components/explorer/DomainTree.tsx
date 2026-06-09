@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
+import { api } from "../../src/api/client";
 import { useProject } from "../../context/ProjectContext";
 import { useNotifications } from "../../context/NotificationContext";
-import type { Domain, Endpoint, EnumerateRequest, FetchRequest } from "../../types/project";
-import type { EnumerationConfig, SecurityDiffOverviewEntry } from "../../src/api/types";
+import type { Domain, Endpoint, EnumerateRequest, FetchRequest, ScanRequest } from "../../types/project";
+import type { EnumerationConfig, ScanProfile, SecurityDiffOverviewEntry } from "../../src/api/types";
 
 interface DomainTreeProps {
   isCollapsed?: boolean;
   domainOverviews?: Map<string, SecurityDiffOverviewEntry[]>;
 }
 
-type DomainMenuSection = "enumerate" | "fetch" | "endpoints" | null;
+type DomainMenuSection = "enumerate" | "fetch" | "endpoints" | "scan" | null;
 
 type DomainMenuState = {
   spiderEnabled: boolean;
@@ -25,9 +26,17 @@ type DomainMenuState = {
   fetchConcurrency: number;
   endpointStatus: string;
   endpointLimit: number;
+  scanUrl: string;
+  scanProfile: string;
 };
 
-const defaultMenuState = (): DomainMenuState => ({
+type AnalyzerStatus = {
+  backend: string;
+  health: string;
+  supportsProfile: boolean;
+};
+
+const defaultMenuState = (scanUrl = ""): DomainMenuState => ({
   spiderEnabled: true,
   spiderDepth: 4,
   spiderConcurrency: 5,
@@ -41,7 +50,14 @@ const defaultMenuState = (): DomainMenuState => ({
   fetchConcurrency: 4,
   endpointStatus: "",
   endpointLimit: 0,
+  scanUrl,
+  scanProfile: "",
 });
+
+const SCAN_PROFILES: ScanProfile[] = ["quick", "balanced", "thorough"];
+
+const toScanProfile = (value: string): ScanProfile | undefined =>
+  SCAN_PROFILES.find((profile) => profile === value);
 
 const buildEnumerationConfig = (state: DomainMenuState): EnumerationConfig => {
   const config: EnumerationConfig = {};
@@ -71,6 +87,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
     addEndpointsForDomain,
     runEnumerateForDomain,
     runFetchForDomain,
+    runScanForDomain,
     deleteWebsite,
     isBusy,
   } = useProject();
@@ -84,6 +101,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
   const [showAddEndpointsModal, setShowAddEndpointsModal] = useState(false);
   const [addEndpointsDomainId, setAddEndpointsDomainId] = useState<string | null>(null);
   const [newEndpointsInput, setNewEndpointsInput] = useState("");
+  const [analyzerStatus, setAnalyzerStatus] = useState<AnalyzerStatus | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -113,6 +131,33 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
     };
   }, [openMenuId]);
 
+  useEffect(() => {
+    if (activeSection !== "scan" || !openMenuId || !activeProject) return;
+    const domain = activeProject.domains.find((item) => item.id === openMenuId);
+    if (!domain) return;
+
+    let cancelled = false;
+    setAnalyzerStatus(null);
+    const probeAnalyzer = async () => {
+      const [healthResult, capabilitiesResult] = await Promise.allSettled([
+        api.getAnalyzerHealth(activeProject.slug, domain.slug),
+        api.getAnalyzerCapabilities(activeProject.slug, domain.slug),
+      ]);
+      if (cancelled) return;
+      const health = healthResult.status === "fulfilled" ? healthResult.value : undefined;
+      const capabilities = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : undefined;
+      setAnalyzerStatus({
+        backend: capabilities?.backend || health?.backend || "unknown",
+        health: health?.status || "unreachable",
+        supportsProfile: capabilities ? capabilities.capabilities.supports_scan_profile : true,
+      });
+    };
+    void probeAnalyzer();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, openMenuId, activeProject]);
+
   if (!activeProject) {
     return (
       <div className="p-8 text-gray-600 italic text-center text-xs uppercase font-bold tracking-widest opacity-50">
@@ -141,9 +186,10 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
     });
     setOpenMenuId(domainId);
     setActiveSection("enumerate");
+    const domainOrigin = activeProject.domains.find((item) => item.id === domainId)?.origin || "";
     setDomainMenuState((prev) => ({
       ...prev,
-      [domainId]: prev[domainId] || defaultMenuState(),
+      [domainId]: prev[domainId] || defaultMenuState(domainOrigin),
     }));
   };
 
@@ -189,6 +235,38 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
     });
 
     await runFetchForDomain(domain.id, request);
+  };
+
+  const runScan = async (domain: Domain) => {
+    const state = domainMenuState[domain.id] || defaultMenuState(domain.origin);
+    const targetUrl = state.scanUrl.trim();
+    if (!targetUrl) {
+      notify({
+        kind: "warning",
+        title: "Scan target required",
+        message: "Provide a target URL to scan.",
+      });
+      return;
+    }
+
+    const request: ScanRequest = { url: targetUrl };
+    const profile = toScanProfile(state.scanProfile);
+    if (profile) request.profile = profile;
+
+    try {
+      const started = await runScanForDomain(domain.id, request);
+      notify({
+        kind: "success",
+        title: `Scan started for ${domain.hostname}`,
+        message: `Job ${started.id.slice(0, 8)} queued — findings appear in the Analysis tab`,
+      });
+    } catch (error) {
+      notify({
+        kind: "error",
+        title: `Failed to start scan for ${domain.hostname}`,
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   };
 
   const loadEndpoints = async (domain: Domain) => {
@@ -441,6 +519,13 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
                 className={`w-full flex items-center justify-between px-3 py-2 text-[12px] font-semibold rounded-lg transition-all ${activeSection === "endpoints" ? "bg-white/10 text-white" : "text-slate-300 hover:text-white hover:bg-white/5"}`}
               >
                 <span>Endpoints</span>
+                <span className="text-[10px] opacity-70">❯</span>
+              </button>
+              <button
+                onMouseEnter={() => setActiveSection("scan")}
+                className={`w-full flex items-center justify-between px-3 py-2 text-[12px] font-semibold rounded-lg transition-all ${activeSection === "scan" ? "bg-white/10 text-white" : "text-slate-300 hover:text-white hover:bg-white/5"}`}
+              >
+                <span>Scan</span>
                 <span className="text-[10px] opacity-70">❯</span>
               </button>
             </div>
@@ -722,6 +807,66 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
                     }}
                   >
                     Add Endpoints
+                  </button>
+                </>
+              )}
+
+              {activeSection === "scan" && (
+                <>
+                  <label className="text-[11px] text-slate-300 flex flex-col gap-1">
+                    Target URL
+                    <input
+                      type="text"
+                      value={currentMenuState.scanUrl}
+                      onChange={(event) =>
+                        updateDomainMenuState(openMenuId, (state) => ({
+                          ...state,
+                          scanUrl: event.target.value,
+                        }))
+                      }
+                      placeholder="https://example.com/"
+                      className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px] font-mono"
+                    />
+                  </label>
+
+                  <label className="text-[11px] text-slate-300 flex flex-col gap-1">
+                    Profile
+                    <select
+                      value={currentMenuState.scanProfile}
+                      onChange={(event) =>
+                        updateDomainMenuState(openMenuId, (state) => ({
+                          ...state,
+                          scanProfile: event.target.value,
+                        }))
+                      }
+                      disabled={analyzerStatus !== null && !analyzerStatus.supportsProfile}
+                      className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px] disabled:opacity-50"
+                    >
+                      <option value="">backend default</option>
+                      {SCAN_PROFILES.map((profile) => (
+                        <option key={profile} value={profile}>
+                          {profile}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <p className="text-[10px] text-slate-500">
+                    {analyzerStatus
+                      ? `Analyzer: ${analyzerStatus.backend} • ${analyzerStatus.health}`
+                      : "Checking analyzer availability..."}
+                  </p>
+
+                  <button
+                    className="w-full bg-accent text-white rounded px-3 py-2 text-[12px] font-semibold hover:brightness-110 disabled:opacity-50"
+                    disabled={isBusy}
+                    onClick={() => {
+                      const domain = activeProject.domains.find((item) => item.id === openMenuId);
+                      if (!domain) return;
+                      void runScan(domain);
+                    }}
+                  >
+                    Start Scan
                   </button>
                 </>
               )}
