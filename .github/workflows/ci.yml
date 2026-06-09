@@ -17,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Quote versions so YAML preserves trailing zeroes
-        go-version: ["1.26", "1.25"]
+        # Quote versions so YAML preserves trailing zeroes. go.mod declares
+        # `go 1.26`, so older toolchains cannot build this module — only list
+        # versions >= the module's minimum.
+        go-version: ["1.26"]
 
     steps:
       - name: Checkout
@@ -59,9 +61,11 @@ jobs:
             ~/.cache/go-build
             ${{ env.GOMODCACHE }}
           key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          # No version-less fallback: restoring another Go version's build
+          # cache poisons this one ("compile: version X does not match go
+          # tool version Y").
           restore-keys: |
             ${{ runner.os }}-go-${{ matrix.go-version }}-
-            ${{ runner.os }}-go-
 
       - name: Download modules
         run: go mod download
