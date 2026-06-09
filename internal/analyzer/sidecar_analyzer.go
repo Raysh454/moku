@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/raysh454/moku/internal/logging"
@@ -77,6 +78,32 @@ const (
 	// CONTRACT_VERSION in services/analyzer/app/models/schemas.py.
 	SidecarContractVersion = "1"
 )
+
+// sidecarJobIDPattern is the only job ID shape the client will interpolate
+// into the /scan/{id} URL path. The sidecar issues UUIDv4 strings; anything
+// with path, query, or escape metacharacters is rejected before any I/O so
+// the client stays safe if ever fed an ID from an untrusted source.
+var sidecarJobIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validateSidecarJobID rejects job IDs that could alter the request path.
+func validateSidecarJobID(jobID string) error {
+	if !sidecarJobIDPattern.MatchString(jobID) {
+		return fmt.Errorf("analyzer: invalid sidecar job ID %q", jobID)
+	}
+	return nil
+}
+
+// decodeStrict decodes a versioned-contract payload, rejecting unknown
+// fields: the Python side declares its models with extra="forbid", and a key
+// this client does not know about means Go/Python contract skew that should
+// fail loudly rather than be silently dropped. The /health probe deliberately
+// does NOT use this — it must keep working across skewed versions because it
+// is the endpoint operators use to diagnose exactly that skew.
+func decodeStrict(r io.Reader, v any) error {
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
+}
 
 // newSidecarAnalyzer constructs a sidecar-backed Analyzer for a specific
 // adapter. Returns an error when any dependency is nil or any required
@@ -210,11 +237,14 @@ func (s *sidecarAnalyzer) SubmitScan(ctx context.Context, req *ScanRequest) (str
 	var decoded struct {
 		JobID string `json:"job_id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+	if err := decodeStrict(resp.Body, &decoded); err != nil {
 		return "", fmt.Errorf("SubmitScan: decode response: %w", err)
 	}
 	if decoded.JobID == "" {
 		return "", errors.New("SubmitScan: sidecar returned empty job_id")
+	}
+	if err := validateSidecarJobID(decoded.JobID); err != nil {
+		return "", fmt.Errorf("SubmitScan: %w", err)
 	}
 	return decoded.JobID, nil
 }
@@ -225,6 +255,9 @@ func (s *sidecarAnalyzer) SubmitScan(ctx context.Context, req *ScanRequest) (str
 func (s *sidecarAnalyzer) GetScan(ctx context.Context, jobID string) (*ScanResult, error) {
 	if jobID == "" {
 		return nil, errors.New("GetScan: empty job ID")
+	}
+	if err := validateSidecarJobID(jobID); err != nil {
+		return nil, fmt.Errorf("GetScan: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -239,7 +272,7 @@ func (s *sidecarAnalyzer) GetScan(ctx context.Context, jobID string) (*ScanResul
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var result ScanResult
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		if err := decodeStrict(resp.Body, &result); err != nil {
 			return nil, fmt.Errorf("GetScan: decode response: %w", err)
 		}
 		// The wire "backend" field carries the Python adapter name
