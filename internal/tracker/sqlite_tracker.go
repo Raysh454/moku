@@ -27,12 +27,14 @@ var (
 )
 
 type SQLiteTracker struct {
-	db       *sql.DB
-	store    *blobstore.Blobstore
-	logger   logging.Logger
-	config   *Config
-	assessor assessor.Assessor
-	score    *score.SQLiteScoreTracker
+	db     *sql.DB
+	store  *blobstore.Blobstore
+	logger logging.Logger
+	config *Config
+
+	// score owns the assessor reference; keeping a second copy here is how
+	// SetAssessor once silently failed to reach score persistence.
+	score *score.SQLiteScoreTracker
 }
 
 func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.Assessor) (*SQLiteTracker, error) {
@@ -82,12 +84,11 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 	logger.Info("SQLiteTracker initialized", logging.Field{Key: "config.StoragePath", Value: config.StoragePath})
 
 	t := &SQLiteTracker{
-		db:       db,
-		store:    store,
-		logger:   logger,
-		config:   config,
-		assessor: assessor,
-		score:    score.New(assessor, db, logger),
+		db:     db,
+		store:  store,
+		logger: logger,
+		config: config,
+		score:  score.New(assessor, db, logger),
 	}
 
 	if config.ProjectID != "" {
@@ -101,7 +102,7 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 }
 
 func (t *SQLiteTracker) SetAssessor(a assessor.Assessor) {
-	t.assessor = a
+	t.score.SetAssessor(a)
 }
 
 func (t *SQLiteTracker) GetProjectID(ctx context.Context) (string, error) {
@@ -1301,7 +1302,7 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models
 		return errors.New("nil CommitResult")
 	}
 
-	if t.assessor == nil {
+	if !t.score.HasAssessor() {
 		return errors.New("no assessor set on tracker")
 	}
 
