@@ -54,7 +54,15 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 	}
 
 	dbPath := filepath.Join(mokuDir, "moku.db")
-	db, err := sql.Open("sqlite", dbPath+"?_busy_timeout=5000&_journal_mode=WAL")
+	db, err := sql.Open("sqlite", utils.SQLiteDSN(dbPath,
+		"busy_timeout(5000)",   // Wait up to 5 seconds on locked database
+		"journal_mode(WAL)",    // Write-Ahead Logging for better concurrency
+		"foreign_keys(ON)",     // Enable foreign key constraints
+		"synchronous(NORMAL)",  // Balance between safety and performance
+		"cache_size(-64000)",   // 64MB cache (negative means KB)
+		"temp_store(MEMORY)",   // Store temp tables in memory
+		"mmap_size(268435456)", // 256MB memory-mapped I/O
+	))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
