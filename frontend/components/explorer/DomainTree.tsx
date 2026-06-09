@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useProject } from "../../context/ProjectContext";
 import { useNotifications } from "../../context/NotificationContext";
-import type { Domain, Endpoint, EnumerateRequest, FetchRequest, JobTransport } from "../../types/project";
+import type { Domain, Endpoint, EnumerateRequest, FetchRequest } from "../../types/project";
 import type { EnumerationConfig, SecurityDiffOverviewEntry } from "../../src/api/types";
 
 interface DomainTreeProps {

@@ -40,10 +40,13 @@ export type Endpoint = {
 
 export type JobEvent = {
   job_id: string;
+  project?: string;
+  website?: string;
   type: "status" | "progress" | "result";
   status?: JobStatus;
   error?: string;
   processed?: number;
+  failed?: number;
   total?: number;
 };
 

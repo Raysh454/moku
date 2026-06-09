@@ -11,6 +11,9 @@ node_modules/
 dist/
 .vite/
 package-lock.json
+# The active frontend needs its lockfile committed for reproducible
+# installs (`npm ci` in CI).
+!frontend/package-lock.json
 *.tsbuildinfo
 
 # Scratch workspace for analyzer integration work (Phase A)
