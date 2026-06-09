@@ -74,10 +74,11 @@ func TestDefaultConfig_AnalyzerBackendFromEnv(t *testing.T) {
 			wantBackend: analyzer.BackendVirusTotal,
 		},
 		{
-			name:        "burp_lowercase",
-			setEnv:      true,
-			envValue:    "burp",
-			wantBackend: analyzer.BackendBurp,
+			name:           "burp_removed_warns_and_defaults_to_moku",
+			setEnv:         true,
+			envValue:       "burp",
+			wantBackend:    analyzer.BackendMoku,
+			wantWarningLog: true,
 		},
 		{
 			name:        "zap_lowercase",

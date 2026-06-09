@@ -9,8 +9,6 @@ type Backend string
 
 const (
 	BackendMoku Backend = "moku"
-	BackendBurp Backend = "burp"
-	BackendZAP  Backend = "zap"
 
 	// BackendDAST routes scan requests to the Python sidecar's "builtin"
 	// adapter, which performs active dynamic-analysis scanning (XSS / SQLi /
@@ -21,6 +19,11 @@ const (
 	BackendNikto      Backend = "nikto"
 	BackendShodan     Backend = "shodan"
 	BackendVirusTotal Backend = "virustotal"
+
+	// BackendZAP routes through the sidecar's "zap" adapter (which shells
+	// out to a local ZAP install). A native Go ZAP client scaffold existed
+	// here once but was removed in favor of the working sidecar adapter.
+	BackendZAP Backend = "zap"
 )
 
 // Config selects the analyzer backend and carries common + per-backend
@@ -40,16 +43,8 @@ type Config struct {
 	// Backend != BackendMoku.
 	Moku MokuConfig `json:"moku"`
 
-	// Burp holds settings specific to the Burp backend. Ignored when
-	// Backend != BackendBurp.
-	Burp BurpConfig `json:"burp"`
-
-	// ZAP holds settings specific to the ZAP backend. Ignored when
-	// Backend != BackendZAP.
-	ZAP ZAPConfig `json:"zap"`
-
 	// Sidecar holds settings shared by every backend that routes through the
-	// Python analyzer sidecar (DAST/Nuclei/Nikto/Shodan/VirusTotal). The
+	// Python analyzer sidecar (DAST/Nuclei/Nikto/Shodan/VirusTotal/ZAP). The
 	// adapter-name dispatch happens inside the sidecar — the Go side selects
 	// it via the Backend field on each ScanRequest payload.
 	Sidecar SidecarConfig `json:"sidecar"`
@@ -104,55 +99,4 @@ type MokuConfig struct {
 	// the in-memory job registry before a background cleanup task removes
 	// it. Zero disables cleanup.
 	JobRetention time.Duration `json:"job_retention"`
-}
-
-// BurpConfig holds settings for the Burp Suite Enterprise adapter.
-// The adapter is not implemented in this plan; the config exists so
-// downstream plans can add it without touching the factory signature.
-type BurpConfig struct {
-	// BaseURL is the Burp REST API root (e.g. "https://burp.local:1337").
-	BaseURL string `json:"base_url"`
-
-	// APIKey is the Burp API key. Excluded from JSON marshalling.
-	APIKey string `json:"-"`
-
-	// ScanConfigName is the name of a pre-configured Burp scan
-	// configuration. Mapped from ScanRequest.Profile by the adapter.
-	ScanConfigName string `json:"scan_config_name,omitempty"`
-
-	// RequestTimeout bounds each individual HTTP call to the Burp API.
-	RequestTimeout time.Duration `json:"request_timeout"`
-
-	// InsecureSkipTLS disables TLS verification when talking to self-hosted
-	// Burp instances with self-signed certs. Off by default.
-	InsecureSkipTLS bool `json:"insecure_skip_tls"`
-}
-
-// ZAPConfig holds settings for the OWASP ZAP adapter.
-// The adapter is not implemented in this plan.
-type ZAPConfig struct {
-	// BaseURL is the ZAP REST API root (e.g. "http://127.0.0.1:8090").
-	BaseURL string `json:"base_url"`
-
-	// APIKey is the ZAP API key. ZAP accepts the key as a query parameter;
-	// the adapter's HTTP helper handles this quirk.
-	APIKey string `json:"-"`
-
-	// ContextName selects a pre-configured ZAP context (authenticated
-	// session, scope rules). Optional.
-	ContextName string `json:"context_name,omitempty"`
-
-	// RequestTimeout bounds each HTTP call to the ZAP API.
-	RequestTimeout time.Duration `json:"request_timeout"`
-
-	// InsecureSkipTLS disables TLS verification when talking to ZAP
-	// instances with self-signed certs.
-	InsecureSkipTLS bool `json:"insecure_skip_tls"`
-
-	// SpiderMaxDepth caps the spider phase depth.
-	SpiderMaxDepth int `json:"spider_max_depth,omitempty"`
-
-	// AscanPolicy is the name of a pre-configured ZAP active-scan policy.
-	// Mapped from ScanRequest.Profile by the adapter.
-	AscanPolicy string `json:"ascan_policy,omitempty"`
 }

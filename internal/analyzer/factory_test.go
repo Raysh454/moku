@@ -16,10 +16,9 @@ import (
 // Shared fixtures for factory tests.
 func factoryValidDeps() analyzer.Dependencies {
 	return analyzer.Dependencies{
-		Logger:     noopLogger{},
-		WebClient:  cannedHappyPathWebClient(),
-		Assessor:   cannedHappyPathAssessor(),
-		HTTPClient: cannedHappyPathWebClient(),
+		Logger:    noopLogger{},
+		WebClient: cannedHappyPathWebClient(),
+		Assessor:  cannedHappyPathAssessor(),
 	}
 }
 
@@ -27,8 +26,6 @@ func factoryDefaultConfig() analyzer.Config {
 	return analyzer.Config{
 		DefaultPoll: analyzer.PollOptions{Timeout: 1 * time.Second, Interval: 25 * time.Millisecond},
 		Moku:        analyzer.MokuConfig{JobRetention: 1 * time.Minute},
-		Burp:        analyzer.BurpConfig{BaseURL: "https://burp.example:1337", RequestTimeout: 10 * time.Second},
-		ZAP:         analyzer.ZAPConfig{BaseURL: "http://zap.example:8090", RequestTimeout: 10 * time.Second},
 	}
 }
 
@@ -88,85 +85,16 @@ func TestNewAnalyzer_Moku_RequiresWebClientAndAssessor(t *testing.T) {
 	}
 }
 
-// ─── Burp dispatch ─────────────────────────────────────────────────────
+// ─── Removed backends ──────────────────────────────────────────────────
 
-func TestNewAnalyzer_Burp_ConstructsWithValidConfig(t *testing.T) {
+// The native Burp scaffold was removed without ever being implemented; the
+// string "burp" must now fail construction loudly like any unknown backend.
+func TestNewAnalyzer_Burp_IsNoLongerASupportedBackend(t *testing.T) {
 	t.Parallel()
 	cfg := factoryDefaultConfig()
-	cfg.Backend = analyzer.BackendBurp
-	a, err := analyzer.NewAnalyzer(cfg, factoryValidDeps())
-	if err != nil {
-		t.Fatalf("NewAnalyzer(Burp): %v", err)
-	}
-	t.Cleanup(func() { _ = a.Close() })
-	if got := a.Name(); got != analyzer.BackendBurp {
-		t.Errorf("Name() = %q, want %q", got, analyzer.BackendBurp)
-	}
-	caps := a.Capabilities()
-	if !caps.Async || !caps.SupportsAuth || !caps.SupportsScope || !caps.SupportsScanProfile {
-		t.Errorf("Burp Capabilities() missing expected flags: %+v", caps)
-	}
-}
-
-func TestNewAnalyzer_Burp_RequiresHTTPClient(t *testing.T) {
-	t.Parallel()
-	cfg := factoryDefaultConfig()
-	cfg.Backend = analyzer.BackendBurp
-	deps := factoryValidDeps()
-	deps.HTTPClient = nil
-	if _, err := analyzer.NewAnalyzer(cfg, deps); err == nil {
-		t.Error("expected error when Burp backend has nil HTTPClient")
-	}
-}
-
-func TestNewAnalyzer_Burp_RequiresBaseURL(t *testing.T) {
-	t.Parallel()
-	cfg := factoryDefaultConfig()
-	cfg.Backend = analyzer.BackendBurp
-	cfg.Burp.BaseURL = ""
+	cfg.Backend = "burp"
 	if _, err := analyzer.NewAnalyzer(cfg, factoryValidDeps()); err == nil {
-		t.Error("expected error when Burp backend has empty BaseURL")
-	}
-}
-
-// ─── ZAP dispatch ──────────────────────────────────────────────────────
-
-func TestNewAnalyzer_ZAP_ConstructsWithValidConfig(t *testing.T) {
-	t.Parallel()
-	cfg := factoryDefaultConfig()
-	cfg.Backend = analyzer.BackendZAP
-	a, err := analyzer.NewAnalyzer(cfg, factoryValidDeps())
-	if err != nil {
-		t.Fatalf("NewAnalyzer(ZAP): %v", err)
-	}
-	t.Cleanup(func() { _ = a.Close() })
-	if got := a.Name(); got != analyzer.BackendZAP {
-		t.Errorf("Name() = %q, want %q", got, analyzer.BackendZAP)
-	}
-	caps := a.Capabilities()
-	if !caps.Async || !caps.SupportsAuth || !caps.SupportsScope || !caps.SupportsScanProfile {
-		t.Errorf("ZAP Capabilities() missing expected flags: %+v", caps)
-	}
-}
-
-func TestNewAnalyzer_ZAP_RequiresHTTPClient(t *testing.T) {
-	t.Parallel()
-	cfg := factoryDefaultConfig()
-	cfg.Backend = analyzer.BackendZAP
-	deps := factoryValidDeps()
-	deps.HTTPClient = nil
-	if _, err := analyzer.NewAnalyzer(cfg, deps); err == nil {
-		t.Error("expected error when ZAP backend has nil HTTPClient")
-	}
-}
-
-func TestNewAnalyzer_ZAP_RequiresBaseURL(t *testing.T) {
-	t.Parallel()
-	cfg := factoryDefaultConfig()
-	cfg.Backend = analyzer.BackendZAP
-	cfg.ZAP.BaseURL = ""
-	if _, err := analyzer.NewAnalyzer(cfg, factoryValidDeps()); err == nil {
-		t.Error("expected error when ZAP backend has empty BaseURL")
+		t.Error("expected error: the burp backend was removed")
 	}
 }
 
@@ -280,6 +208,13 @@ func TestNewAnalyzer_VirusTotal_RoutesToSidecar(t *testing.T) {
 	assertSidecarBackendRoutes(t, analyzer.BackendVirusTotal, "virustotal")
 }
 
+// BackendZAP routes through the sidecar's "zap" adapter — the never-implemented
+// native Go ZAP scaffold was removed in favor of the working Python one.
+func TestNewAnalyzer_ZAP_RoutesToSidecar(t *testing.T) {
+	t.Parallel()
+	assertSidecarBackendRoutes(t, analyzer.BackendZAP, "zap")
+}
+
 // Sidecar backends deliberately do NOT require deps.HTTPClient: the sidecar
 // client builds its own transport from SidecarConfig. A nil HTTPClient must
 // still construct successfully.
@@ -291,6 +226,7 @@ func TestNewAnalyzer_SidecarBackends_DoNotRequireHTTPClient(t *testing.T) {
 		analyzer.BackendNikto,
 		analyzer.BackendShodan,
 		analyzer.BackendVirusTotal,
+		analyzer.BackendZAP,
 	}
 	for _, backend := range sidecarBackends {
 		t.Run(string(backend), func(t *testing.T) {
@@ -298,11 +234,9 @@ func TestNewAnalyzer_SidecarBackends_DoNotRequireHTTPClient(t *testing.T) {
 			cfg := factoryDefaultConfig()
 			cfg.Backend = backend
 			cfg.Sidecar = analyzer.SidecarConfig{BaseURL: "http://127.0.0.1:8181"}
-			deps := factoryValidDeps()
-			deps.HTTPClient = nil
-			a, err := analyzer.NewAnalyzer(cfg, deps)
+			a, err := analyzer.NewAnalyzer(cfg, factoryValidDeps())
 			if err != nil {
-				t.Fatalf("expected %s to construct with nil HTTPClient: %v", backend, err)
+				t.Fatalf("expected %s to construct without an injected HTTP client: %v", backend, err)
 			}
 			t.Cleanup(func() { _ = a.Close() })
 		})
@@ -319,6 +253,7 @@ func TestNewAnalyzer_SidecarBackends_RequireBaseURL(t *testing.T) {
 		analyzer.BackendNikto,
 		analyzer.BackendShodan,
 		analyzer.BackendVirusTotal,
+		analyzer.BackendZAP,
 	}
 	for _, backend := range sidecarBackends {
 		t.Run(string(backend), func(t *testing.T) {

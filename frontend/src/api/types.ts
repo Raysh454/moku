@@ -80,7 +80,6 @@ export type ScanProfile = "quick" | "balanced" | "thorough";
 
 export type AnalyzerBackend =
   | "moku"
-  | "burp"
   | "zap"
   | "dast"
   | "nuclei"
