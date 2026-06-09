@@ -2,12 +2,20 @@ definitions:
   analyzer.Backend:
     enum:
     - moku
-    - burp
+    - dast
+    - nuclei
+    - nikto
+    - shodan
+    - virustotal
     - zap
     type: string
     x-enum-varnames:
     - BackendMoku
-    - BackendBurp
+    - BackendDAST
+    - BackendNuclei
+    - BackendNikto
+    - BackendShodan
+    - BackendVirusTotal
     - BackendZAP
   analyzer.Capabilities:
     properties:

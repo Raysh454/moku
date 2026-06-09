@@ -51,7 +51,6 @@ const (
 // gives tests a single source of truth.
 var analyzerBackendsByName = map[string]analyzer.Backend{
 	"moku":       analyzer.BackendMoku,
-	"burp":       analyzer.BackendBurp,
 	"zap":        analyzer.BackendZAP,
 	"dast":       analyzer.BackendDAST,
 	"nuclei":     analyzer.BackendNuclei,

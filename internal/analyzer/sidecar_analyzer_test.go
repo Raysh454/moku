@@ -121,8 +121,7 @@ func (e *sidecarTestEnv) newAnalyzerWith(t *testing.T, backend analyzer.Backend,
 		Sidecar: sidecarCfg,
 	}
 	a, err := analyzer.NewAnalyzer(cfg, analyzer.Dependencies{
-		Logger:     noopLogger{},
-		HTTPClient: cannedHappyPathWebClient(),
+		Logger: noopLogger{},
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer(%s): %v", backend, err)
@@ -145,6 +144,7 @@ func TestSidecarAnalyzer_SubmitScan_SerializesBackendField(t *testing.T) {
 		{analyzer.BackendNikto, "nikto", `"backend":"nikto"`},
 		{analyzer.BackendShodan, "shodan", `"backend":"shodan"`},
 		{analyzer.BackendVirusTotal, "virustotal", `"backend":"virustotal"`},
+		{analyzer.BackendZAP, "zap", `"backend":"zap"`},
 	}
 
 	for _, tc := range cases {
@@ -434,8 +434,7 @@ func TestSidecarAnalyzer_Health_NetworkError_ReturnsUnavailableAndSentinel(t *te
 		Sidecar:     analyzer.SidecarConfig{BaseURL: closedServer.URL},
 	}
 	a, err := analyzer.NewAnalyzer(cfg, analyzer.Dependencies{
-		Logger:     noopLogger{},
-		HTTPClient: cannedHappyPathWebClient(),
+		Logger: noopLogger{},
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer: %v", err)
@@ -1026,8 +1025,7 @@ func newAnalyzerForServer(t *testing.T, baseURL string, cfg analyzer.SidecarConf
 		},
 		Sidecar: cfg,
 	}, analyzer.Dependencies{
-		Logger:     noopLogger{},
-		HTTPClient: cannedHappyPathWebClient(),
+		Logger: noopLogger{},
 	})
 	if err != nil {
 		t.Fatalf("NewAnalyzer: %v", err)

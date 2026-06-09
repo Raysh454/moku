@@ -45,14 +45,14 @@ func loadCapabilitiesManifest(t *testing.T) map[string]manifestCaps {
 }
 
 // sidecarBackendByAdapter maps the sidecar adapter name to the Go Backend that
-// routes to it. "zap" is deliberately absent: the Go side routes BackendZAP to
-// its own (non-sidecar) ZAP analyzer, so no Go sidecar backend targets it.
+// routes to it. Every adapter in the shared manifest must have a Go route.
 var sidecarBackendByAdapter = map[string]analyzer.Backend{
 	"builtin":    analyzer.BackendDAST,
 	"nuclei":     analyzer.BackendNuclei,
 	"nikto":      analyzer.BackendNikto,
 	"shodan":     analyzer.BackendShodan,
 	"virustotal": analyzer.BackendVirusTotal,
+	"zap":        analyzer.BackendZAP,
 }
 
 // TestSidecarCapabilities_MatchSharedManifest guards against Go/Python
@@ -64,6 +64,7 @@ func TestSidecarCapabilities_MatchSharedManifest(t *testing.T) {
 	for adapter, want := range manifest {
 		backend, routed := sidecarBackendByAdapter[adapter]
 		if !routed {
+			t.Errorf("manifest adapter %q has no Go Backend route", adapter)
 			continue
 		}
 		t.Run(adapter, func(t *testing.T) {
