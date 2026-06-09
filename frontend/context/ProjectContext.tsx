@@ -619,8 +619,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           baseVersionId || "",
           headVersionId,
         );
-        overviewCacheRef.current.set(cacheKey, { overview, timestamp: Date.now() });
-        setCompareSecurityOverview(overview);
+        const entries = overview.entries || [];
+        overviewCacheRef.current.set(cacheKey, { overview: entries, timestamp: Date.now() });
+        setCompareSecurityOverview(entries);
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to fetch security overview");
         setCompareSecurityOverview(null);
