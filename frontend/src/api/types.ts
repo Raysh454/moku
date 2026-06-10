@@ -40,10 +40,13 @@ export type Endpoint = {
 
 export type JobEvent = {
   job_id: string;
+  project?: string;
+  website?: string;
   type: "status" | "progress" | "result";
   status?: JobStatus;
   error?: string;
   processed?: number;
+  failed?: number;
   total?: number;
 };
 
@@ -67,6 +70,89 @@ export type SecurityDiffOverview = {
   entries: SecurityDiffOverviewEntry[];
 };
 
+export type ScanStatus = "pending" | "running" | "completed" | "failed" | "canceled";
+
+export type Severity = "info" | "low" | "medium" | "high" | "critical";
+
+export type Confidence = "tentative" | "firm" | "certain";
+
+export type ScanProfile = "quick" | "balanced" | "thorough";
+
+export type AnalyzerBackend =
+  | "moku"
+  | "zap"
+  | "dast"
+  | "nuclei"
+  | "nikto"
+  | "shodan"
+  | "virustotal";
+
+export type Finding = {
+  id: string;
+  title: string;
+  severity: Severity;
+  confidence: Confidence;
+  url?: string;
+  path?: string;
+  method?: string;
+  parameter?: string;
+  cwe?: number[];
+  wasc?: number[];
+  description?: string;
+  evidence?: string;
+  remediation?: string;
+  references?: string[];
+  raw_data?: Record<string, unknown>;
+};
+
+export type ScanProgress = {
+  percent: number;
+  phase?: string;
+  note?: string;
+};
+
+export type ScanSummary = {
+  total: number;
+  info: number;
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
+};
+
+export type ScanResult = {
+  job_id: string;
+  backend: AnalyzerBackend;
+  status: ScanStatus;
+  url: string;
+  error?: string;
+  submitted_at: string;
+  completed_at?: string;
+  progress?: ScanProgress;
+  findings: Finding[];
+  summary?: ScanSummary;
+  raw_data?: Record<string, unknown>;
+};
+
+export type AnalyzerCapabilities = {
+  async: boolean;
+  supports_auth: boolean;
+  supports_scope: boolean;
+  supports_scan_profile: boolean;
+  max_concurrent_scans?: number;
+  version?: string;
+};
+
+export type AnalyzerCapabilitiesResponse = {
+  backend: AnalyzerBackend;
+  capabilities: AnalyzerCapabilities;
+};
+
+export type AnalyzerHealthResponse = {
+  backend: AnalyzerBackend;
+  status: string;
+};
+
 export type Job = {
   id: string;
   type: string;
@@ -78,6 +164,7 @@ export type Job = {
   ended_at?: string;
   security_overview?: SecurityDiffOverview;
   enumerated_urls?: string[];
+  scan_result?: ScanResult;
   processed?: number;
   total?: number;
 };

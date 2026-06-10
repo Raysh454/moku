@@ -1,6 +1,11 @@
 package app
 
 import (
+	"log"
+	"net"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/raysh454/moku/internal/analyzer"
@@ -11,6 +16,101 @@ import (
 	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
 )
+
+// Env vars consulted by DefaultConfig at process start. Library callers that
+// prefer explicit configuration over env-driven defaults can ignore these and
+// set the fields directly on the returned Config.
+const (
+	// EnvAnalyzerBackend overrides AnalyzerCfg.Backend.
+	EnvAnalyzerBackend = "MOKU_ANALYZER_BACKEND"
+
+	// EnvAnalyzerHost and EnvAnalyzerPort locate the Python analyzer
+	// sidecar. They are the same family the sidecar's own scripts and Make
+	// targets use for its bind address, so the two processes cannot
+	// disagree about where the sidecar lives.
+	EnvAnalyzerHost = "MOKU_ANALYZER_HOST"
+	EnvAnalyzerPort = "MOKU_ANALYZER_PORT"
+
+	// EnvAnalyzerToken is sent to the sidecar as the X-Moku-Token header.
+	// It must hold the same value the sidecar process was started with.
+	EnvAnalyzerToken = "MOKU_ANALYZER_TOKEN"
+
+	// EnvStorageRoot overrides the base path where projects are kept.
+	EnvStorageRoot = "MOKU_STORAGE_ROOT"
+)
+
+const (
+	defaultSidecarHost = "127.0.0.1"
+	defaultSidecarPort = "8181"
+	defaultStorageRoot = "~/.config/moku"
+)
+
+// analyzerBackendsByName maps the lowercase string accepted in
+// EnvAnalyzerBackend to the canonical analyzer.Backend constant. Centralizing
+// the mapping keeps DefaultConfig free of a sprawling switch statement and
+// gives tests a single source of truth.
+var analyzerBackendsByName = map[string]analyzer.Backend{
+	"moku":       analyzer.BackendMoku,
+	"zap":        analyzer.BackendZAP,
+	"dast":       analyzer.BackendDAST,
+	"nuclei":     analyzer.BackendNuclei,
+	"nikto":      analyzer.BackendNikto,
+	"shodan":     analyzer.BackendShodan,
+	"virustotal": analyzer.BackendVirusTotal,
+}
+
+// resolveAnalyzerBackend returns the analyzer.Backend chosen by the
+// EnvAnalyzerBackend env var. When the var is unset or empty, the default
+// (BackendMoku) is returned. An unrecognized value triggers a warning log and
+// falls back to BackendMoku so the process can still boot.
+func resolveAnalyzerBackend() analyzer.Backend {
+	raw := strings.TrimSpace(os.Getenv(EnvAnalyzerBackend))
+	if raw == "" {
+		return analyzer.BackendMoku
+	}
+	if backend, ok := analyzerBackendsByName[strings.ToLower(raw)]; ok {
+		return backend
+	}
+	log.Printf(
+		"app: %s=%q is not a recognized analyzer backend; falling back to %q",
+		EnvAnalyzerBackend, raw, analyzer.BackendMoku,
+	)
+	return analyzer.BackendMoku
+}
+
+// resolveSidecarBaseURL builds the sidecar base URL from the
+// EnvAnalyzerHost/EnvAnalyzerPort family. Bind-all hosts (0.0.0.0, ::) are
+// mapped to loopback: they are addresses to listen on, not to dial. An
+// invalid port triggers a warning log and falls back to the default so the
+// process can still boot.
+func resolveSidecarBaseURL() string {
+	host := strings.Trim(strings.TrimSpace(os.Getenv(EnvAnalyzerHost)), "[]")
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = defaultSidecarHost
+	}
+
+	port := strings.TrimSpace(os.Getenv(EnvAnalyzerPort))
+	if port == "" {
+		port = defaultSidecarPort
+	} else if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		log.Printf(
+			"app: %s=%q is not a valid TCP port; falling back to %s",
+			EnvAnalyzerPort, port, defaultSidecarPort,
+		)
+		port = defaultSidecarPort
+	}
+
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// resolveStorageRoot returns EnvStorageRoot when set to a non-blank value,
+// otherwise the default location.
+func resolveStorageRoot() string {
+	if root := strings.TrimSpace(os.Getenv(EnvStorageRoot)); root != "" {
+		return root
+	}
+	return defaultStorageRoot
+}
 
 // Config contains a minimal set of runtime configuration options required by
 // internal modules during initial development. We intentionally keep this small
@@ -49,7 +149,7 @@ type Config struct {
 // DefaultConfig returns a Config populated with sensible development defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		StorageRoot:      "~/.config/moku",
+		StorageRoot:      resolveStorageRoot(),
 		JobRetentionTime: 60 * time.Minute,
 		trackerCfg: tracker.Config{
 			RedactSensitiveHeaders:  false,
@@ -67,7 +167,7 @@ func DefaultConfig() *Config {
 			Client: webclient.ClientNetHTTP,
 		},
 		AnalyzerCfg: analyzer.Config{
-			Backend: analyzer.BackendMoku,
+			Backend: resolveAnalyzerBackend(),
 			DefaultPoll: analyzer.PollOptions{
 				Timeout:       5 * time.Minute,
 				Interval:      2 * time.Second,
@@ -77,6 +177,15 @@ func DefaultConfig() *Config {
 			Moku: analyzer.MokuConfig{
 				DefaultProfile: analyzer.ProfileBalanced,
 				JobRetention:   60 * time.Minute,
+			},
+			// Sidecar holds the connection details for the Python analyzer
+			// sidecar process (services/analyzer/). Used when AnalyzerCfg.Backend
+			// is one of BackendDAST / BackendNuclei / BackendNikto / BackendShodan /
+			// BackendVirusTotal — those routes all share the same sidecar.
+			Sidecar: analyzer.SidecarConfig{
+				BaseURL:        resolveSidecarBaseURL(),
+				SharedSecret:   os.Getenv(EnvAnalyzerToken),
+				RequestTimeout: 30 * time.Second,
 			},
 		},
 		assessorCfg: assessor.Config{

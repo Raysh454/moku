@@ -1,0 +1,24 @@
+{
+  "job_id": "a1b2c3d4-0000-4000-8000-000000000003",
+  "backend": "nuclei",
+  "status": "failed",
+  "url": "https://example.com/",
+  "error": "nuclei adapter: template engine failed to load required-templates.yaml",
+  "submitted_at": "2026-01-15T10:30:45Z",
+  "completed_at": "2026-01-15T10:30:50Z",
+  "progress": {
+    "percent": 0,
+    "phase": "startup",
+    "note": ""
+  },
+  "findings": [],
+  "summary": {
+    "total": 0,
+    "info": 0,
+    "low": 0,
+    "medium": 0,
+    "high": 0,
+    "critical": 0
+  },
+  "raw_data": {}
+}

@@ -1,0 +1,45 @@
+{
+  "_comment": "Single source of truth for sidecar adapter capabilities. The Go client (internal/analyzer/sidecar_analyzer.go) and the Python adapters (services/analyzer/app/adapters/*) are each asserted against this manifest by a conformance test, so the two sides cannot drift. 'version' is intentionally excluded: each side stamps its own. Kept outside testdata/sidecar/ so the ScanResult schema-check glob does not treat it as a fixture.",
+  "builtin": {
+    "async": true,
+    "supports_auth": true,
+    "supports_scope": false,
+    "supports_scan_profile": false,
+    "max_concurrent_scans": 1
+  },
+  "nuclei": {
+    "async": true,
+    "supports_auth": false,
+    "supports_scope": false,
+    "supports_scan_profile": false,
+    "max_concurrent_scans": 1
+  },
+  "nikto": {
+    "async": true,
+    "supports_auth": false,
+    "supports_scope": false,
+    "supports_scan_profile": false,
+    "max_concurrent_scans": 1
+  },
+  "shodan": {
+    "async": true,
+    "supports_auth": false,
+    "supports_scope": false,
+    "supports_scan_profile": false,
+    "max_concurrent_scans": 1
+  },
+  "virustotal": {
+    "async": true,
+    "supports_auth": false,
+    "supports_scope": false,
+    "supports_scan_profile": false,
+    "max_concurrent_scans": 1
+  },
+  "zap": {
+    "async": true,
+    "supports_auth": false,
+    "supports_scope": false,
+    "supports_scan_profile": false,
+    "max_concurrent_scans": 1
+  }
+}

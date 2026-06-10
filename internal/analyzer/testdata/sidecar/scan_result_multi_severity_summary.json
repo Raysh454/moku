@@ -1,0 +1,66 @@
+{
+  "job_id": "a1b2c3d4-0000-4000-8000-000000000004",
+  "backend": "builtin",
+  "status": "completed",
+  "url": "https://example.com/",
+  "submitted_at": "2026-01-15T10:30:45Z",
+  "completed_at": "2026-01-15T10:31:30Z",
+  "progress": {
+    "percent": 100,
+    "phase": "done",
+    "note": ""
+  },
+  "findings": [
+    {
+      "id": "f-info-1",
+      "title": "Server header disclosed",
+      "severity": "info",
+      "confidence": "certain"
+    },
+    {
+      "id": "f-low-1",
+      "title": "Cookie missing Secure flag",
+      "severity": "low",
+      "confidence": "firm"
+    },
+    {
+      "id": "f-low-2",
+      "title": "Cookie missing HttpOnly flag",
+      "severity": "low",
+      "confidence": "firm"
+    },
+    {
+      "id": "f-medium-1",
+      "title": "Mixed content references",
+      "severity": "medium",
+      "confidence": "firm"
+    },
+    {
+      "id": "f-medium-2",
+      "title": "Outdated jQuery version",
+      "severity": "medium",
+      "confidence": "tentative"
+    },
+    {
+      "id": "f-high-1",
+      "title": "Reflected XSS",
+      "severity": "high",
+      "confidence": "firm"
+    },
+    {
+      "id": "f-critical-1",
+      "title": "SQL injection",
+      "severity": "critical",
+      "confidence": "certain"
+    }
+  ],
+  "summary": {
+    "total": 7,
+    "info": 1,
+    "low": 2,
+    "medium": 2,
+    "high": 1,
+    "critical": 1
+  },
+  "raw_data": {}
+}

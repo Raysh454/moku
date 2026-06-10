@@ -1,0 +1,65 @@
+{
+  "job_id": "a1b2c3d4-0000-4000-8000-000000000002",
+  "backend": "builtin",
+  "status": "completed",
+  "url": "https://example.com/",
+  "submitted_at": "2026-01-15T10:30:45Z",
+  "completed_at": "2026-01-15T10:31:15Z",
+  "progress": {
+    "percent": 100,
+    "phase": "done",
+    "note": ""
+  },
+  "findings": [
+    {
+      "id": "builtin-xss-001",
+      "title": "Reflected XSS in search parameter",
+      "severity": "high",
+      "confidence": "firm",
+      "url": "https://example.com/search?q=test",
+      "path": "/search",
+      "method": "GET",
+      "parameter": "q",
+      "cwe": [79],
+      "description": "User-supplied input is reflected back in the response without HTML escaping.",
+      "evidence": "<script>alert(1)</script>",
+      "remediation": "HTML-escape user input before rendering."
+    },
+    {
+      "id": "builtin-sqli-002",
+      "title": "SQL injection in id parameter",
+      "severity": "critical",
+      "confidence": "certain",
+      "url": "https://example.com/item?id=1",
+      "path": "/item",
+      "method": "GET",
+      "parameter": "id",
+      "cwe": [89],
+      "description": "A database error message is returned when a SQL meta-character is supplied.",
+      "evidence": "SQLSTATE[42000]: Syntax error",
+      "remediation": "Use parameterized queries."
+    },
+    {
+      "id": "builtin-csp-003",
+      "title": "Missing Content-Security-Policy header",
+      "severity": "low",
+      "confidence": "certain",
+      "url": "https://example.com/",
+      "path": "/",
+      "method": "GET",
+      "cwe": [1021],
+      "description": "Response did not include a Content-Security-Policy header."
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "info": 0,
+    "low": 1,
+    "medium": 0,
+    "high": 1,
+    "critical": 1
+  },
+  "raw_data": {
+    "builtin.target_count": 12
+  }
+}

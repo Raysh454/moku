@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, config, createEnumerateSocket, createFetchSocket, demoApi } from './api/client'
-import type { DemoPageVersion, Endpoint, EndpointDetails, EnumerationConfig, FetchConfig, Job, JobEvent, Project, Version, Website } from './api/types'
+import { api, config, demoApi } from './api/client'
+import type { DemoPageVersion, Endpoint, EndpointDetails, EnumerationConfig, FetchConfig, Job, Project, Version, Website } from './api/types'
 import RenderedDiffViews, { type RenderedViewMode } from './components/RenderedDiffViews'
 import FilterConfigPanel from './components/FilterConfigPanel'
 import { ScoreBreakdownPanel } from './components/ScoreBreakdownPanel'
@@ -385,56 +385,6 @@ export default function App() {
       await refreshJobs()
     })
 
-  const startEnumerateWebSocket = async () =>
-    withAction('Start enumerate via websocket', async () => {
-      if (!selectedProject || !selectedSite) throw new Error('Select project and site first')
-
-      const cfg = buildEnumerationConfig()
-
-      await new Promise<void>((resolve, reject) => {
-        const { socket, sendConfig, onMessage } = createEnumerateSocket(
-          selectedProject,
-          selectedSite,
-          cfg,
-        )
-
-        socket.onerror = () => reject(new Error('WebSocket connection failed'))
-
-        socket.onopen = () => {
-          sendConfig()
-        }
-
-        onMessage(async (payload) => {
-          pushRaw('ws:enumerate', payload)
-          if ('error' in payload && payload.error) {
-            socket.close()
-            reject(new Error(payload.error))
-            return
-          }
-
-          if ('type' in payload) {
-            const event = payload as JobEvent
-            logActivity(`WS ${event.type}`, `${event.status || ''} ${event.processed || ''}/${event.total || ''}`)
-            if (event.type === 'result' || event.status === 'done') {
-              socket.close()
-              await refreshEndpoints()
-              await refreshJobs()
-              resolve()
-            }
-            if (event.status === 'failed' || event.status === 'canceled') {
-              socket.close()
-              reject(new Error(event.error || `Job ${event.status}`))
-            }
-            return
-          }
-
-          const job = payload as Job
-          setJobs((prev) => [job, ...prev.filter((entry) => entry.id !== job.id)])
-          logActivity('WS job created', `${job.id} (${job.type})`)
-        })
-      })
-    })
-
   const startFetch = async () =>
     withAction('Start fetch job', async () => {
       if (!selectedProject || !selectedSite) throw new Error('Select project and site first')
@@ -451,55 +401,6 @@ export default function App() {
         await loadDetails(selectedEndpointUrl)
       }
       await refreshJobs()
-    })
-
-  const startFetchWebSocket = async () =>
-    withAction('Start fetch via websocket', async () => {
-      if (!selectedProject || !selectedSite) throw new Error('Select project and site first')
-
-      await new Promise<void>((resolve, reject) => {
-        const { socket, sendRequest, onMessage } = createFetchSocket(selectedProject, selectedSite, {
-          status: fetchStatus,
-          limit: fetchLimit,
-          config: buildFetchConfig(),
-        })
-
-        socket.onerror = () => reject(new Error('WebSocket connection failed'))
-
-        socket.onopen = () => {
-          // Send request as first message after connection opens
-          sendRequest()
-        }
-
-        onMessage(async (payload) => {
-          pushRaw('ws:fetch', payload)
-          if ('error' in payload && payload.error) {
-            socket.close()
-            reject(new Error(payload.error))
-            return
-          }
-
-          if ('type' in payload) {
-            const event = payload as JobEvent
-            logActivity(`WS ${event.type}`, `${event.status || ''} ${event.processed || ''}/${event.total || ''}`)
-            if (event.type === 'result' || event.status === 'done') {
-              socket.close()
-              await refreshEndpoints()
-              await refreshJobs()
-              resolve()
-            }
-            if (event.status === 'failed' || event.status === 'canceled') {
-              socket.close()
-              reject(new Error(event.error || `Job ${event.status}`))
-            }
-            return
-          }
-
-          const job = payload as Job
-          setJobs((prev) => [job, ...prev.filter((entry) => entry.id !== job.id)])
-          logActivity('WS job created', `${job.id} (${job.type})`)
-        })
-      })
     })
 
   // Demo-specific functions (commented out for now)
@@ -741,21 +642,9 @@ export default function App() {
             </button>
             <button
               disabled={busy || !selectedProject || !selectedSite || selectedWebsiteOriginInvalid}
-              onClick={() => void startEnumerateWebSocket()}
-            >
-              Enumerate (WebSocket)
-            </button>
-            <button
-              disabled={busy || !selectedProject || !selectedSite || selectedWebsiteOriginInvalid}
               onClick={() => void startFetch()}
             >
               Fetch (REST)
-            </button>
-            <button
-              disabled={busy || !selectedProject || !selectedSite || selectedWebsiteOriginInvalid}
-              onClick={() => void startFetchWebSocket()}
-            >
-              Fetch (WebSocket)
             </button>
             <button disabled={busy} onClick={() => void refreshJobs()}>
               Reload jobs
