@@ -13,11 +13,6 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),
       },
-      '^/ws/.*': {
-        target: 'ws://localhost:8080',
-        ws: true,
-        changeOrigin: true,
-      },
     },
   },
   plugins: [react(),tailwindcss()],

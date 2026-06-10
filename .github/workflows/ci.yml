@@ -93,6 +93,8 @@ jobs:
 
       - name: Run tests (race detector) and collect coverage
         # The go test exit code is what fails this step — never mask it.
+        env:
+          SKIP_CHROMEDP: "1"
         run: go test -v -race ./... -coverprofile=coverage.out
 
       - name: Upload coverage artifact
