@@ -15,13 +15,14 @@ import (
 )
 
 type ChromeDPClient struct {
-	baseCtx     context.Context
-	cancel      context.CancelFunc
-	mu          sync.Mutex
-	closed      bool
-	wg          sync.WaitGroup
-	idleTimeout time.Duration
-	logger      logging.Logger
+	baseCtx      context.Context
+	cancel       context.CancelFunc
+	mu           sync.Mutex
+	closed       bool
+	wg           sync.WaitGroup
+	idleTimeout  time.Duration
+	maxBodyBytes int64
+	logger       logging.Logger
 }
 
 func NewChromedpClient(cfg Config, logger logging.Logger) (WebClient, error) {
@@ -44,11 +45,17 @@ func NewChromedpClient(cfg Config, logger logging.Logger) (WebClient, error) {
 	// Create a new context without timeout for normal operation
 	operationalCtx, operationalCancel := chromedp.NewContext(context.Background())
 
+	maxBodyBytes := cfg.MaxBodyBytes
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = DefaultMaxBodyBytes
+	}
+
 	return &ChromeDPClient{
-		baseCtx:     operationalCtx,
-		cancel:      operationalCancel,
-		idleTimeout: 2 * time.Second,
-		logger:      componentLogger,
+		baseCtx:      operationalCtx,
+		cancel:       operationalCancel,
+		idleTimeout:  2 * time.Second,
+		maxBodyBytes: maxBodyBytes,
+		logger:       componentLogger,
 	}, nil
 }
 
@@ -125,6 +132,13 @@ func (cdc *ChromeDPClient) Do(ctx context.Context, req *Request) (*Response, err
 	var html string
 	if err := chromedp.Run(taskCtx, chromedp.OuterHTML("html", &html)); err != nil {
 		return nil, fmt.Errorf("extracting html: %w", err)
+	}
+
+	// Reject oversized documents outright rather than truncating: a partial
+	// body would corrupt downstream snapshots and diffs. Mirrors the nethttp
+	// backend's body cap.
+	if int64(len(html)) > cdc.maxBodyBytes {
+		return nil, fmt.Errorf("%w: %s", ErrBodyTooLarge, req.URL)
 	}
 
 	mainRespMu.Lock()

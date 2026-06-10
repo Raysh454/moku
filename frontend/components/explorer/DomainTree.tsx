@@ -15,7 +15,7 @@ type DomainMenuSection = "enumerate" | "fetch" | "endpoints" | "scan" | null;
 type DomainMenuState = {
   spiderEnabled: boolean;
   spiderDepth: number;
-  spiderConcurrency: number;
+  spiderMaxPages: number;
   sitemapEnabled: boolean;
   robotsEnabled: boolean;
   waybackEnabled: boolean;
@@ -39,7 +39,7 @@ type AnalyzerStatus = {
 const defaultMenuState = (scanUrl = ""): DomainMenuState => ({
   spiderEnabled: true,
   spiderDepth: 4,
-  spiderConcurrency: 5,
+  spiderMaxPages: 1000,
   sitemapEnabled: false,
   robotsEnabled: false,
   waybackEnabled: false,
@@ -64,7 +64,7 @@ const buildEnumerationConfig = (state: DomainMenuState): EnumerationConfig => {
   if (state.spiderEnabled) {
     config.spider = {
       max_depth: state.spiderDepth,
-      concurrency: state.spiderConcurrency,
+      max_pages: state.spiderMaxPages,
     };
   }
   if (state.sitemapEnabled) config.sitemap = {};
@@ -567,16 +567,15 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
                       />
                     </label>
                     <label className="text-[11px] text-slate-300 flex flex-col gap-1">
-                      Spider concurrency
+                      Spider max pages
                       <input
                         type="number"
                         min={1}
-                        max={100}
-                        value={currentMenuState.spiderConcurrency}
+                        value={currentMenuState.spiderMaxPages}
                         onChange={(event) =>
                           updateDomainMenuState(openMenuId, (state) => ({
                             ...state,
-                            spiderConcurrency: Number(event.target.value) || 5,
+                            spiderMaxPages: Number(event.target.value) || 1000,
                           }))
                         }
                         className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px]"

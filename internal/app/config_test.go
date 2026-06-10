@@ -155,6 +155,55 @@ func TestDefaultConfig_AnalyzerBackendFromEnv(t *testing.T) {
 	}
 }
 
+// TestDefaultConfig_AllowPrivateHostsFromEnv exercises the
+// MOKU_ALLOW_PRIVATE_HOSTS env override exposed through
+// app.EnvAllowPrivateHosts. The matrix mirrors the sidecar's truthy
+// convention: "1"/"true"/"yes" (case-insensitive, whitespace-trimmed) enable
+// the escape hatch; anything else — including unset and unrecognized values —
+// keeps the SSRF guard engaged (the secure default).
+func TestDefaultConfig_AllowPrivateHostsFromEnv(t *testing.T) {
+	cases := []struct {
+		name     string
+		envValue string
+		setEnv   bool
+		want     bool
+	}{
+		{name: "unset_keeps_guard", setEnv: false, want: false},
+		{name: "empty_keeps_guard", setEnv: true, envValue: "", want: false},
+		{name: "one_enables", setEnv: true, envValue: "1", want: true},
+		{name: "true_enables", setEnv: true, envValue: "true", want: true},
+		{name: "yes_enables", setEnv: true, envValue: "yes", want: true},
+		{name: "true_uppercase_enables", setEnv: true, envValue: "TRUE", want: true},
+		{name: "yes_whitespace_enables", setEnv: true, envValue: "  yes  ", want: true},
+		{name: "zero_keeps_guard", setEnv: true, envValue: "0", want: false},
+		{name: "false_keeps_guard", setEnv: true, envValue: "false", want: false},
+		{name: "bogus_keeps_guard", setEnv: true, envValue: "maybe", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.setEnv {
+				t.Setenv(app.EnvAllowPrivateHosts, tc.envValue)
+			} else {
+				if prior, present := os.LookupEnv(app.EnvAllowPrivateHosts); present {
+					t.Setenv(app.EnvAllowPrivateHosts, prior)
+				}
+				if err := os.Unsetenv(app.EnvAllowPrivateHosts); err != nil {
+					t.Fatalf("os.Unsetenv: %v", err)
+				}
+			}
+
+			cfg := app.DefaultConfig()
+			if cfg == nil {
+				t.Fatal("DefaultConfig() returned nil")
+			}
+			if got := cfg.WebClientCfg.AllowPrivateHosts; got != tc.want {
+				t.Errorf("WebClientCfg.AllowPrivateHosts = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // captureStandardLogger redirects the default log package output to dst and
 // returns a restore func. Used to assert that invalid env values produce a
 // warning without leaking the warning into test output.
