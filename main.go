@@ -16,25 +16,63 @@ import (
 	"github.com/raysh454/moku/internal/server"
 )
 
-func main() {
-	// Defaults
-	host := "0.0.0.0"
-	port := 8080
+// Default listen host and port. The server binds to loopback by default so a
+// fresh checkout never exposes the API on every interface. Opt into bind-all
+// with MOKU_HOST=0.0.0.0 (or a positional host arg).
+const (
+	defaultListenHost = "127.0.0.1"
+	defaultListenPort = 8080
+)
 
-	// Optional args: [host] [port]
-	args := os.Args[1:]
+// resolveListenAddr derives the HTTP listen address from positional args and
+// environment, with precedence: positional args > MOKU_HOST/MOKU_PORT env >
+// loopback defaults. args is os.Args[1:] ([host] [port]); getenv is injected so
+// the precedence is testable without mutating the process environment.
+func resolveListenAddr(args []string, getenv func(string) string) (string, error) {
+	host := defaultListenHost
+	if envHost := getenv("MOKU_HOST"); envHost != "" {
+		host = envHost
+	}
 	if len(args) >= 1 && args[0] != "" {
 		host = args[0]
 	}
-	if len(args) >= 2 && args[1] != "" {
-		if p, err := strconv.Atoi(args[1]); err == nil && p > 0 && p < 65536 {
-			port = p
-		} else {
-			log.Fatalf("invalid port: %q", args[1])
+
+	port := defaultListenPort
+	if envPort := getenv("MOKU_PORT"); envPort != "" {
+		p, err := parsePort(envPort)
+		if err != nil {
+			return "", fmt.Errorf("invalid MOKU_PORT: %w", err)
 		}
+		port = p
+	}
+	if len(args) >= 2 && args[1] != "" {
+		p, err := parsePort(args[1])
+		if err != nil {
+			return "", fmt.Errorf("invalid port argument: %w", err)
+		}
+		port = p
 	}
 
-	listenAddr := fmt.Sprintf("%s:%d", host, port)
+	return fmt.Sprintf("%s:%d", host, port), nil
+}
+
+// parsePort validates that raw is a TCP port in the range 1..65535.
+func parsePort(raw string) (int, error) {
+	p, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a number", raw)
+	}
+	if p <= 0 || p >= 65536 {
+		return 0, fmt.Errorf("%d is out of range (1..65535)", p)
+	}
+	return p, nil
+}
+
+func main() {
+	listenAddr, err := resolveListenAddr(os.Args[1:], os.Getenv)
+	if err != nil {
+		log.Fatalf("resolving listen address: %v", err)
+	}
 
 	// App config
 	cfg := app.DefaultConfig()

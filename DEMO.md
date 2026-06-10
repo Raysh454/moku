@@ -37,13 +37,20 @@ runs on loopback (`localhost:9999`), set `MOKU_ALLOW_PRIVATE_HOSTS=1` (accepts
 leave it unset in production. On PowerShell, use
 `$env:MOKU_ALLOW_PRIVATE_HOSTS="1"; go run .`.
 
+The API server binds to `127.0.0.1:8080` by default. To listen on all
+interfaces set `MOKU_HOST=0.0.0.0` (or pass `0.0.0.0` as the first positional
+argument: `go run . 0.0.0.0 8080`); override the port with `MOKU_PORT` or the
+second argument. When the server is reachable beyond loopback, set
+`MOKU_API_TOKEN=<secret>` and send the token via the `X-Moku-Token` header
+(the `/jobs/events` SSE stream also accepts `?token=<secret>`).
+
 Default API base URL:
 
-- `http://localhost:8080`
+- `http://127.0.0.1:8080`
 
 Swagger remains available at:
 
-- `http://localhost:8080/swagger/index.html`
+- `http://127.0.0.1:8080/swagger/index.html`
 
 ### Terminal B — Demo website server
 
