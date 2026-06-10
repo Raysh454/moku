@@ -22,10 +22,6 @@ type dummyAssessor struct {
 	res *assessor.ScoreResult
 }
 
-type blockingAssessor struct {
-	sleep time.Duration
-}
-
 func (d *dummyAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
 	if snapshot == nil {
 		return d.ScoreHTML(ctx, nil, "", "", "")
@@ -79,17 +75,6 @@ func (d *dummyAssessor) ExtractEvidence(ctx context.Context, html []byte, opts a
 }
 func (d *dummyAssessor) Close() error { return nil }
 
-func (b *blockingAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
-	select {
-	case <-time.After(b.sleep):
-		return &assessor.ScoreResult{Score: 0.1, Normalized: 10, Confidence: 1, Version: "v-test"}, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-func (b *blockingAssessor) Close() error { return nil }
-
 // openTestDB creates an in-memory sqlite DB and creates the minimal tables used by the tests.
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -122,9 +107,11 @@ func countRows(t *testing.T, db *sql.DB, q string, args ...any) int {
 	return cnt
 }
 
-// scoreAndAttributeVersionForTest is a test helper that calls the internal scoreAndAttribute method
-// with a minimal tracker setup for unit testing scoring logic.
-func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger logging.Logger, assessor assessor.Assessor, scoreTimeout time.Duration, versionID, parentVersionID, diffID, diffJSON string, headBody []byte) error {
+// scoreAndPersistForTest is a test helper that mirrors the fetcher's scoring
+// flow against a minimal tracker setup: it scores a single snapshot with the
+// supplied assessor, then persists the result via PersistScore. Producing the
+// score is the caller's responsibility — exactly as in production now.
+func scoreAndPersistForTest(ctx context.Context, db *sql.DB, logger logging.Logger, assr assessor.Assessor, versionID, parentVersionID string, headBody []byte) error {
 	// Create a minimal temp directory for the tracker
 	tmpDir, err := os.MkdirTemp("", "scoring-test-*")
 	if err != nil {
@@ -134,26 +121,26 @@ func scoreAndAttributeVersionForTest(ctx context.Context, db *sql.DB, logger log
 
 	// Precreate version and snapshot records to satisfy FKs
 	snapshotID := uuid.New().String()
+	url := "https://example.com/test"
 	if _, err := db.Exec(`INSERT INTO versions (id, parent_id, message, author, timestamp) VALUES (?, ?, ?, ?, ?)`, versionID, parentVersionID, "test", "", time.Now().Unix()); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, snapshotID, versionID, 200, "https://example.com/test", "/test", uuid.New().String(), time.Now().Unix(), "{}"); err != nil {
+	if _, err := db.Exec(`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, snapshotID, versionID, 200, url, "/test", uuid.New().String(), time.Now().Unix(), "{}"); err != nil {
 		return err
 	}
 
-	// Use ScoreAttributer directly with a minimal CommitResult
-	sa := score.New(assessor, db, logger)
-	cr := &models.CommitResult{
-		Version:   models.Version{ID: versionID, Parent: parentVersionID},
-		DiffID:    diffID,
-		DiffJSON:  diffJSON,
-		Snapshots: []*models.Snapshot{{ID: snapshotID, URL: "https://example.com/test", Body: headBody}},
+	snapshot := &models.Snapshot{ID: snapshotID, URL: url, Body: headBody}
+	scoreResult, err := assr.ScoreSnapshot(ctx, snapshot, versionID)
+	if err != nil {
+		return err
 	}
-	return sa.ScoreAndAttribute(ctx, cr, scoreTimeout)
+
+	sa := score.New(db, logger)
+	return sa.PersistScore(ctx, scoreResult, snapshotID, versionID, url)
 }
 
-// Test initial page (no parent) persists version_scores and version_evidence_locations
-func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testing.T) {
+// Test initial page (no parent) persists score_results and evidence_items.
+func TestPersistScore_InitialPage_PersistsEvidenceItems(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
@@ -180,9 +167,9 @@ func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testi
 
 	versionID := uuid.New().String()
 
-	// Call with no parent/diff
-	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, 30*time.Second, versionID, "", "", "", []byte(`<html><body><form id="login"></form></body></html>`)); err != nil {
-		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
+	// Score and persist with no parent.
+	if err := scoreAndPersistForTest(context.Background(), db, logger, assr, versionID, "", []byte(`<html><body><form id="login"></form></body></html>`)); err != nil {
+		t.Fatalf("scoreAndPersistForTest failed: %v", err)
 	}
 
 	// score_results row exists
@@ -200,40 +187,10 @@ func TestScoreAndAttributeVersion_InitialPage_PersistsEvidenceLocations(t *testi
 	}
 }
 
-func TestScoreAndAttributeVersion_RespectsProvidedTimeoutDuration(t *testing.T) {
+// Test that a scored snapshot with a parent version persists its evidence items.
+func TestPersistScore_WithParent_PersistsEvidenceItems(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
-
-	assr := &blockingAssessor{sleep: 25 * time.Millisecond}
-	logger := logging.Logger(nil)
-
-	versionID := uuid.New().String()
-
-	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, 20*time.Millisecond, versionID, "", "", "", []byte(`<html><body>slow</body></html>`)); err != nil {
-		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
-	}
-
-	if cnt := countRows(t, db, `SELECT COUNT(1) FROM score_results WHERE version_id = ?`, versionID); cnt != 0 {
-		t.Fatalf("expected 0 score_results rows when scoring times out, got %d", cnt)
-	}
-}
-
-// Test that attribution with a diff maps locations to the expected chunk index and inserts diff_attributions
-func TestScoreAndAttributeVersion_WithDiff_AttributesLocations(t *testing.T) {
-	db := openTestDB(t)
-	defer db.Close()
-
-	// diff JSON: chunk 1 contains the login form
-	diffID := uuid.New().String()
-	diffJSON := `{
-		"body_diff": {
-			"chunks": [
-				{"type":"removed","content":"<div id=\"old\">Old</div>"},
-				{"type":"added","content":"<form id=\"login\"><input name=\"username\"/></form>"},
-				{"type":"added","content":"<style>.btn{color:red}</style>"}
-			]
-		}
-	}`
 
 	// assessor returns evidence with selector matching form#login
 	score := &assessor.ScoreResult{
@@ -259,8 +216,8 @@ func TestScoreAndAttributeVersion_WithDiff_AttributesLocations(t *testing.T) {
 	versionID := uuid.New().String()
 	parentVersionID := uuid.New().String()
 
-	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, 30*time.Second, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><form id="login"><input name="username"/></form></body></html>`)); err != nil {
-		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
+	if err := scoreAndPersistForTest(context.Background(), db, logger, assr, versionID, parentVersionID, []byte(`<html><body><form id="login"><input name="username"/></form></body></html>`)); err != nil {
+		t.Fatalf("scoreAndPersistForTest failed: %v", err)
 	}
 
 	// evidence_items exist for the score
@@ -273,24 +230,14 @@ func TestScoreAndAttributeVersion_WithDiff_AttributesLocations(t *testing.T) {
 	}
 }
 
-// Test that evidence with multiple locations splits weights proportionally based on per-location confidence.
-func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) {
+// Test that an evidence item with multiple locations persists as a single
+// evidence_items row.
+func TestPersistScore_MultipleLocations_PersistsSingleEvidenceItem(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
 	// parent version id (no pre-insert of scores needed under new schema)
 	parentVersionID := uuid.New().String()
-
-	// diff with two chunks matched by selectors .a and .b
-	diffID := uuid.New().String()
-	diffJSON := `{
-		"body_diff": {
-			"chunks": [
-				{"type":"added","content":"<div class=\"a\">one</div>"},
-				{"type":"added","content":"<div class=\"b\">two</div>"}
-			]
-		}
-	}`
 
 	// evidence with two locations, confidences 1.0 and 0.5 (expected weights 2:1)
 	score := &assessor.ScoreResult{
@@ -316,8 +263,8 @@ func TestScoreAndAttributeVersion_MultipleLocations_SplitsWeights(t *testing.T) 
 	logger := logging.Logger(nil)
 	versionID := uuid.New().String()
 
-	if err := scoreAndAttributeVersionForTest(context.Background(), db, logger, assr, 30*time.Second, versionID, parentVersionID, diffID, diffJSON, []byte(`<html><body><div class="a">one</div><div class="b">two</div></body></html>`)); err != nil {
-		t.Fatalf("scoreAndAttributeVersionForTest failed: %v", err)
+	if err := scoreAndPersistForTest(context.Background(), db, logger, assr, versionID, parentVersionID, []byte(`<html><body><div class="a">one</div><div class="b">two</div></body></html>`)); err != nil {
+		t.Fatalf("scoreAndPersistForTest failed: %v", err)
 	}
 
 	// Expect one evidence_items row for this score (one evidence with two locations)
@@ -339,7 +286,7 @@ func TestSQLiteScoreTracker_GetScoreResultFromSnapshotID_NoRow_Legacy(t *testing
 	defer db.Close()
 
 	logger := logging.Logger(nil)
-	sa := score.New(nil, db, logger)
+	sa := score.New(db, logger)
 
 	ctx := context.Background()
 	res, err := sa.GetScoreResultFromSnapshotID(ctx, "non-existent")
@@ -356,7 +303,7 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
 	defer db.Close()
 
 	logger := logging.Logger(nil)
-	sa := score.New(nil, db, logger)
+	sa := score.New(db, logger)
 
 	ctx := context.Background()
 
@@ -525,7 +472,7 @@ func TestSQLiteScoreTracker_GetScoreResultFromSnapshotID_NoRow(t *testing.T) {
 	defer db.Close()
 
 	logger := logging.Logger(nil)
-	sa := score.New(nil, db, logger)
+	sa := score.New(db, logger)
 
 	ctx := context.Background()
 	res, err := sa.GetScoreResultFromSnapshotID(ctx, "non-existent")
@@ -542,7 +489,7 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs(t *testing.T) {
 	defer db.Close()
 
 	logger := logging.Logger(nil)
-	sa := score.New(nil, db, logger)
+	sa := score.New(db, logger)
 
 	ctx := context.Background()
 

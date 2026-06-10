@@ -18,7 +18,7 @@ func newTestTracker(t *testing.T) (tracker.Tracker, string) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: dir,
 		ProjectID:   "extended-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker: %v", err)
 	}

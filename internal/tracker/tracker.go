@@ -18,7 +18,6 @@ package tracker
 import (
 	"context"
 	"database/sql"
-	"time"
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -135,9 +134,6 @@ type VersionHistory interface {
 // ScoreStore attributes security scores to committed versions and retrieves
 // score results and security-focused diffs.
 type ScoreStore interface {
-	// ScoreAndAttributeVersion assigns a score (security relavance) for a given commit result
-	ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, scoreTimeout time.Duration) error
-
 	// PersistScore stores a precomputed score result for a snapshot/version.
 	// Producing the score is the caller's responsibility.
 	PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error
@@ -155,9 +151,6 @@ type ScoreStore interface {
 	// GetSecurityDiff gets a detailed security diff between two snapshots.
 	// Enforces that both snapshots belong to the same URL.
 	GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error)
-
-	// SetAssessor sets the Assessor used by ScoreAndAttributeVersion to produce a score.
-	SetAssessor(a assessor.Assessor)
 }
 
 // TrackerAdmin owns the tracker's lifecycle and its underlying storage resources.
