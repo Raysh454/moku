@@ -21,7 +21,7 @@ func TestFetch_SingleVersion(t *testing.T) {
 		CommitSize:     2, // Force multiple batches
 	}
 
-	f, err := fetcher.New(cfg, tr, wc, idx, logger)
+	f, err := fetcher.New(cfg, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestFetch_LargeSet(t *testing.T) {
 		CommitSize:     100,
 	}
 
-	f, err := fetcher.New(cfg, tr, wc, idx, logger)
+	f, err := fetcher.New(cfg, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestFetch_WithCancellation(t *testing.T) {
 		CommitSize:     10,
 	}
 
-	f, err := fetcher.New(cfg, tr, wc, idx, logger)
+	f, err := fetcher.New(cfg, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestFetch_WithErrors(t *testing.T) {
 		CommitSize:     10,
 	}
 
-	f, err := fetcher.New(cfg, tr, wc, idx, logger)
+	f, err := fetcher.New(cfg, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}

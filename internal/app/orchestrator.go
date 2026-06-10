@@ -564,6 +564,7 @@ func (o *Orchestrator) createCustomFetcher(fetcherCfg fetcher.Config, comps *Sit
 		comps.Tracker,
 		comps.WebClient,
 		comps.Index,
+		comps.Assessor,
 		o.logger,
 	)
 }
