@@ -125,9 +125,26 @@ The HTTP server exposes interactive API documentation powered by Swagger/UI. Reg
   ```bash
   make swagger
   ```
-3. Run the server (`go run .` or `make run`) and open `http://localhost:8080/swagger/index.html` (adjust the port if you changed `ListenAddr`). You can read every endpoint description and use **Try it out** to exercise the REST endpoints without building a full UI.
+3. Run the server (`go run .` or `make run`) and open `http://127.0.0.1:8080/swagger/index.html` (adjust the port if you changed it). You can read every endpoint description and use **Try it out** to exercise the REST endpoints without building a full UI.
 
 The generated files live under `docs/swagger/` and are committed so CI/CD environments can serve the docs without running `swag init`.
+
+### Listen address and authentication
+
+The server binds to `127.0.0.1:8080` by default — a fresh checkout never exposes the API on every network interface. Override the bind address by precedence (highest first):
+
+1. Positional arguments: `go run . <host> <port>` (e.g. `go run . 0.0.0.0 9090`).
+2. Environment: `MOKU_HOST` and `MOKU_PORT`.
+3. Defaults: `127.0.0.1` and `8080`.
+
+To listen on all interfaces, set `MOKU_HOST=0.0.0.0` (or pass `0.0.0.0` as the first positional argument). Invalid ports fail fast.
+
+Set `MOKU_API_TOKEN` to require a shared secret on every request. When set, callers must send the token in the `X-Moku-Token` header (the `GET /jobs/events` SSE stream also accepts it as a `?token=` query parameter, since browser `EventSource` cannot set headers). `OPTIONS` preflight requests and `/swagger/` paths are exempt. When `MOKU_API_TOKEN` is unset the middleware is a no-op (no authentication is enforced) — set it whenever the server is reachable beyond loopback.
+
+Other environment variables:
+
+- `MOKU_ALLOWED_ORIGINS` — comma-separated CORS origin allowlist; unset (or `*`) keeps the permissive dev default.
+- `MOKU_ALLOW_PRIVATE_HOSTS` — set truthy to let the fetcher dial loopback/private hosts (local demo only; leave unset in production).
 
 Compose/wire components (example)
 - Create a net/http-backed WebClient (use `nil` for a default `*http.Client` or inject a configured client):
