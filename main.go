@@ -103,13 +103,24 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		log.Println("Closing orchestrator and components...")
-		srv.Close()
+		// 1. Begin shutdown: reject new jobs, cancel running ones, and close the
+		//    event broker so open SSE streams return. The HTTP server has no
+		//    write timeout, so without closing the broker first, Shutdown would
+		//    block on every open stream until the context deadline.
+		log.Println("Beginning graceful shutdown (canceling jobs, closing event streams)...")
+		srv.BeginShutdown()
 
+		// 2. Drain in-flight HTTP requests while the registry and per-site DBs are
+		//    still open, so requests never hit a closed database.
 		log.Println("Shutting down HTTP server...")
 		if err := httpServer.Shutdown(ctx); err != nil {
 			log.Printf("HTTP server shutdown error: %v", err)
 		}
+
+		// 3. Close: wait for job goroutines to unwind, then close site components
+		//    and the registry DB.
+		log.Println("Closing orchestrator and components...")
+		srv.Close()
 
 		close(idleConnsClosed)
 	}()

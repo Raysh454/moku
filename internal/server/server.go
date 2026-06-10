@@ -272,6 +272,17 @@ func redactedQuery(q url.Values) url.Values {
 	return clone
 }
 
+// BeginShutdown starts a graceful shutdown of the orchestrator (reject new
+// jobs, cancel running ones, close the event broker) without tearing down
+// components. Closing the broker unblocks open SSE streams so a graceful HTTP
+// shutdown can drain. Callers should run this before httpServer.Shutdown and
+// follow with Close once requests have drained.
+func (s *Server) BeginShutdown() {
+	if s.orchestrator != nil {
+		s.orchestrator.BeginShutdown()
+	}
+}
+
 // Close shuts down the orchestrator and underlying resources.
 func (s *Server) Close() {
 	if s.orchestrator != nil {
