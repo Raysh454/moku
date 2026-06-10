@@ -20,4 +20,12 @@ type Config struct {
 	// variable (comma-separated). An empty result or a list containing "*"
 	// preserves the permissive dev default.
 	AllowedOrigins []string
+
+	// APIToken is the shared secret required on every request via the
+	// X-Moku-Token header (or the ?token= query parameter on the SSE stream).
+	// When empty, the server falls back to the MOKU_API_TOKEN environment
+	// variable. When both are empty the auth middleware is a no-op and no
+	// authentication is enforced — set it whenever the server is reachable
+	// beyond loopback.
+	APIToken string
 }

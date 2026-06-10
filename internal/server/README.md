@@ -312,7 +312,25 @@ Behavior:
 - SSE events include the `project` and `website` context to allow efficient client-side routing.
 - The connection stays open until the client disconnects or the server shuts down.
 
+## Authentication
+
+The server supports an optional shared-token authentication middleware. Set the
+token via `Config.APIToken` or the `MOKU_API_TOKEN` environment variable
+(`Config.APIToken` wins; otherwise the env var is read at construction).
+
+- When the token is **unset**, the middleware is a no-op — no authentication is
+  enforced. Set it whenever the server is reachable beyond loopback.
+- When the token is **set**, every request must present a matching token in the
+  `X-Moku-Token` header. The `GET /jobs/events` SSE stream additionally accepts
+  `?token=<secret>` as a query-parameter fallback, because browser `EventSource`
+  clients cannot set request headers.
+- `OPTIONS` preflight requests and `/swagger/` paths are exempt.
+- Token comparison hashes both sides with SHA-256 and uses a constant-time
+  compare, so neither timing nor length leaks the configured token.
+- A failed check returns `401 Unauthorized` with `{"error":"unauthorized"}`.
+
+CORS is governed separately by `Config.AllowedOrigins` / `MOKU_ALLOWED_ORIGINS`.
+
 ## Notes
 
-- Authentication, authorization, and CORS are not enforced in `internal/server` as written; callers should front this with appropriate middleware in production.
 - Error messages are passed through from underlying orchestrator/registry components and are primarily intended for debugging and internal tooling rather than public exposure.
