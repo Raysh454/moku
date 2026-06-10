@@ -179,6 +179,10 @@ func (t *DummyTracker) ScoreAndAttributeVersion(context.Context, *models.CommitR
 	return nil
 }
 
+func (t *DummyTracker) PersistScore(context.Context, *assessor.ScoreResult, string, string, string) error {
+	return nil
+}
+
 func (t *DummyTracker) SetAssessor(assessor.Assessor) {}
 
 func (t *DummyTracker) GetScoreResultFromSnapshotID(context.Context, string) (*assessor.ScoreResult, error) {
