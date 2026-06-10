@@ -12,8 +12,10 @@ type EnumerationConfig struct {
 
 // SpiderConfig configures the spider enumerator.
 type SpiderConfig struct {
-	MaxDepth    int `json:"max_depth,omitempty" example:"4"`
-	Concurrency int `json:"concurrency,omitempty" example:"5"`
+	MaxDepth int `json:"max_depth,omitempty" example:"4"`
+	// MaxPages bounds the total number of pages a single crawl will discover.
+	// Zero applies the server-side default.
+	MaxPages int `json:"max_pages,omitempty" example:"1000"`
 }
 
 // SitemapConfig enables sitemap enumeration. Presence indicates enabled.
