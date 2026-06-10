@@ -23,7 +23,22 @@ var schemaFS embed.FS
 var (
 	ErrProjectNotFound = errors.New("project not found")
 	ErrWebsiteNotFound = errors.New("website not found")
+	// ErrDuplicateSlug is returned when creating a project or website whose slug
+	// collides with an existing one (project slugs are globally unique; website
+	// slugs are unique within their project).
+	ErrDuplicateSlug = errors.New("slug already exists")
 )
+
+// uniqueConstraintMarker is the substring modernc.org/sqlite includes in the
+// error string for a UNIQUE constraint violation. The driver exposes no typed
+// error, so substring matching is the supported detection mechanism.
+const uniqueConstraintMarker = "UNIQUE constraint failed"
+
+// isUniqueConstraintViolation reports whether err is a SQLite UNIQUE constraint
+// failure.
+func isUniqueConstraintViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), uniqueConstraintMarker)
+}
 
 // Registry manages projects and websites metadata in SQLite plus
 // a filesystem layout under rootDir:
@@ -214,6 +229,9 @@ func (r *Registry) CreateProject(ctx context.Context, slug, name, description st
 		id, slug, name, description, now, "{}", dirName,
 	)
 	if err != nil {
+		if isUniqueConstraintViolation(err) {
+			return nil, fmt.Errorf("%w: %q", ErrDuplicateSlug, slug)
+		}
 		return nil, fmt.Errorf("insert project: %w", err)
 	}
 
@@ -363,6 +381,9 @@ func (r *Registry) CreateWebsite(ctx context.Context, projectIdentifier string, 
 		id, projectID, slug, origin, absPath, now, "{}", originDirName,
 	)
 	if err != nil {
+		if isUniqueConstraintViolation(err) {
+			return nil, fmt.Errorf("%w: %q", ErrDuplicateSlug, slug)
+		}
 		return nil, fmt.Errorf("insert website: %w", err)
 	}
 
