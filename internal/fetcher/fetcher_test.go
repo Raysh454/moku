@@ -52,6 +52,15 @@ func (d *DummyWebClient) Get(ctx context.Context, url string) (*webclient.Respon
 
 func (d *DummyWebClient) Close() error { return nil }
 
+// persistScoreCall records the arguments of one PersistScore invocation so
+// tests can assert which scores the fetcher attributed.
+type persistScoreCall struct {
+	Result     *assessor.ScoreResult
+	SnapshotID string
+	VersionID  string
+	URL        string
+}
+
 // Dummy Tracker
 type DummyTracker struct {
 	mu             sync.Mutex
@@ -59,6 +68,7 @@ type DummyTracker struct {
 	PendingCommit  *models.PendingCommit
 	AllSnapshots   []*models.Snapshot // Track all snapshots across batches
 	FinalizedCount int                // Track how many times FinalizeCommit was called
+	PersistedScore []persistScoreCall // Records every PersistScore invocation
 }
 
 func (t *DummyTracker) Commit(ctx context.Context, snap *models.Snapshot, message, author string) (*models.CommitResult, error) {
@@ -147,6 +157,14 @@ func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.
 }
 
 func (t *DummyTracker) PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.PersistedScore = append(t.PersistedScore, persistScoreCall{
+		Result:     scoreResult,
+		SnapshotID: snapshotID,
+		VersionID:  versionID,
+		URL:        url,
+	})
 	return nil
 }
 
@@ -209,6 +227,30 @@ func (t *DummyTracker) ReadHEAD() (string, error) { return "", nil }
 func (t *DummyTracker) DB() *sql.DB { return nil }
 
 func (t *DummyTracker) Close() error { return nil }
+
+// stubAssessor is an assessor.Assessor test double that returns a fixed,
+// per-snapshot ScoreResult so the fetcher's scoring orchestration can be
+// observed without real heuristics. It also records the context it was
+// scored with so timeout propagation can be asserted.
+type stubAssessor struct {
+	mu        sync.Mutex
+	scoredCtx []context.Context
+}
+
+const stubAssessorScore = 0.77
+
+func (s *stubAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
+	s.mu.Lock()
+	s.scoredCtx = append(s.scoredCtx, ctx)
+	s.mu.Unlock()
+	return &assessor.ScoreResult{
+		Score:      stubAssessorScore,
+		SnapshotID: snapshot.ID,
+		VersionID:  versionID,
+	}, nil
+}
+
+func (s *stubAssessor) Close() error { return nil }
 
 // Dummy Logger implementing the full Logger interface
 type DummyLogger struct {
@@ -355,7 +397,7 @@ func TestFetcher_Batching(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,6 +418,73 @@ func TestFetcher_Batching(t *testing.T) {
 	}
 }
 
+// TestFetch_ScoresSnapshotsWithInjectedAssessorAndPersists: given a fetcher
+// constructed with an injected assessor, when a fetch commits N snapshots, then
+// the fetcher scores each one and persists exactly N results carrying the
+// assessor's scores.
+func TestFetch_ScoresSnapshotsWithInjectedAssessorAndPersists(t *testing.T) {
+	ctx := context.Background()
+
+	tr := &DummyTracker{}
+	wc := &DummyWebClient{}
+	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
+	scorer := &stubAssessor{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, scorer, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	urls := []string{"a", "b", "c"}
+	if err := f.Fetch(ctx, urls, nil); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	if len(tr.PersistedScore) != len(urls) {
+		t.Fatalf("expected %d PersistScore calls, got %d", len(urls), len(tr.PersistedScore))
+	}
+	for _, call := range tr.PersistedScore {
+		if call.Result == nil {
+			t.Fatalf("PersistScore received a nil score result")
+		}
+		if call.Result.Score != stubAssessorScore {
+			t.Errorf("expected persisted score %v, got %v", stubAssessorScore, call.Result.Score)
+		}
+	}
+}
+
+// TestFetch_NilAssessorSkipsScoring: given a fetcher constructed with a nil
+// assessor, when a fetch commits snapshots, then scoring is skipped entirely
+// (no PersistScore calls) and the fetch still succeeds.
+func TestFetch_NilAssessorSkipsScoring(t *testing.T) {
+	ctx := context.Background()
+
+	tr := &DummyTracker{}
+	wc := &DummyWebClient{}
+	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, nil, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.Fetch(ctx, []string{"a", "b"}, nil); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	if len(tr.PersistedScore) != 0 {
+		t.Fatalf("expected 0 PersistScore calls with a nil assessor, got %d", len(tr.PersistedScore))
+	}
+}
+
 func TestFetcher_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -384,7 +493,7 @@ func TestFetcher_ContextCancellation(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 10, CommitSize: 3}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 10, CommitSize: 3}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +520,7 @@ func TestFetcher_LogsFetchErrors_AndMarksFailed(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +552,7 @@ func TestFetcher_FetchResponseBodies(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 2}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +586,7 @@ func TestFetcher_FinalBatchFlush(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 3}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 3}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +614,7 @@ func TestFetcher_ConcurrentFetchSafety(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 20, CommitSize: 5}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 20, CommitSize: 5}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -549,7 +658,7 @@ func TestFetcher_WorkerPoolLimitsGoroutines(t *testing.T) {
 	idx := &DummyEndpointIndex{}
 
 	maxConcurrency := 5
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: maxConcurrency, CommitSize: 10}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: maxConcurrency, CommitSize: 10}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +693,7 @@ func TestFetcher_WorkerPoolWithSingleWorker(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 1, CommitSize: 2}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 1, CommitSize: 2}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +720,7 @@ func TestFetcher_WorkerPoolWithHighConcurrency(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 100, CommitSize: 5}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 100, CommitSize: 5}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +752,7 @@ func TestFetcher_WorkerPoolCancellationMidFetch(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 10}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 10}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,7 +799,7 @@ func TestFetcher_WorkerPoolErrorHandlingDoesNotBlock(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 10, CommitSize: 5}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 10, CommitSize: 5}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -731,7 +840,7 @@ func TestFetcher_WorkerPoolProcessesAllURLs(t *testing.T) {
 	idx := &DummyEndpointIndex{}
 
 	maxConcurrency := 3
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: maxConcurrency, CommitSize: 2}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: maxConcurrency, CommitSize: 2}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,7 +879,7 @@ func TestFetcher_WorkerPoolProgressCallback(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 3}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 3}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -859,7 +968,7 @@ func TestFetchWithOptions_StatusCodeFiltering(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -934,7 +1043,7 @@ func TestFetchWithOptions_NoFilterConfig(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -976,7 +1085,7 @@ func TestFetchWithOptions_MultipleStatusCodesFiltered(t *testing.T) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -1043,7 +1152,7 @@ func TestFetchFromIndexWithOptions_AllSkipsAlreadyFiltered(t *testing.T) {
 	}
 	wc := &DummyWebClient{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -1107,7 +1216,7 @@ func benchmarkFetcherWorkPool(b *testing.B, numURLs, maxConcurrency int) {
 		logger := &DummyLogger{}
 		idx := &DummyEndpointIndex{}
 
-		f, _ := fetcher.New(fetcher.Config{MaxConcurrency: maxConcurrency, CommitSize: 100}, tr, wc, idx, logger)
+		f, _ := fetcher.New(fetcher.Config{MaxConcurrency: maxConcurrency, CommitSize: 100}, tr, wc, idx, nil, logger)
 		_ = f.Fetch(ctx, urls, nil)
 	}
 }
@@ -1125,7 +1234,7 @@ func TestFetcher_FailAllRequestsReturnsError(t *testing.T) {
 		MaxConcurrency: 4,
 		CommitSize:     10,
 	}
-	f, _ := fetcher.New(cfg, tr, wc, nil, &DummyLogger{})
+	f, _ := fetcher.New(cfg, tr, wc, nil, nil, &DummyLogger{})
 
 	err := f.Fetch(context.Background(), []string{"https://fail.com", "https://broken.io"}, nil)
 
@@ -1155,7 +1264,7 @@ func BenchmarkFetcher_MemoryUsage_1000URLs(b *testing.B) {
 	logger := &DummyLogger{}
 	idx := &DummyEndpointIndex{}
 
-	f, _ := fetcher.New(fetcher.Config{MaxConcurrency: 10, CommitSize: 100}, tr, wc, idx, logger)
+	f, _ := fetcher.New(fetcher.Config{MaxConcurrency: 10, CommitSize: 100}, tr, wc, idx, nil, logger)
 
 	b.ReportAllocs()
 	b.ResetTimer()

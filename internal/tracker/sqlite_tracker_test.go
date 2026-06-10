@@ -324,7 +324,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 		t.Fatal("Spider should discover at least one page")
 	}
 
-	fcher, err := fetcher.New(fetcher.Config{MaxConcurrency: 3, CommitSize: 1024, ScoreTimeout: 15 * time.Second}, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), logger)
+	fcher, err := fetcher.New(fetcher.Config{MaxConcurrency: 3, CommitSize: 1024, ScoreTimeout: 15 * time.Second}, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), a, logger)
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestNewSQLiteTracker_LiveSite(t *testing.T) {
 		t.Fatal("Spider should discover at least one page from dsu.edu.pk")
 	}
 
-	fcher, err := fetcher.New(fetcher.Config{MaxConcurrency: 3, CommitSize: 1024, ScoreTimeout: 15 * time.Second}, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), logger)
+	fcher, err := fetcher.New(fetcher.Config{MaxConcurrency: 3, CommitSize: 1024, ScoreTimeout: 15 * time.Second}, tr, wc, indexer.NewIndex(tr.DB(), logger, utils.CanonicalizeOptions{}), a, logger)
 	if err != nil {
 		t.Fatalf("Failed to create fetcher: %v", err)
 	}
