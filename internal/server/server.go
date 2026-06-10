@@ -35,6 +35,7 @@ type Server struct {
 	logger         logging.Logger
 	registryDB     *sql.DB
 	allowedOrigins []string
+	apiToken       string
 }
 
 // openRegistryDB opens the shared registry database under storageRoot. The
@@ -98,6 +99,7 @@ func NewServer(cfg Config) (*Server, error) {
 		logger:         logger,
 		registryDB:     db,
 		allowedOrigins: resolveAllowedOrigins(cfg),
+		apiToken:       resolveAPIToken(cfg),
 	}
 
 	s.routes()
@@ -113,6 +115,7 @@ func (s *Server) routes() {
 	r := s.router
 
 	r.Use(s.corsMiddleware)
+	r.Use(s.authMiddleware)
 
 	// Interactive Swagger docs (development helper)
 	r.Get("/swagger/*", httpSwagger.Handler(
@@ -196,7 +199,7 @@ func (s *Server) routes() {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Moku-Token")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 		s.applyAllowOriginHeader(w, r)
 
