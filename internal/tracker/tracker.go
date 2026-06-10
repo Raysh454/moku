@@ -138,6 +138,10 @@ type ScoreStore interface {
 	// ScoreAndAttributeVersion assigns a score (security relavance) for a given commit result
 	ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, scoreTimeout time.Duration) error
 
+	// PersistScore stores a precomputed score result for a snapshot/version.
+	// Producing the score is the caller's responsibility.
+	PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error
+
 	// GetScoreResult retrieves the ScoreResult associated with a specific snapshot ID.
 	GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error)
 

@@ -75,7 +75,7 @@ func (scoreTracker *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, c
 			continue
 		}
 
-		if err := scoreTracker.attributeScore(ctx, scoreResult, snapshot.ID, commitResult.Version.ID, snapshot.URL); err != nil {
+		if err := scoreTracker.PersistScore(ctx, scoreResult, snapshot.ID, commitResult.Version.ID, snapshot.URL); err != nil {
 			if scoreTracker.logger != nil {
 				scoreTracker.logger.Warn("attributeScore failed", logging.Field{Key: "version_id", Value: commitResult.Version.ID}, logging.Field{Key: "error", Value: err})
 			}
@@ -85,7 +85,9 @@ func (scoreTracker *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, c
 	return nil
 }
 
-func (scoreTracker *SQLiteScoreTracker) attributeScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
+// PersistScore stores a precomputed score result; producing the score is the
+// caller's responsibility.
+func (scoreTracker *SQLiteScoreTracker) PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
 	scoreJSON, err := json.Marshal(scoreResult)
 	if err != nil {
 		if scoreTracker.logger != nil {

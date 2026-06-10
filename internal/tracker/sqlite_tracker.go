@@ -1311,6 +1311,10 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models
 	return t.score.ScoreAndAttribute(ctx, cr, scoreTimeout)
 }
 
+func (t *SQLiteTracker) PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
+	return t.score.PersistScore(ctx, scoreResult, snapshotID, versionID, url)
+}
+
 func (t *SQLiteTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
 	return t.score.GetScoreResultFromSnapshotID(ctx, snapshotID)
 }

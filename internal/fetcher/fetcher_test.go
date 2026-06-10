@@ -146,6 +146,10 @@ func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.
 	return nil
 }
 
+func (t *DummyTracker) PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
+	return nil
+}
+
 func (t *DummyTracker) SetAssessor(a assessor.Assessor) {}
 
 func (t *DummyTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
