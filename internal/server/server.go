@@ -1,13 +1,12 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -242,20 +241,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		{Key: "path", Value: r.URL.Path},
 	}
 
-	if q := r.URL.Query(); len(q) > 0 {
+	if q := redactedQuery(r.URL.Query()); len(q) > 0 {
 		fields = append(fields, logging.Field{Key: "query", Value: q})
 	}
 
-	if r.Body != nil && (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch) {
-		if bodyBytes, err := io.ReadAll(r.Body); err == nil {
-			fields = append(fields, logging.Field{Key: "body", Value: string(bodyBytes)})
-			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		}
+	// Never log request bodies — they may carry credentials or payloads. Record
+	// only the declared size so request volume stays observable.
+	if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
+		fields = append(fields, logging.Field{Key: "content_length", Value: r.ContentLength})
 	}
 
 	s.logger.Info("http_request", fields...)
 
 	s.router.ServeHTTP(w, r)
+}
+
+// redactedQuery returns a copy of the query values with the auth token masked,
+// so the shared secret never reaches the logs.
+func redactedQuery(q url.Values) url.Values {
+	if len(q) == 0 {
+		return q
+	}
+	clone := make(url.Values, len(q))
+	for k, v := range q {
+		clone[k] = v
+	}
+	if _, ok := clone[queryAPITokenParam]; ok {
+		clone[queryAPITokenParam] = []string{"[REDACTED]"}
+	}
+	return clone
 }
 
 // Close shuts down the orchestrator and underlying resources.
