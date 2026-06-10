@@ -98,18 +98,15 @@ func buildEvidenceFromAttackSurface(as *attacksurface.AttackSurface, withLocatio
 		var key, desc, severity string
 		switch {
 		case strings.Contains(action, "admin") || strings.Contains(action, "/admin"):
-			key, desc, severity = "admin_form", "Page contains forms targeting admin-like paths", "high"
+			key, desc, severity = "form_admin", "Page contains forms targeting admin-like paths", "high"
 		case strings.Contains(action, "login") || strings.Contains(action, "signin") || strings.Contains(action, "auth"):
-			key, desc, severity = "auth_form", "Page contains login/authentication forms", "medium"
+			key, desc, severity = "form_auth", "Page contains login/authentication forms", "medium"
 		case strings.Contains(action, "upload") || strings.Contains(action, "/upload") || strings.Contains(action, "file"):
-			key, desc, severity = "upload_form", "Page contains forms targeting upload endpoints", "high"
+			key, desc, severity = "form_upload", "Page contains forms targeting upload endpoints", "high"
 		default:
 			key, desc, severity = "form", "HTML form on the page", "low"
 		}
-		score := attacksurface.ElementScores["form_"+key[0:0]]
-		if s, ok := attacksurface.ElementScores[key]; ok {
-			score = s
-		}
+		score := attacksurface.ElementScores[key]
 		ev := EvidenceItem{Key: key, RuleID: key, Severity: severity, Description: desc, Contribution: score}
 		if withLocations {
 			idx := form.DOMIndex
