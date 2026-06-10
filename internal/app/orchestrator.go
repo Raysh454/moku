@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/raysh454/moku/internal/analyzer"
 	"github.com/raysh454/moku/internal/api"
@@ -19,6 +20,11 @@ import (
 	"github.com/raysh454/moku/internal/utils"
 	"github.com/raysh454/moku/internal/webclient"
 )
+
+// orchestratorShutdownTimeout bounds how long Close waits for in-flight job
+// goroutines to unwind after they have been canceled, so a wedged job can
+// never block shutdown indefinitely.
+const orchestratorShutdownTimeout = 10 * time.Second
 
 // Orchestrator is the facade composing the platform's pillars. It delegates
 // per-site component caching to siteComponentsCatalog, job bookkeeping to
@@ -156,46 +162,18 @@ func (o *Orchestrator) StartFetchJob(ctx context.Context, project, site, status 
 	job := o.jobs.newJob("fetch", project, site)
 	jobID := job.ID
 
-	o.jobs.set(job)
-
-	jobCtx, cancel := context.WithCancel(ctx)
-	o.jobs.registerCancel(jobID, cancel)
-
-	// Emit initial pending event
-	o.emitJobEvent(jobID, JobEvent{
-		JobID:  jobID,
-		Type:   JobEventStatus,
-		Status: JobPending,
-	})
-	jobSnapshot := cloneJob(job)
-
-	go func() {
-		defer o.jobs.finish(jobID)
-		o.setJobStatus(jobID, JobRunning, nil)
-
+	work := func(jobCtx context.Context) (func(), error) {
 		cb := o.progressCallback(jobID)
 		o.logger.Info("Starting fetch job", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "website", Value: site}, logging.Field{Key: "status", Value: status}, logging.Field{Key: "limit", Value: limit})
 		overview, err := o.FetchWebsiteEndpoints(jobCtx, project, site, status, limit, cfg, cb)
 		if err != nil {
 			o.logger.Error("Orchestrator (StartFetchJob): Fetch job failed", logging.Field{Key: "job_id", Value: jobID}, logging.Field{Key: "error", Value: err.Error()})
-			select {
-			case <-jobCtx.Done():
-				o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
-			default:
-				o.setJobStatus(jobID, JobFailed, err)
-			}
-			return
+			return nil, err
 		}
+		return func() { o.setJobResult(jobID, overview, nil) }, nil
+	}
 
-		select {
-		case <-jobCtx.Done():
-			o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
-		default:
-			o.setJobResult(jobID, overview, nil)
-		}
-	}()
-
-	return jobSnapshot, nil
+	return o.runJob(ctx, job, work), nil
 }
 
 func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site string, cfg api.EnumerationConfig) (*Job, error) {
@@ -206,43 +184,16 @@ func (o *Orchestrator) StartEnumerateJob(ctx context.Context, project, site stri
 	job := o.jobs.newJob("enumerate", project, site)
 	jobID := job.ID
 
-	o.jobs.set(job)
-
-	jobCtx, cancel := context.WithCancel(ctx)
-	o.jobs.registerCancel(jobID, cancel)
-
-	o.emitJobEvent(jobID, JobEvent{
-		JobID:  jobID,
-		Type:   JobEventStatus,
-		Status: JobPending,
-	})
-	jobSnapshot := cloneJob(job)
-
-	go func() {
-		defer o.jobs.finish(jobID)
-		o.setJobStatus(jobID, JobRunning, nil)
-
+	work := func(jobCtx context.Context) (func(), error) {
 		cb := o.progressCallback(jobID)
 		urls, err := o.EnumerateWebsite(jobCtx, project, site, cfg, cb)
 		if err != nil {
-			select {
-			case <-jobCtx.Done():
-				o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
-			default:
-				o.setJobStatus(jobID, JobFailed, err)
-			}
-			return
+			return nil, err
 		}
+		return func() { o.setJobResult(jobID, nil, urls) }, nil
+	}
 
-		select {
-		case <-jobCtx.Done():
-			o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
-		default:
-			o.setJobResult(jobID, nil, urls)
-		}
-	}()
-
-	return jobSnapshot, nil
+	return o.runJob(ctx, job, work), nil
 }
 
 // StartScanJob kicks off a vulnerability scan for project/site using whatever
@@ -275,51 +226,25 @@ func (o *Orchestrator) StartScanJob(ctx context.Context, projectIdentifier, webs
 
 	job := o.jobs.newJob("scan", projectIdentifier, websiteSlug)
 	jobID := job.ID
-	o.jobs.set(job)
 
-	jobCtx, cancel := context.WithCancel(ctx)
-	o.jobs.registerCancel(jobID, cancel)
-
-	o.emitJobEvent(jobID, JobEvent{
-		JobID:  jobID,
-		Type:   JobEventStatus,
-		Status: JobPending,
-	})
-	jobSnapshot := cloneJob(job)
-
-	go func() {
-		defer o.jobs.finish(jobID)
-		o.setJobStatus(jobID, JobRunning, nil)
-
+	work := func(jobCtx context.Context) (func(), error) {
 		result, err := comps.Analyzer.ScanAndWait(jobCtx, req, o.cfg.AnalyzerCfg.DefaultPoll)
 		if err != nil {
-			select {
-			case <-jobCtx.Done():
-				o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
-			default:
-				// Transport-level failure talking to the analyzer sidecar gets a
-				// dedicated, user-facing failure message so operators can tell
-				// "scanner crashed" from "scanner not running". Every other error
-				// (in-band sidecar status, decode failure, scan-engine error) falls
-				// through to the generic JobFailed path.
-				if errors.Is(err, analyzer.ErrSidecarUnreachable) {
-					o.setJobStatus(jobID, JobFailed, fmt.Errorf("vulnerability analyzer sidecar offline: %w", err))
-				} else {
-					o.setJobStatus(jobID, JobFailed, err)
-				}
+			// Transport-level failure talking to the analyzer sidecar gets a
+			// dedicated, user-facing failure message so operators can tell
+			// "scanner crashed" from "scanner not running". Every other error
+			// (in-band sidecar status, decode failure, scan-engine error) falls
+			// through to the generic JobFailed path. The wrap happens here, inside
+			// the work func, so runJob stays generic across job kinds.
+			if errors.Is(err, analyzer.ErrSidecarUnreachable) {
+				return nil, fmt.Errorf("vulnerability analyzer sidecar offline: %w", err)
 			}
-			return
+			return nil, err
 		}
+		return func() { o.setScanJobResult(jobID, result) }, nil
+	}
 
-		select {
-		case <-jobCtx.Done():
-			o.setJobStatus(jobID, JobCanceled, jobCtx.Err())
-		default:
-			o.setScanJobResult(jobID, result)
-		}
-	}()
-
-	return jobSnapshot, nil
+	return o.runJob(ctx, job, work), nil
 }
 
 // GetAnalyzer returns the analyzer.Analyzer instance for project/site. Used
@@ -774,6 +699,7 @@ func (o *Orchestrator) Close() {
 	o.closedMu.Unlock()
 
 	o.jobs.shutdown()
+	o.jobs.waitAll(orchestratorShutdownTimeout)
 	o.sites.closeAll()
 	o.broker.close()
 }
