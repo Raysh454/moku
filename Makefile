@@ -111,6 +111,11 @@ test:
 	@echo "==> go test ./..."
 	$(GOTEST) ./... -v
 
+# Black-box acceptance suite (separate module; spawns the real binaries)
+test-acceptance:
+	@echo "==> acceptance suite (acceptance/)"
+	cd acceptance && $(GOTEST) ./... -v
+
 # Race detector (slower)
 test-race:
 	@echo "==> go test -race ./..."
@@ -181,7 +186,7 @@ endif
 	@echo "coverage.html generated"
 
 # CI target: runs canonical checks used by CI
-ci: install-swagger swagger fmt vet install-golangci lint test-race coverage
+ci: install-swagger swagger fmt vet install-golangci lint test-race coverage test-acceptance
 ifneq ($(PYTHON),)
 	@echo "==> running sidecar tests"
 	@$(MAKE) sidecar-test
