@@ -152,10 +152,6 @@ func (t *DummyTracker) CancelCommit(ctx context.Context, pc *models.PendingCommi
 	return nil
 }
 
-func (t *DummyTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, _ time.Duration) error {
-	return nil
-}
-
 func (t *DummyTracker) PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -167,8 +163,6 @@ func (t *DummyTracker) PersistScore(ctx context.Context, scoreResult *assessor.S
 	})
 	return nil
 }
-
-func (t *DummyTracker) SetAssessor(a assessor.Assessor) {}
 
 func (t *DummyTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {
 	return nil, nil
@@ -482,6 +476,38 @@ func TestFetch_NilAssessorSkipsScoring(t *testing.T) {
 
 	if len(tr.PersistedScore) != 0 {
 		t.Fatalf("expected 0 PersistScore calls with a nil assessor, got %d", len(tr.PersistedScore))
+	}
+}
+
+// TestFetch_ScoreTimeoutPropagatedToAssessor: given a fetcher with a configured
+// ScoreTimeout, when it scores a committed snapshot, then the context handed to
+// the assessor carries a deadline derived from that timeout.
+func TestFetch_ScoreTimeoutPropagatedToAssessor(t *testing.T) {
+	ctx := context.Background()
+
+	tr := &DummyTracker{}
+	wc := &DummyWebClient{}
+	logger := &DummyLogger{}
+	idx := &DummyEndpointIndex{}
+	scorer := &stubAssessor{}
+
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 5, CommitSize: 10, ScoreTimeout: 30 * time.Second}, tr, wc, idx, scorer, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.Fetch(ctx, []string{"a"}, nil); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	scorer.mu.Lock()
+	defer scorer.mu.Unlock()
+
+	if len(scorer.scoredCtx) != 1 {
+		t.Fatalf("expected assessor to be called once, got %d", len(scorer.scoredCtx))
+	}
+	if _, ok := scorer.scoredCtx[0].Deadline(); !ok {
+		t.Errorf("expected scored context to carry a deadline derived from ScoreTimeout")
 	}
 }
 

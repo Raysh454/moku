@@ -18,7 +18,7 @@ func TestBeginCommit_CreatesVersion(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestAddSnapshots_SingleBatch(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestAddSnapshots_MultipleBatches(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestFinalizeCommit_CreatesOneVersion(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestFinalizeCommit_UpdatesHEAD(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestCancelCommit_Rollback(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestAddSnapshots_AfterCancel_Fails(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestAddSnapshots_BlobDeduplication(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(&tracker.Config{
 		StoragePath: tmpDir,
 		ProjectID:   "pending-commit-test",
-	}, logger, nil)
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create tracker: %v", err)
 	}

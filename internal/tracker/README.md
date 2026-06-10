@@ -324,8 +324,17 @@ func (f *Fetcher) Fetch(ctx context.Context, urls []string) {
         return err
     }
     
-    // Score the entire version
-    f.tracker.ScoreAndAttributeVersion(ctx, cr, timeout)
+    // Score the entire version. The fetcher owns the assessor; the tracker
+    // only persists the precomputed result via PersistScore.
+    scoreCtx, cancel := context.WithTimeout(ctx, timeout)
+    defer cancel()
+    for _, snap := range cr.Snapshots {
+        result, err := f.assessor.ScoreSnapshot(scoreCtx, snap, cr.Version.ID)
+        if err != nil {
+            continue // scoring failures are non-fatal
+        }
+        f.tracker.PersistScore(ctx, result, snap.ID, cr.Version.ID, snap.URL)
+    }
 }
 ```
 
@@ -381,7 +390,7 @@ Committing identical content 3 times:
 - Blob storage using content-addressed files (`internal/tracker/blobstore`)
 - Normalized header storage and redaction logic
 - Combined diff JSON persisted in `diffs`
-- Scoring and attribution via `internal/tracker/score` and SQLiteTracker.ScoreAndAttributeVersion
+- Score persistence via `internal/tracker/score` and `SQLiteTracker.PersistScore`; scoring itself is driven by the fetcher (which owns the assessor)
 - Tests covering commit/get/list/diff/checkout, header normalization, and transaction API
 - Fetcher integration using transaction API for single-version bulk fetches
 
@@ -512,7 +521,7 @@ cfg := &tracker.Config{
     StoragePath: "/path/to/site",
     ProjectID:   "tracker-example", // required when initializing a new .moku directory
 }
-t, err := tracker.NewSQLiteTracker(cfg, logger, nil)
+t, err := tracker.NewSQLiteTracker(cfg, logger)
 if err != nil {
     log.Fatal(err)
 }

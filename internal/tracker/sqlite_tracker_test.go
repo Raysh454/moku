@@ -304,7 +304,7 @@ func TestNewSQLiteTracker(t *testing.T) {
 	}
 
 	siteDir := t.TempDir()
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir, ProjectID: "0xbeef"}, logger, a)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir, ProjectID: "0xbeef"}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create SQLiteTracker: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestNewSQLiteTracker_LiveSite(t *testing.T) {
 	}
 
 	siteDir := t.TempDir()
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir, ProjectID: "0xbeef"}, logger, a)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: siteDir, ProjectID: "0xbeef"}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create SQLiteTracker: %v", err)
 	}

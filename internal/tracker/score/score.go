@@ -6,83 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/assessor/attacksurface"
 	"github.com/raysh454/moku/internal/logging"
-	"github.com/raysh454/moku/internal/tracker/models"
 	_ "modernc.org/sqlite"
 )
 
 type SQLiteScoreTracker struct {
-	// mu guards assessor: SetAssessor may be called after construction,
-	// concurrently with in-flight ScoreAndAttribute runs.
-	mu       sync.RWMutex
-	assessor assessor.Assessor
-
 	db     *sql.DB
 	logger logging.Logger
 }
 
-func New(assessor assessor.Assessor, db *sql.DB, logger logging.Logger) *SQLiteScoreTracker {
+func New(db *sql.DB, logger logging.Logger) *SQLiteScoreTracker {
 	return &SQLiteScoreTracker{
-		assessor: assessor,
-		db:       db,
-		logger:   logger,
+		db:     db,
+		logger: logger,
 	}
-}
-
-// SetAssessor replaces the assessor used for scoring. The score tracker is
-// the single owner of the assessor reference; late binding through this
-// method affects subsequent ScoreAndAttribute runs.
-func (scoreTracker *SQLiteScoreTracker) SetAssessor(a assessor.Assessor) {
-	scoreTracker.mu.Lock()
-	defer scoreTracker.mu.Unlock()
-	scoreTracker.assessor = a
-}
-
-// HasAssessor reports whether an assessor is currently configured.
-func (scoreTracker *SQLiteScoreTracker) HasAssessor() bool {
-	return scoreTracker.currentAssessor() != nil
-}
-
-func (scoreTracker *SQLiteScoreTracker) currentAssessor() assessor.Assessor {
-	scoreTracker.mu.RLock()
-	defer scoreTracker.mu.RUnlock()
-	return scoreTracker.assessor
-}
-
-func (scoreTracker *SQLiteScoreTracker) ScoreAndAttribute(ctx context.Context, commitResult *models.CommitResult, scoreTimeout time.Duration) error {
-	// Capture once so a whole run scores with a consistent assessor even if
-	// SetAssessor races with it.
-	activeAssessor := scoreTracker.currentAssessor()
-	if activeAssessor == nil {
-		return nil
-	}
-
-	scoreCtx, cancel := context.WithTimeout(ctx, scoreTimeout)
-	defer cancel()
-
-	for _, snapshot := range commitResult.Snapshots {
-		scoreResult, err := activeAssessor.ScoreSnapshot(scoreCtx, snapshot, commitResult.Version.ID)
-		if err != nil {
-			if scoreTracker.logger != nil {
-				scoreTracker.logger.Warn("scoring failed", logging.Field{Key: "version_id", Value: commitResult.Version.ID}, logging.Field{Key: "error", Value: err})
-			}
-			continue
-		}
-
-		if err := scoreTracker.PersistScore(ctx, scoreResult, snapshot.ID, commitResult.Version.ID, snapshot.URL); err != nil {
-			if scoreTracker.logger != nil {
-				scoreTracker.logger.Warn("attributeScore failed", logging.Field{Key: "version_id", Value: commitResult.Version.ID}, logging.Field{Key: "error", Value: err})
-			}
-		}
-	}
-
-	return nil
 }
 
 // PersistScore stores a precomputed score result; producing the score is the

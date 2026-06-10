@@ -27,7 +27,7 @@ func TestPersistScore_StoresPrecomputedResult(t *testing.T) {
 	t.Parallel()
 
 	// Arrange: a tracker with no assessor, plus a committed snapshot to attribute.
-	var full = newRoleTestTracker(t, nil)
+	var full = newRoleTestTracker(t)
 	ctx := context.Background()
 	committed, err := commitSnapshot(ctx, full, &models.Snapshot{
 		URL:  "https://example.com/login",

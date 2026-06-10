@@ -175,15 +175,9 @@ func (t *DummyTracker) CancelCommit(_ context.Context, pc *models.PendingCommit)
 	return nil
 }
 
-func (t *DummyTracker) ScoreAndAttributeVersion(context.Context, *models.CommitResult, time.Duration) error {
-	return nil
-}
-
 func (t *DummyTracker) PersistScore(context.Context, *assessor.ScoreResult, string, string, string) error {
 	return nil
 }
-
-func (t *DummyTracker) SetAssessor(assessor.Assessor) {}
 
 func (t *DummyTracker) GetScoreResultFromSnapshotID(context.Context, string) (*assessor.ScoreResult, error) {
 	return nil, nil
