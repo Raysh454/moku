@@ -929,12 +929,20 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "moku",
-                "burp",
+                "dast",
+                "nuclei",
+                "nikto",
+                "shodan",
+                "virustotal",
                 "zap"
             ],
             "x-enum-varnames": [
                 "BackendMoku",
-                "BackendBurp",
+                "BackendDAST",
+                "BackendNuclei",
+                "BackendNikto",
+                "BackendShodan",
+                "BackendVirusTotal",
                 "BackendZAP"
             ]
         },

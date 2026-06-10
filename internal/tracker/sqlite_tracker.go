@@ -27,12 +27,14 @@ var (
 )
 
 type SQLiteTracker struct {
-	db       *sql.DB
-	store    *blobstore.Blobstore
-	logger   logging.Logger
-	config   *Config
-	assessor assessor.Assessor
-	score    *score.SQLiteScoreTracker
+	db     *sql.DB
+	store  *blobstore.Blobstore
+	logger logging.Logger
+	config *Config
+
+	// score owns the assessor reference; keeping a second copy here is how
+	// SetAssessor once silently failed to reach score persistence.
+	score *score.SQLiteScoreTracker
 }
 
 func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.Assessor) (*SQLiteTracker, error) {
@@ -54,7 +56,15 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 	}
 
 	dbPath := filepath.Join(mokuDir, "moku.db")
-	db, err := sql.Open("sqlite", dbPath+"?_busy_timeout=5000&_journal_mode=WAL")
+	db, err := sql.Open("sqlite", utils.SQLiteDSN(dbPath,
+		"busy_timeout(5000)",   // Wait up to 5 seconds on locked database
+		"journal_mode(WAL)",    // Write-Ahead Logging for better concurrency
+		"foreign_keys(ON)",     // Enable foreign key constraints
+		"synchronous(NORMAL)",  // Balance between safety and performance
+		"cache_size(-64000)",   // 64MB cache (negative means KB)
+		"temp_store(MEMORY)",   // Store temp tables in memory
+		"mmap_size(268435456)", // 256MB memory-mapped I/O
+	))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -74,12 +84,11 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 	logger.Info("SQLiteTracker initialized", logging.Field{Key: "config.StoragePath", Value: config.StoragePath})
 
 	t := &SQLiteTracker{
-		db:       db,
-		store:    store,
-		logger:   logger,
-		config:   config,
-		assessor: assessor,
-		score:    score.New(assessor, db, logger),
+		db:     db,
+		store:  store,
+		logger: logger,
+		config: config,
+		score:  score.New(assessor, db, logger),
 	}
 
 	if config.ProjectID != "" {
@@ -93,7 +102,7 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 }
 
 func (t *SQLiteTracker) SetAssessor(a assessor.Assessor) {
-	t.assessor = a
+	t.score.SetAssessor(a)
 }
 
 func (t *SQLiteTracker) GetProjectID(ctx context.Context) (string, error) {
@@ -150,8 +159,6 @@ func (t *SQLiteTracker) SetProjectID(ctx context.Context, projectID string, forc
 	}
 	return nil
 }
-
-var _ Tracker = (*SQLiteTracker)(nil)
 
 func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *models.Snapshot, message string, author string) (*models.CommitResult, error) {
 	if snapshot == nil {
@@ -1295,7 +1302,7 @@ func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models
 		return errors.New("nil CommitResult")
 	}
 
-	if t.assessor == nil {
+	if !t.score.HasAssessor() {
 		return errors.New("no assessor set on tracker")
 	}
 

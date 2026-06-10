@@ -22,6 +22,7 @@ import (
 	"github.com/raysh454/moku/internal/app"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/registry"
+	"github.com/raysh454/moku/internal/utils"
 
 	_ "modernc.org/sqlite" // SQLite driver
 )
@@ -34,6 +35,18 @@ type Server struct {
 	logger         logging.Logger
 	registryDB     *sql.DB
 	allowedOrigins []string
+}
+
+// openRegistryDB opens the shared registry database under storageRoot. The
+// pragmas ride in the DSN so they apply to every pooled connection — the
+// registry DB is hit by every concurrent HTTP request.
+func openRegistryDB(storageRoot string) (*sql.DB, error) {
+	dsn := utils.SQLiteDSN(
+		filepath.Join(storageRoot, "registry.db"),
+		"busy_timeout(5000)",
+		"journal_mode(WAL)",
+	)
+	return sql.Open("sqlite", dsn)
 }
 
 // NewServer creates a new Server with its own Orchestrator.
@@ -59,7 +72,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	// Set up registry DB
-	db, err := sql.Open("sqlite", filepath.Join(cfg.AppConfig.StorageRoot, "registry.db")+"?_busy_timeout=5000")
+	db, err := openRegistryDB(cfg.AppConfig.StorageRoot)
 	if err != nil {
 		return nil, fmt.Errorf("opening registry database: %w", err)
 	}

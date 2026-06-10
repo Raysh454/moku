@@ -5,6 +5,7 @@ import type {
   FetchConfig,
   FilterConfig,
   FilterRule,
+  ScanProfile,
   ScoreResult,
   SecurityDiff,
   Version,
@@ -76,6 +77,11 @@ export interface FetchRequest {
   status: string;
   limit: number;
   config?: FetchConfig;
+}
+
+export interface ScanRequest {
+  url: string;
+  profile?: ScanProfile;
 }
 
 

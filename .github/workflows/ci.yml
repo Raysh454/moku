@@ -6,9 +6,6 @@ on:
       - main
       - dev
   pull_request:
-    branches:
-      - main
-      - dev
 
 permissions:
   contents: read
@@ -20,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Quote versions so YAML preserves trailing zeroes
-        go-version: ["1.26", "1.25"]
+        # Quote versions so YAML preserves trailing zeroes. go.mod declares
+        # `go 1.26`, so older toolchains cannot build this module — only list
+        # versions >= the module's minimum.
+        go-version: ["1.26"]
 
     steps:
       - name: Checkout
@@ -62,9 +61,11 @@ jobs:
             ~/.cache/go-build
             ${{ env.GOMODCACHE }}
           key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          # No version-less fallback: restoring another Go version's build
+          # cache poisons this one ("compile: version X does not match go
+          # tool version Y").
           restore-keys: |
             ${{ runner.os }}-go-${{ matrix.go-version }}-
-            ${{ runner.os }}-go-
 
       - name: Download modules
         run: go mod download
@@ -91,27 +92,79 @@ jobs:
           args: --timeout=3m
 
       - name: Run tests (race detector) and collect coverage
-        run: |
-          mkdir -p test-results
-          # Run tests with race detector where supported and generate coverage for later upload.
-          go test -v -race ./... -coverprofile=coverage.out || true
-          # ensure we fail if any package had tests fail
-          if grep -q "FAIL" coverage.out 2>/dev/null; then
-            echo "One or more tests failed (see coverage.out)"
-            exit 1
-          fi
+        # The go test exit code is what fails this step — never mask it.
+        run: go test -v -race ./... -coverprofile=coverage.out
 
       - name: Upload coverage artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           # make artifact name unique per matrix job/run to avoid conflicts
           name: coverage-${{ matrix.go-version }}-run-${{ github.run_id }}
           path: coverage.out
+          if-no-files-found: ignore
 
-      - name: Archive test results
-        if: always()
-        uses: actions/upload-artifact@v4
+  sidecar:
+    name: Sidecar (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/analyzer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          # unique artifact name per matrix job/run
-          name: test-results-${{ matrix.go-version }}-run-${{ github.run_id }}
-          path: test-results
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('services/analyzer/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Run tests (pytest)
+        run: python -m pytest tests/ -v
+
+      - name: Schema contract check (Go fixtures <-> Pydantic)
+        env:
+          PYTHONPATH: .
+        run: python scripts/schema_check.py
+
+  frontend:
+    name: Frontend (typecheck & build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build

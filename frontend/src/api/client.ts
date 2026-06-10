@@ -1,4 +1,6 @@
 import type {
+  AnalyzerCapabilitiesResponse,
+  AnalyzerHealthResponse,
   ApplyFiltersResponse,
   AddedEndpointsResponse,
   Endpoint,
@@ -12,6 +14,7 @@ import type {
   JobEvent,
   Project,
   RuleType,
+  ScanProfile,
   UnfilterEndpointsResponse,
   Version,
   Website,
@@ -101,6 +104,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  startScan: (project: string, site: string, payload: { url: string; profile?: ScanProfile }) =>
+    request<Job>(`/projects/${project}/websites/${site}/jobs/scan`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getAnalyzerHealth: (project: string, site: string) =>
+    request<AnalyzerHealthResponse>(`/projects/${project}/websites/${site}/analyzer/health`),
+
+  getAnalyzerCapabilities: (project: string, site: string) =>
+    request<AnalyzerCapabilitiesResponse>(`/projects/${project}/websites/${site}/analyzer/capabilities`),
 
   listJobs: () => requestList<Job>("/jobs"),
   getJob: (jobId: string) => request<Job>(`/jobs/${jobId}`),
