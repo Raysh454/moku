@@ -27,8 +27,15 @@ Open two terminals at repo root.
 ### Terminal A — API server
 
 ```bash
-go run .
+MOKU_ALLOW_PRIVATE_HOSTS=1 go run .
 ```
+
+The fetcher refuses to dial loopback and other private hosts by default (an SSRF
+guard enforced at the dialer, after DNS resolution). Because the demo website
+runs on loopback (`localhost:9999`), set `MOKU_ALLOW_PRIVATE_HOSTS=1` (accepts
+`1`/`true`/`yes`) so the API can reach it. This is for local demo use only —
+leave it unset in production. On PowerShell, use
+`$env:MOKU_ALLOW_PRIVATE_HOSTS="1"; go run .`.
 
 Default API base URL:
 

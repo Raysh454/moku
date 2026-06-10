@@ -214,6 +214,9 @@ func startAPIServer(t *testing.T, port int) string {
 	logger := &testutil.DummyLogger{}
 	cfg := app.DefaultConfig()
 	cfg.StorageRoot = t.TempDir()
+	// The demo server runs on loopback (127.0.0.1:9999), which the SSRF dialer
+	// guard blocks by default. Opt into private hosts for this local E2E run.
+	cfg.WebClientCfg.AllowPrivateHosts = true
 
 	listenAddr := fmt.Sprintf("127.0.0.1:%d", port)
 	srv, err := server.NewServer(server.Config{

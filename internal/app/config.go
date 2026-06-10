@@ -37,6 +37,13 @@ const (
 
 	// EnvStorageRoot overrides the base path where projects are kept.
 	EnvStorageRoot = "MOKU_STORAGE_ROOT"
+
+	// EnvAllowPrivateHosts, when truthy, disables the webclient SSRF dialer
+	// guard so the fetcher may reach loopback/RFC1918/link-local hosts. It
+	// mirrors the sidecar's MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS escape hatch and
+	// shares its truthy convention ("1"/"true"/"yes"). Intended only for local
+	// verification against the demo server; leave it unset in production.
+	EnvAllowPrivateHosts = "MOKU_ALLOW_PRIVATE_HOSTS"
 )
 
 const (
@@ -112,6 +119,19 @@ func resolveStorageRoot() string {
 	return defaultStorageRoot
 }
 
+// resolveAllowPrivateHosts reports whether EnvAllowPrivateHosts is set to a
+// truthy value. It accepts the same tokens as the sidecar's escape hatch —
+// "1", "true", "yes" (case-insensitive, whitespace-trimmed). Any other value,
+// including unset, keeps the SSRF guard engaged (the secure default).
+func resolveAllowPrivateHosts() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvAllowPrivateHosts))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 // Config contains a minimal set of runtime configuration options required by
 // internal modules during initial development. We intentionally keep this small
 // for the dev branch — add more fields later as wiring requires them.
@@ -164,7 +184,8 @@ func DefaultConfig() *Config {
 			ScoreTimeout:   30 * time.Second,
 		},
 		WebClientCfg: webclient.Config{
-			Client: webclient.ClientNetHTTP,
+			Client:            webclient.ClientNetHTTP,
+			AllowPrivateHosts: resolveAllowPrivateHosts(),
 		},
 		AnalyzerCfg: analyzer.Config{
 			Backend: resolveAnalyzerBackend(),

@@ -167,6 +167,7 @@ Core packages
     - `DoHTTPRequest(ctx, *http.Request) -> *http.Response`
     - `HTTPClient() -> *http.Client`
   - `chromedp`: headless-browser backend scaffold. The constructor and methods exist; chromedp behavior is intentionally not fully implemented in `dev` and many tests assert "not implemented" behavior.
+  - SSRF hardening: when constructed with the default client, the fetcher refuses to dial loopback, RFC1918/ULA private, link-local, and unspecified addresses. Enforcement happens at the dialer (after DNS resolution), so it also covers redirect hops and defeats DNS-rebinding. Response bodies above 10 MiB are rejected outright (never truncated), and redirect chains are capped at 10 hops. Set `MOKU_ALLOW_PRIVATE_HOSTS=1` (accepts `1`/`true`/`yes`) to disable the guard for local work such as the demo server — mirrors the sidecar's `MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS`; leave it unset in production.
 
 - internal/assessor
   - `HeuristicsAssessor` scaffold: accepts HTML bytes or a `model.Response` and returns a neutral `ScoreResult`. `ScoreResult` and `EvidenceItem` types are available. The heuristics pipeline (feature extraction, rule evaluation and aggregation) is to be implemented next.

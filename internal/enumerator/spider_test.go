@@ -111,8 +111,9 @@ func HttpServer(addr string) (*http.Server, error) {
 func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum, totalTests int) {
 	t.Helper()
 
-	// Create a simple webclient for testing
-	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
+	// Create a simple webclient for testing. AllowPrivateHosts is required
+	// because the test server is on loopback, which the SSRF guard blocks.
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP, AllowPrivateHosts: true}
 	logger := logging.NewStdoutLogger("test")
 	wc, err := webclient.NewNetHTTPClient(cfg, logger, nil)
 	if err != nil {
