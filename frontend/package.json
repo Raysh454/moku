@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:api": "swagger2openapi --patch ../docs/swagger/swagger.json --outfile src/api/openapi3.json && openapi-typescript src/api/openapi3.json -o src/api/generated.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
@@ -27,6 +28,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^29.1.1",
+    "openapi-typescript": "^7.13.0",
+    "swagger2openapi": "^7.0.8",
     "typescript": "~6.0.3",
     "vite": "^8.0.11",
     "vitest": "^4.1.8"

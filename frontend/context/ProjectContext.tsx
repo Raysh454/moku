@@ -8,7 +8,14 @@ import React, {
   useRef,
 } from "react";
 import { api } from "../src/api/client";
-import type { Endpoint as ApiEndpoint, Job, JobEvent, Version, SecurityDiffOverviewEntry } from "../src/api/types";
+import type {
+  Endpoint as ApiEndpoint,
+  Job,
+  JobEvent,
+  JobWithProgress,
+  Version,
+  SecurityDiffOverviewEntry,
+} from "../src/api/types";
 import type {
   Domain,
   Endpoint,
@@ -28,7 +35,7 @@ interface ProjectContextType {
   selectedDomain: Domain | null;
   selectedEndpoint: Endpoint | null;
   selectedSnapshot: Snapshot | null;
-  jobs: Job[];
+  jobs: JobWithProgress[];
   isLoading: boolean;
   isBusy: boolean;
   errorMessage: string;
@@ -39,7 +46,7 @@ interface ProjectContextType {
   compareSecurityOverview: SecurityDiffOverviewEntry[] | null;
   compareIsLoading: boolean;
   domainOverviews: Map<string, SecurityDiffOverviewEntry[]>;
-  latestScanJob: Job | null;
+  latestScanJob: JobWithProgress | null;
 
   refreshProjects: () => Promise<void>;
   refreshActiveProject: () => Promise<void>;
@@ -88,32 +95,35 @@ const setEndpointInProject = (
 });
 
 const createSnapshotStubs = (endpoint: Endpoint, versions: Version[]): Endpoint["snapshots"] =>
-  versions.map((version, index) => ({
-    id: `${endpoint.id}:${version.id}`,
-    versionId: version.id,
-    version: versions.length - index,
-    versionLabel: version.id,
-    statusCode: 0,
-    url: endpoint.url,
-    body: "",
-    headers: {},
-    createdAt: version.timestamp,
-    metadata: {
-      contentLength: 0,
-      loadTime: 0,
-    },
-  }));
+  versions.map((version, index) => {
+    const versionId = version.id ?? "";
+    return {
+      id: `${endpoint.id}:${versionId}`,
+      versionId,
+      version: versions.length - index,
+      versionLabel: versionId,
+      statusCode: 0,
+      url: endpoint.url,
+      body: "",
+      headers: {},
+      createdAt: version.timestamp ?? "",
+      metadata: {
+        contentLength: 0,
+        loadTime: 0,
+      },
+    };
+  });
 
 const toProjectEndpoint = (raw: ApiEndpoint, versions: Version[]): Endpoint => {
   const endpoint: Endpoint = {
-    id: raw.id,
-    url: raw.url,
-    canonicalUrl: raw.canonical_url,
-    path: raw.path,
-    status: raw.status,
-    source: raw.source,
-    meta: raw.meta,
-    lastFetchedVersion: raw.last_fetched_version,
+    id: raw.id ?? "",
+    url: raw.url ?? "",
+    canonicalUrl: raw.canonical_url ?? "",
+    path: raw.path ?? "",
+    status: raw.status ?? "",
+    source: raw.source ?? "",
+    meta: raw.meta ?? "",
+    lastFetchedVersion: raw.last_fetched_version ?? "",
     snapshots: [],
   };
   endpoint.snapshots = createSnapshotStubs(endpoint, versions);
@@ -126,7 +136,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [selectedDomain, setSelectedDomainState] = useState<Domain | null>(null);
   const [selectedEndpoint, setSelectedEndpointState] = useState<Endpoint | null>(null);
   const [selectedSnapshot, setSelectedSnapshotState] = useState<Snapshot | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<JobWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -536,8 +546,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       clearMessage();
       try {
         const result = await api.addEndpoints(activeProject.slug, domain.slug, { urls, source });
-        setNotice(`${result.added} endpoint${result.added === 1 ? "" : "s"} added`);
-        return result.added;
+        const added = result.added ?? 0;
+        setNotice(`${added} endpoint${added === 1 ? "" : "s"} added`);
+        return added;
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to add endpoints");
         return 0;
@@ -617,7 +628,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [activeProject, clearMessage, setNotice],
   );
 
-  const latestScanJob = useMemo<Job | null>(() => {
+  const latestScanJob = useMemo<JobWithProgress | null>(() => {
     if (!activeProject || !selectedDomain) return null;
     const scanJobs = jobs.filter(
       (job) =>
@@ -627,7 +638,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
     if (scanJobs.length === 0) return null;
     return scanJobs.reduce((latest, job) =>
-      new Date(job.started_at).getTime() > new Date(latest.started_at).getTime() ? job : latest,
+      new Date(job.started_at ?? 0).getTime() > new Date(latest.started_at ?? 0).getTime() ? job : latest,
     );
   }, [jobs, activeProject, selectedDomain]);
 
