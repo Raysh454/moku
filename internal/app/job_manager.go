@@ -55,6 +55,10 @@ type jobManager struct {
 	jobs      map[string]*Job
 	cancels   map[string]context.CancelFunc
 	retention time.Duration
+
+	// wg tracks in-flight job goroutines so shutdown can wait for them to
+	// return before site components (and their SQLite handles) are closed.
+	wg sync.WaitGroup
 }
 
 func newJobManager(retention time.Duration) *jobManager {
@@ -263,4 +267,23 @@ func (m *jobManager) shutdown() {
 		delete(m.cancels, id)
 	}
 	m.cleanupFinishedLocked()
+}
+
+// waitAll blocks until every in-flight job goroutine has returned, or until
+// timeout elapses. It reports whether the wait completed (true) or timed out
+// (false). Callers should cancel running jobs (via shutdown) first so the
+// goroutines observe cancellation and unwind promptly.
+func (m *jobManager) waitAll(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
