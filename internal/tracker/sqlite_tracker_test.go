@@ -310,7 +310,9 @@ func TestNewSQLiteTracker(t *testing.T) {
 	}
 	defer tr.Close()
 
-	wc, _ := webclient.NewWebClient(webclient.Config{Client: webclient.ClientNetHTTP}, logger)
+	// AllowPrivateHosts is required because srv is a loopback httptest server,
+	// which the SSRF guard blocks by default.
+	wc, _ := webclient.NewWebClient(webclient.Config{Client: webclient.ClientNetHTTP, AllowPrivateHosts: true}, logger)
 	spider := enumerator.NewSpider(1, wc, logger)
 
 	targets, err := spider.Enumerate(context.Background(), srv.URL, nil)

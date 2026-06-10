@@ -11,4 +11,20 @@ const (
 // It is implemented by app.Config without creating an import cycle.
 type Config struct {
 	Client Client
+
+	// AllowPrivateHosts disables the SSRF dialer guard, permitting requests to
+	// loopback, RFC1918/ULA private, link-local, and unspecified addresses.
+	// It defaults to false so the client fails closed against SSRF. This
+	// mirrors the sidecar's MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS escape hatch and
+	// is intended only for local verification against the demo server; leave it
+	// unset in production. In app.DefaultConfig it is populated from the
+	// MOKU_ALLOW_PRIVATE_HOSTS environment variable.
+	AllowPrivateHosts bool
+
+	// MaxBodyBytes caps the size of a response body the client will read. A
+	// response exceeding the cap is rejected with ErrBodyTooLarge rather than
+	// truncated, since a partial body would corrupt snapshots and diffs. When
+	// left at its zero value the client falls back to DefaultMaxBodyBytes
+	// (10 MiB). The cap applies even when a custom *http.Client is injected.
+	MaxBodyBytes int64
 }

@@ -14,26 +14,42 @@ import (
 
 // net/http backed implementation of webclient.
 type NetHTTPClient struct {
-	client *http.Client
-	logger logging.Logger
+	client       *http.Client
+	logger       logging.Logger
+	maxBodyBytes int64
 }
 
+// NewNetHTTPClient constructs a net/http-backed WebClient.
+//
+// When httpClient is nil the constructor builds a guarded client via
+// newGuardedHTTPClient(cfg): the SSRF dialer guard (unless cfg.AllowPrivateHosts
+// is set) and the redirect cap are applied. An injected *http.Client bypasses
+// the dial guard by design — it is the testing seam used to point the client at
+// loopback httptest servers — but the response-body cap (cfg.MaxBodyBytes, or
+// DefaultMaxBodyBytes when zero) always applies regardless of how the client
+// was constructed.
 func NewNetHTTPClient(cfg Config, logger logging.Logger, httpClient *http.Client) (WebClient, error) {
 	// Create component-scoped logger
 	componentLogger := logger.With(logging.Field{Key: "backend", Value: "nethttp"})
 
-	// If httpClient is nil, construct a sensible default with timeout from cfg or fallback to 30s
+	// If httpClient is nil, construct a guarded default (SSRF + redirect caps).
 	if httpClient == nil {
-		// TODO: Consider reading timeout from cfg if added in the future
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = newGuardedHTTPClient(cfg)
+	}
+
+	maxBodyBytes := cfg.MaxBodyBytes
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = DefaultMaxBodyBytes
 	}
 
 	componentLogger.Info("created nethttp webclient",
-		logging.Field{Key: "timeout", Value: httpClient.Timeout.String()})
+		logging.Field{Key: "timeout", Value: httpClient.Timeout.String()},
+		logging.Field{Key: "max_body_bytes", Value: maxBodyBytes})
 
 	return &NetHTTPClient{
-		client: httpClient,
-		logger: componentLogger,
+		client:       httpClient,
+		logger:       componentLogger,
+		maxBodyBytes: maxBodyBytes,
 	}, nil
 }
 
@@ -77,13 +93,23 @@ func (nhc *NetHTTPClient) Do(ctx context.Context, req *Request) (*Response, erro
 	}
 
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	// Read at most maxBodyBytes+1 so an over-cap body is detectable: if the
+	// read yields more than maxBodyBytes, the response is too large and is
+	// rejected outright (no truncation, which would corrupt snapshots/diffs).
+	body, err := io.ReadAll(io.LimitReader(resp.Body, nhc.maxBodyBytes+1))
 	if err != nil {
 		nhc.logger.Warn("failed to read response body",
 			logging.Field{Key: "method", Value: method},
 			logging.Field{Key: "url", Value: req.URL},
 			logging.Field{Key: "error", Value: err.Error()})
 		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if int64(len(body)) > nhc.maxBodyBytes {
+		nhc.logger.Warn("response body exceeds maximum allowed size",
+			logging.Field{Key: "method", Value: method},
+			logging.Field{Key: "url", Value: req.URL},
+			logging.Field{Key: "max_body_bytes", Value: nhc.maxBodyBytes})
+		return nil, fmt.Errorf("%w: %s", ErrBodyTooLarge, req.URL)
 	}
 
 	return &Response{

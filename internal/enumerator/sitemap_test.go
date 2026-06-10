@@ -14,7 +14,9 @@ import (
 
 func newTestWebClient(t *testing.T) webclient.WebClient {
 	t.Helper()
-	cfg := webclient.Config{Client: webclient.ClientNetHTTP}
+	// AllowPrivateHosts is required because the enumerator tests serve content
+	// from loopback httptest servers, which the SSRF guard blocks by default.
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP, AllowPrivateHosts: true}
 	logger := logging.NewStdoutLogger("test")
 	wc, err := webclient.NewNetHTTPClient(cfg, logger, nil)
 	if err != nil {
