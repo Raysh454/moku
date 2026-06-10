@@ -24,7 +24,7 @@ func TestNewSQLiteTracker_Constructable(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestSQLiteTracker_CommitAndGet(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestSQLiteTracker_FinalizeEmptyCommitFails(t *testing.T) {
 		StoragePath: tmpDir,
 		ProjectID:   "test-project",
 	}
-	tr, err := tracker.NewSQLiteTracker(cfg, logging.NewStdoutLogger("tracker-test"), nil)
+	tr, err := tracker.NewSQLiteTracker(cfg, logging.NewStdoutLogger("tracker-test"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestSQLiteTracker_List(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestSQLiteTracker_Diff(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestSQLiteTracker_Checkout(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "tracker-unit-test"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestListVersions_EmptyTracker(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestListVersions_SingleVersion(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestListVersions_MultipleVersionsOrdering(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestListVersions_LimitRespected(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestListVersions_ParentChains(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	logger := logging.NewStdoutLogger("tracker-test")
-	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger, nil)
+	tr, err := tracker.NewSQLiteTracker(&tracker.Config{StoragePath: tmpDir, ProjectID: "test-proj"}, logger)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)
 	}

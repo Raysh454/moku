@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
@@ -23,7 +22,6 @@ const (
 	roleCommitAuthor  = "roles@example.com"
 	historyListLimit  = 10
 	stubAssessorScore = 42.5
-	scoreWaitTimeout  = 5 * time.Second
 )
 
 // TestCommitStore_PersistsSnapshotAsNewVersion: given a consumer that depends
@@ -33,7 +31,7 @@ func TestCommitStore_PersistsSnapshotAsNewVersion(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	var full tracker.Tracker = newRoleTestTracker(t, nil)
+	var full tracker.Tracker = newRoleTestTracker(t)
 	snapshot := &models.Snapshot{
 		URL:  "https://example.com/login",
 		Body: []byte("<html><body>login form</body></html>"),
@@ -69,7 +67,7 @@ func TestSnapshotReader_ReadsBackCommittedSnapshotBody(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	var full tracker.Tracker = newRoleTestTracker(t, nil)
+	var full tracker.Tracker = newRoleTestTracker(t)
 	ctx := context.Background()
 	body := "<html><body>profile page</body></html>"
 	committed, err := commitSnapshot(ctx, full, &models.Snapshot{
@@ -108,7 +106,7 @@ func TestVersionHistory_NavigatesHEADAndParentChain(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	var full tracker.Tracker = newRoleTestTracker(t, nil)
+	var full tracker.Tracker = newRoleTestTracker(t)
 	ctx := context.Background()
 	first, err := commitSnapshot(ctx, full, &models.Snapshot{
 		URL:  "https://example.com",
@@ -172,7 +170,7 @@ func TestScoreStore_AttributesScoresToCommittedVersion(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	var full tracker.Tracker = newRoleTestTracker(t, &stubAssessor{})
+	var full tracker.Tracker = newRoleTestTracker(t)
 	ctx := context.Background()
 	committed, err := commitSnapshot(ctx, full, &models.Snapshot{
 		URL:  "https://example.com/admin",
@@ -198,9 +196,18 @@ func TestScoreStore_AttributesScoresToCommittedVersion(t *testing.T) {
 }
 
 // scoreVersion is a consumer that needs nothing beyond the ScoreStore role.
+// It produces scores with a local stub assessor — mirroring how the fetcher
+// owns scoring — then persists each one through PersistScore.
 func scoreVersion(ctx context.Context, scores tracker.ScoreStore, committed *models.CommitResult) ([]*assessor.ScoreResult, error) {
-	if err := scores.ScoreAndAttributeVersion(ctx, committed, scoreWaitTimeout); err != nil {
-		return nil, err
+	scorer := &stubAssessor{}
+	for _, snapshot := range committed.Snapshots {
+		result, err := scorer.ScoreSnapshot(ctx, snapshot, committed.Version.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := scores.PersistScore(ctx, result, snapshot.ID, committed.Version.ID, snapshot.URL); err != nil {
+			return nil, err
+		}
 	}
 	return scores.GetScoreResultsFromVersionID(ctx, committed.Version.ID)
 }
@@ -212,7 +219,7 @@ func TestTrackerAdmin_ExposesDatabaseAndReleasesResources(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	var full tracker.Tracker = newRoleTestTracker(t, nil)
+	var full tracker.Tracker = newRoleTestTracker(t)
 
 	// Act
 	err := verifyDatabaseThenClose(full)
@@ -233,13 +240,12 @@ func verifyDatabaseThenClose(admin tracker.TrackerAdmin) error {
 
 // newRoleTestTracker builds a real SQLiteTracker rooted in a per-test temp
 // directory and ensures it is closed when the test finishes.
-func newRoleTestTracker(t *testing.T, a assessor.Assessor) *tracker.SQLiteTracker {
+func newRoleTestTracker(t *testing.T) *tracker.SQLiteTracker {
 	t.Helper()
 
 	tr, err := tracker.NewSQLiteTracker(
 		&tracker.Config{StoragePath: t.TempDir(), ProjectID: roleTestProjectID},
 		logging.NewStdoutLogger("tracker-role-test"),
-		a,
 	)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)

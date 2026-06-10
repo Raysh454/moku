@@ -69,7 +69,7 @@ func injectFakeComponents(t *testing.T, o *Orchestrator, projectSlug, websiteSlu
 	idx := &testutil.DummyEndpointIndex{}
 	an := &testutil.DummyAnalyzer{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("new fetcher: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestOrchestrator_DeleteWebsite_ClosesCachedComponents(t *testing.T) {
 	wc := &testutil.DummyWebClient{}
 	idx := &testutil.DummyEndpointIndex{}
 	an := &testutil.DummyAnalyzer{}
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, &testutil.DummyLogger{})
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, tr, wc, idx, nil, &testutil.DummyLogger{})
 	if err != nil {
 		t.Fatalf("new fetcher: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestGetEndpointDetails_BothVersions_CallsTrackerCorrectly(t *testing.T) {
 	idx := &testutil.DummyEndpointIndex{}
 	wc := &testutil.DummyWebClient{}
 
-	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, spyTracker, wc, idx, logger)
+	f, err := fetcher.New(fetcher.Config{MaxConcurrency: 2, CommitSize: 10, ScoreTimeout: 5 * time.Second}, spyTracker, wc, idx, nil, logger)
 	if err != nil {
 		t.Fatalf("new fetcher: %v", err)
 	}

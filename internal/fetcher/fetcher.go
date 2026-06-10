@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/filter"
 	"github.com/raysh454/moku/internal/indexer"
 	"github.com/raysh454/moku/internal/logging"
@@ -20,11 +21,12 @@ import (
 // Module: fetcher
 // Fetches, Normalizes and stores pages
 type Fetcher struct {
-	config  Config
-	tracker tracker.Tracker
-	wc      webclient.WebClient
-	indexer indexer.EndpointIndex
-	logger  logging.Logger
+	config   Config
+	tracker  tracker.Tracker
+	wc       webclient.WebClient
+	indexer  indexer.EndpointIndex
+	assessor assessor.Assessor
+	logger   logging.Logger
 }
 
 // filteredURL holds a URL that was filtered along with its reason
@@ -33,15 +35,54 @@ type filteredURL struct {
 	Reason string
 }
 
-// New creates a new Fetcher with the given webclient, logger and tracker
-func New(cfg Config, tracker tracker.Tracker, wc webclient.WebClient, indexer indexer.EndpointIndex, logger logging.Logger) (*Fetcher, error) {
+// New creates a new Fetcher with the given webclient, tracker, indexer,
+// assessor and logger. The assessor may be nil, in which case the fetcher
+// commits snapshots without scoring them.
+func New(cfg Config, tracker tracker.Tracker, wc webclient.WebClient, indexer indexer.EndpointIndex, scorer assessor.Assessor, logger logging.Logger) (*Fetcher, error) {
 	return &Fetcher{
-		config:  cfg,
-		tracker: tracker,
-		wc:      wc,
-		indexer: indexer,
-		logger:  logger,
+		config:   cfg,
+		tracker:  tracker,
+		wc:       wc,
+		indexer:  indexer,
+		assessor: scorer,
+		logger:   logger,
 	}, nil
+}
+
+// scoreCommit scores every snapshot in a finalized commit with the injected
+// assessor and persists each result through the tracker. A nil assessor skips
+// scoring. Scoring failures are non-fatal: they are logged and the commit
+// stands. The whole commit is scored under a single deadline derived from
+// Config.ScoreTimeout.
+func (f *Fetcher) scoreCommit(ctx context.Context, cr *models.CommitResult) {
+	if f.assessor == nil {
+		return
+	}
+
+	scoreCtx, cancel := context.WithTimeout(ctx, f.config.ScoreTimeout)
+	defer cancel()
+
+	for _, snapshot := range cr.Snapshots {
+		scoreResult, err := f.assessor.ScoreSnapshot(scoreCtx, snapshot, cr.Version.ID)
+		if err != nil {
+			if f.logger != nil {
+				f.logger.Warn("scoring snapshot failed",
+					logging.Field{Key: "version_id", Value: cr.Version.ID},
+					logging.Field{Key: "snapshot_id", Value: snapshot.ID},
+					logging.Field{Key: "error", Value: err})
+			}
+			continue
+		}
+
+		if err := f.tracker.PersistScore(ctx, scoreResult, snapshot.ID, cr.Version.ID, snapshot.URL); err != nil {
+			if f.logger != nil {
+				f.logger.Warn("persisting score failed",
+					logging.Field{Key: "version_id", Value: cr.Version.ID},
+					logging.Field{Key: "snapshot_id", Value: snapshot.ID},
+					logging.Field{Key: "error", Value: err})
+			}
+		}
+	}
 }
 
 // FetchFromIndex fetches endpoints from the index by status, updates their status,
@@ -279,12 +320,8 @@ func (f *Fetcher) FetchWithOptions(ctx context.Context, pageUrls []string, opts 
 						return
 					}
 
-					// Score the entire version
-					err = f.tracker.ScoreAndAttributeVersion(ctx, cr, f.config.ScoreTimeout)
-					if err != nil && f.logger != nil {
-						f.logger.Error("error while scoring version",
-							logging.Field{Key: "error", Value: err})
-					}
+					// Score the entire version with the injected assessor.
+					f.scoreCommit(ctx, cr)
 
 					// Mark all URLs as fetched in indexer (single version for all)
 					if f.indexer != nil && len(allUrls) > 0 {

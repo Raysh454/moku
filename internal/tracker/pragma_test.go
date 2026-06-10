@@ -17,7 +17,6 @@ func TestNewSQLiteTracker_AppliesPragmasToEveryPoolConnection(t *testing.T) {
 	tr, err := tracker.NewSQLiteTracker(
 		&tracker.Config{StoragePath: t.TempDir(), ProjectID: "pragma-test"},
 		logging.NewStdoutLogger("tracker-test"),
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewSQLiteTracker returned error: %v", err)

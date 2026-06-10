@@ -32,12 +32,12 @@ type SQLiteTracker struct {
 	logger logging.Logger
 	config *Config
 
-	// score owns the assessor reference; keeping a second copy here is how
-	// SetAssessor once silently failed to reach score persistence.
+	// score persists precomputed score results; producing the scores is the
+	// caller's responsibility (the fetcher owns the assessor).
 	score *score.SQLiteScoreTracker
 }
 
-func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.Assessor) (*SQLiteTracker, error) {
+func NewSQLiteTracker(config *Config, logger logging.Logger) (*SQLiteTracker, error) {
 	if logger == nil {
 		return nil, errors.New("tracker: nil logger provided")
 	}
@@ -88,7 +88,7 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 		store:  store,
 		logger: logger,
 		config: config,
-		score:  score.New(assessor, db, logger),
+		score:  score.New(db, logger),
 	}
 
 	if config.ProjectID != "" {
@@ -99,10 +99,6 @@ func NewSQLiteTracker(config *Config, logger logging.Logger, assessor assessor.A
 	}
 
 	return t, nil
-}
-
-func (t *SQLiteTracker) SetAssessor(a assessor.Assessor) {
-	t.score.SetAssessor(a)
 }
 
 func (t *SQLiteTracker) GetProjectID(ctx context.Context) (string, error) {
@@ -1297,18 +1293,8 @@ func (t *SQLiteTracker) writeWorkingTreeFiles(filePath string, statusCode int, b
 	return nil
 }
 
-func (t *SQLiteTracker) ScoreAndAttributeVersion(ctx context.Context, cr *models.CommitResult, scoreTimeout time.Duration) error {
-	if cr == nil {
-		return errors.New("nil CommitResult")
-	}
-
-	if !t.score.HasAssessor() {
-		return errors.New("no assessor set on tracker")
-	}
-
-	t.logger.Info("Starting scoring and attribution")
-
-	return t.score.ScoreAndAttribute(ctx, cr, scoreTimeout)
+func (t *SQLiteTracker) PersistScore(ctx context.Context, scoreResult *assessor.ScoreResult, snapshotID, versionID, url string) error {
+	return t.score.PersistScore(ctx, scoreResult, snapshotID, versionID, url)
 }
 
 func (t *SQLiteTracker) GetScoreResultFromSnapshotID(ctx context.Context, snapshotID string) (*assessor.ScoreResult, error) {

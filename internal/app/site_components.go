@@ -20,6 +20,7 @@ type SiteComponents struct {
 	Index     indexer.EndpointIndex
 	Fetcher   *fetcher.Fetcher
 	WebClient webclient.WebClient
+	Assessor  assessor.Assessor
 	Analyzer  analyzer.Analyzer
 	logger    logging.Logger // Add scoped logger
 }
@@ -44,7 +45,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 	trackerCfg := cfg.trackerCfg
 	trackerCfg.StoragePath = web.StoragePath
 	trackerCfg.ProjectID = web.ProjectID
-	tr, err := tracker.NewSQLiteTracker(&trackerCfg, scopedLogger, a)
+	tr, err := tracker.NewSQLiteTracker(&trackerCfg, scopedLogger)
 	if err != nil {
 		return nil, fmt.Errorf("new tracker: %w", err)
 	}
@@ -63,6 +64,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		tr,
 		wc,
 		ix,
+		a,
 		scopedLogger,
 	)
 	if err != nil {
@@ -87,6 +89,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 		Index:     ix,
 		Fetcher:   f,
 		WebClient: wc,
+		Assessor:  a,
 		Analyzer:  an,
 		logger:    scopedLogger,
 	}, nil
