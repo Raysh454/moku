@@ -1,6 +1,6 @@
 # Server API Routes
 
-This document describes the HTTP and WebSocket routes exposed by `internal/server`. All paths are relative to the server base URL (e.g. `http://localhost:8080`).
+This document describes the HTTP routes exposed by `internal/server`. All paths are relative to the server base URL (e.g. `http://localhost:8080`).
 
 ## Projects
 

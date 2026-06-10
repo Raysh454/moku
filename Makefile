@@ -10,15 +10,24 @@ BIN_DIR := $(CURDIR)/bin
 BINARY := moku
 GOCMD := go
 GOTEST := $(GOCMD) test
+GOLANGCI_LINT_VERSION := v1.64.8
+# Pin swag to the latest v1.x (Swagger 2.0 output consumed by httpSwagger);
+# matches the github.com/swaggo/swag version required in go.mod. Do NOT bump to
+# v2 — it emits OpenAPI 3.x which httpSwagger does not serve.
+SWAG_VERSION := v1.16.6
 GOLANGCI := $(BIN_DIR)/golangci-lint
+# Version-suffixed path so bumping GOLANGCI_LINT_VERSION forces a reinstall: the
+# new suffixed binary won't exist yet, so the existence guard reinstalls it.
+GOLANGCI_VERSIONED := $(BIN_DIR)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 SWAGGER := $(BIN_DIR)/swag
 GOOS := $(shell $(GOCMD) env GOOS)
 NULL_DEVICE := /dev/null
-GOLANGCI_LINT_VERSION := latest
 
 # OS-specific settings for Windows compatibility
 PATH_SEP := :
 GOLANGCI_BIN := $(GOLANGCI)
+GOLANGCI_VERSIONED_BIN := $(GOLANGCI_VERSIONED)
+COPY_GOLANGCI := cp "$(GOLANGCI_BIN)" "$(GOLANGCI_VERSIONED_BIN)"
 DEMO_SERVER_BIN := $(BIN_DIR)/demo-server
 SWAG_BIN := $(SWAGGER)
 MKDIR_BIN := mkdir -p $(BIN_DIR)
@@ -27,13 +36,15 @@ RM_CLEAN := rm -rf $(BIN_DIR) coverage.out coverage.html test-results
 COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out | tee test-results/coverage.txt
 COVERAGE_TEST := SKIP_CHROMEDP=1 $(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
 INSTALL_GOLANGCI := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-INSTALL_SWAGGER := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
+INSTALL_SWAGGER := GOBIN=$(BIN_DIR) $(GOCMD) install github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION)
 
 ifeq ($(GOOS),windows)
 BINARY := moku.exe
 DEMO_SERVER_BIN := $(BIN_DIR)/demo-server.exe
 PATH_SEP := ;
 GOLANGCI_BIN := $(GOLANGCI).exe
+GOLANGCI_VERSIONED_BIN := $(GOLANGCI_VERSIONED).exe
+COPY_GOLANGCI := copy /Y "$(subst /,\,$(GOLANGCI_BIN))" "$(subst /,\,$(GOLANGCI_VERSIONED_BIN))"
 SWAG_BIN := $(SWAGGER).exe
 NULL_DEVICE := NUL
 MKDIR_BIN := if not exist "$(BIN_DIR)" mkdir "$(BIN_DIR)"
@@ -42,7 +53,7 @@ RM_CLEAN := if exist "$(BIN_DIR)" rmdir /S /Q "$(BIN_DIR)" & if exist "coverage.
 COVERAGE_SUMMARY := $(GOCMD) tool cover -func=coverage.out > "test-results\\coverage.txt" & type "test-results\\coverage.txt"
 COVERAGE_TEST := set SKIP_CHROMEDP=1& $(GOTEST) ./... -coverprofile=coverage.out -covermode=atomic -v
 INSTALL_GOLANGCI := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-INSTALL_SWAGGER := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
+INSTALL_SWAGGER := set GOBIN=$(BIN_DIR)& $(GOCMD) install github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION)
 endif
 
 # Ensure local bin is used first
@@ -127,23 +138,25 @@ vet:
 	@echo "==> go vet ./..."
 	$(GOCMD) vet ./...
 
-# Lint (uses local golangci-lint binary installed to ./bin)
+# Lint (uses the pinned, version-suffixed golangci-lint binary in ./bin)
 lint: install-golangci
-	@echo "==> golangci-lint run"
-	"$(GOLANGCI_BIN)" run
+	@echo "==> golangci-lint run ($(GOLANGCI_LINT_VERSION))"
+	"$(GOLANGCI_VERSIONED_BIN)" run
 
-# Install golangci-lint locally to ./bin
-# Default: build with the local Go toolchain using `go install`.
-# You may pin a version by setting GOLANGCI_LINT_VERSION, e.g.:
+# Install golangci-lint locally to ./bin, built with the local Go toolchain
+# (`go install`) at the pinned GOLANGCI_LINT_VERSION. Override the version with:
 #   make install-golangci GOLANGCI_LINT_VERSION=v1.64.8
-
+#
+# The binary is copied to a version-suffixed path and the guard checks that
+# suffixed path, so bumping GOLANGCI_LINT_VERSION (which changes the suffix)
+# forces a fresh install rather than reusing a stale binary.
 install-golangci:
-	@echo "==> Installing golangci-lint to $(BIN_DIR) (built with local Go)"
+	@echo "==> Installing golangci-lint $(GOLANGCI_LINT_VERSION) to $(BIN_DIR) (built with local Go)"
 	@$(MKDIR_BIN)
 ifeq ($(GOOS),windows)
-	@if not exist "$(GOLANGCI_BIN)" $(INSTALL_GOLANGCI)
+	@if not exist "$(subst /,\,$(GOLANGCI_VERSIONED_BIN))" ( $(INSTALL_GOLANGCI) && $(COPY_GOLANGCI) )
 else
-	@test -f "$(GOLANGCI_BIN)" || $(INSTALL_GOLANGCI)
+	@test -f "$(GOLANGCI_VERSIONED_BIN)" || { $(INSTALL_GOLANGCI) && $(COPY_GOLANGCI); }
 endif
 
 # Coverage: produce coverage.out and a text summary
