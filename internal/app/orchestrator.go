@@ -41,6 +41,11 @@ type Orchestrator struct {
 
 	closedMu sync.Mutex
 	closed   bool
+
+	// closeOnce guards the heavy teardown in Close (waiting for jobs, closing
+	// site components) so it runs exactly once even though Close may be called
+	// both explicitly and via defer.
+	closeOnce sync.Once
 }
 
 func NewOrchestrator(cfg *Config, reg *registry.Registry, logger logging.Logger) *Orchestrator {
@@ -689,7 +694,13 @@ func (o *Orchestrator) GetEndpointDetails(ctx context.Context, projectIdentifier
 	}, nil
 }
 
-func (o *Orchestrator) Close() {
+// BeginShutdown starts a graceful shutdown without tearing down components:
+// it marks the orchestrator closed (so new jobs are rejected), cancels every
+// running job, and closes the event broker. Closing the broker makes open SSE
+// streams return, which lets an HTTP server with no write timeout drain in
+// flight; otherwise httpServer.Shutdown would block on every open stream until
+// its context deadline. Idempotent and safe to call before Close.
+func (o *Orchestrator) BeginShutdown() {
 	o.closedMu.Lock()
 	if o.closed {
 		o.closedMu.Unlock()
@@ -699,7 +710,21 @@ func (o *Orchestrator) Close() {
 	o.closedMu.Unlock()
 
 	o.jobs.shutdown()
-	o.jobs.waitAll(orchestratorShutdownTimeout)
-	o.sites.closeAll()
 	o.broker.close()
+}
+
+// Close completes shutdown: it begins shutdown if not already started, waits
+// for in-flight job goroutines to unwind (bounded by
+// orchestratorShutdownTimeout), then closes per-site components and their
+// SQLite handles. Safe to call multiple times and without a preceding
+// BeginShutdown; the heavy teardown runs at most once.
+func (o *Orchestrator) Close() {
+	o.BeginShutdown()
+	o.closeOnce.Do(func() {
+		if !o.jobs.waitAll(orchestratorShutdownTimeout) && o.logger != nil {
+			o.logger.Warn("orchestrator: timed out waiting for in-flight jobs to finish during shutdown",
+				logging.Field{Key: "timeout", Value: orchestratorShutdownTimeout.String()})
+		}
+		o.sites.closeAll()
+	})
 }
