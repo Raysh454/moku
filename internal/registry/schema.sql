@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS websites (
     last_seen_at INTEGER,
     config       TEXT,
     dir_name     TEXT NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE (project_id, slug)
 );
 
 CREATE TABLE IF NOT EXISTS filter_rules (

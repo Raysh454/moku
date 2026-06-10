@@ -1197,6 +1197,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/server.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1216,6 +1220,10 @@ paths:
       responses:
         "204":
           description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1241,6 +1249,10 @@ paths:
             items:
               $ref: '#/definitions/registry.Website'
             type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1275,6 +1287,14 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/server.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1299,6 +1319,10 @@ paths:
       responses:
         "204":
           description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1401,6 +1425,10 @@ paths:
             items:
               $ref: '#/definitions/indexer.Endpoint'
             type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1438,6 +1466,10 @@ paths:
             $ref: '#/definitions/server.AddedEndpointsResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/server.ErrorResponse'
         "500":
@@ -1486,6 +1518,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/server.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1522,6 +1558,10 @@ paths:
           description: Accepted
           schema:
             $ref: '#/definitions/app.Job'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1557,6 +1597,10 @@ paths:
           description: Accepted
           schema:
             $ref: '#/definitions/app.Job'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1597,6 +1641,10 @@ paths:
             $ref: '#/definitions/app.Job'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/server.ErrorResponse'
         "500":
@@ -1641,6 +1689,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/server.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1679,6 +1731,10 @@ paths:
             type: array
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/server.ErrorResponse'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/server.ErrorResponse'
         "500":

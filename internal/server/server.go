@@ -319,6 +319,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // @Param request body CreateProjectRequest true "Project payload"
 // @Success 201 {object} registry.Project
 // @Failure 400 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects [post]
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -330,8 +331,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	p, err := s.orchestrator.CreateProject(r.Context(), body.Slug, body.Name, body.Description)
 	if err != nil {
-		s.logger.Warn("creating project", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "creating project")
 		return
 	}
 	s.logger.Info("created project", logging.Field{Key: "slug", Value: p.Slug})
@@ -344,13 +344,13 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 // @Tags Projects
 // @Param project path string true "Project slug or ID"
 // @Success 204
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project} [delete]
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	if err := s.orchestrator.DeleteProject(r.Context(), project); err != nil {
-		s.logger.Warn("deleting project", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "deleting project")
 		return
 	}
 	s.logger.Info("deleted project", logging.Field{Key: "project", Value: project})
@@ -364,14 +364,14 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 // @Param project path string true "Project slug"
 // @Param site path string true "Website slug"
 // @Success 204
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site} [delete]
 func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	site := chi.URLParam(r, "site")
 	if err := s.orchestrator.DeleteWebsite(r.Context(), project, site); err != nil {
-		s.logger.Warn("deleting website", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "deleting website")
 		return
 	}
 	s.logger.Info("deleted website", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site})
@@ -389,8 +389,7 @@ func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	ps, err := s.orchestrator.ListProjects(r.Context())
 	if err != nil {
-		s.logger.Warn("listing projects", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "listing projects")
 		return
 	}
 	s.logger.Info("listed projects", logging.Field{Key: "count", Value: len(ps)})
@@ -409,6 +408,8 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 // @Param request body CreateWebsiteRequest true "Website payload"
 // @Success 201 {object} registry.Website
 // @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites [post]
 func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request) {
@@ -423,8 +424,7 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request) {
 
 	web, err := s.orchestrator.CreateWebsite(r.Context(), project, body.Slug, body.Origin)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		s.logger.Warn("creating website", logging.Field{Key: "error", Value: err.Error()})
+		s.writeDomainError(w, err, "creating website")
 		return
 	}
 	s.logger.Info("created website", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: web.Slug})
@@ -438,6 +438,7 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request) {
 // @Produce json
 // @Param project path string true "Project slug"
 // @Success 200 {array} registry.Website
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites [get]
 func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request) {
@@ -445,8 +446,7 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request) {
 
 	ws, err := s.orchestrator.ListWebsites(r.Context(), project)
 	if err != nil {
-		s.logger.Warn("listing websites", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "listing websites")
 		return
 	}
 	s.logger.Info("listed websites", logging.Field{Key: "project", Value: project}, logging.Field{Key: "count", Value: len(ws)})
@@ -466,6 +466,7 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request) {
 // @Param request body AddWebsiteEndpointsRequest true "Endpoint payload"
 // @Success 201 {object} AddedEndpointsResponse
 // @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/endpoints [post]
 func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Request) {
@@ -484,8 +485,7 @@ func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Reques
 
 	added, err := s.orchestrator.AddWebsiteEndpoints(r.Context(), project, site, body.URLs, body.Source)
 	if err != nil {
-		s.logger.Warn("adding website endpoints", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "adding website endpoints")
 		return
 	}
 	s.logger.Info("added website endpoints", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "added_count", Value: len(added)})
@@ -502,6 +502,7 @@ func (s *Server) handleAddWebsiteEndpoints(w http.ResponseWriter, r *http.Reques
 // @Param status query string false "Filter by status" default(all)
 // @Param limit query int false "Maximum results" default(100)
 // @Success 200 {array} indexer.Endpoint
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/endpoints [get]
 func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Request) {
@@ -519,8 +520,7 @@ func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Reque
 
 	eps, err := s.orchestrator.ListWebsiteEndpoints(r.Context(), project, site, status, limit)
 	if err != nil {
-		s.logger.Warn("listing website endpoints", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "listing website endpoints")
 		return
 	}
 	s.logger.Info("listed website endpoints", logging.Field{Key: "project", Value: project}, logging.Field{Key: "site", Value: site}, logging.Field{Key: "count", Value: len(eps)})
@@ -539,6 +539,7 @@ func (s *Server) handleListWebsiteEndpoints(w http.ResponseWriter, r *http.Reque
 // @Param head_version_id query string false "Head version ID for comparison"
 // @Success 200 {object} app.EndpointDetails
 // @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/endpoints/details [get]
 func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request) {
@@ -556,8 +557,7 @@ func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request
 
 	details, err := s.orchestrator.GetEndpointDetails(r.Context(), project, site, url, baseVersionID, headVersionID)
 	if err != nil {
-		s.logger.Warn("getting endpoint details", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "getting endpoint details")
 		return
 	}
 
@@ -576,6 +576,7 @@ func (s *Server) handleGetEndpointDetails(w http.ResponseWriter, r *http.Request
 // @Param head_version_id query string true "Head version ID"
 // @Success 200 {object} assessor.SecurityDiffOverview
 // @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/security/overview [get]
 func (s *Server) handleGetSecurityOverview(w http.ResponseWriter, r *http.Request) {
@@ -590,8 +591,7 @@ func (s *Server) handleGetSecurityOverview(w http.ResponseWriter, r *http.Reques
 
 	overview, err := s.orchestrator.GetWebsiteSecurityDiffOverview(r.Context(), project, site, baseVersionID, headVersionID)
 	if err != nil {
-		s.logger.Warn("getting security overview", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "getting security overview")
 		return
 	}
 
@@ -608,6 +608,7 @@ func (s *Server) handleGetSecurityOverview(w http.ResponseWriter, r *http.Reques
 // @Param limit query int false "Maximum number of versions to return" default(100)
 // @Success 200 {array} models.Version
 // @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/versions [get]
 func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
@@ -623,8 +624,7 @@ func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
 
 	versions, err := s.orchestrator.ListVersions(r.Context(), project, site, limit)
 	if err != nil {
-		s.logger.Warn("listing versions", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "listing versions")
 		return
 	}
 
@@ -644,6 +644,7 @@ func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
 // @Param site path string true "Website slug"
 // @Param request body StartFetchJobRequest false "Fetch options"
 // @Success 202 {object} app.Job
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/jobs/fetch [post]
 func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
@@ -661,8 +662,7 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := s.orchestrator.StartFetchJob(context.Background(), project, site, body.Status, body.Limit, body.Config)
 	if err != nil {
-		s.logger.Warn("starting fetch job", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "starting fetch job")
 		return
 	}
 	s.logger.Info("started fetch job", logging.Field{Key: "job_id", Value: job.ID}, logging.Field{Key: "status", Value: body.Status}, logging.Field{Key: "limit", Value: body.Limit})
@@ -679,6 +679,7 @@ func (s *Server) handleStartFetchJob(w http.ResponseWriter, r *http.Request) {
 // @Param site path string true "Website slug"
 // @Param body body StartEnumerateJobRequest false "Enumeration configuration"
 // @Success 202 {object} app.Job
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/jobs/enumerate [post]
 func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request) {
@@ -690,8 +691,7 @@ func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request)
 
 	job, err := s.orchestrator.StartEnumerateJob(context.Background(), project, site, body.Config)
 	if err != nil {
-		s.logger.Warn("starting enumerate job", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "starting enumerate job")
 		return
 	}
 	s.logger.Info("started enumerate job", logging.Field{Key: "job_id", Value: job.ID})
@@ -709,6 +709,7 @@ func (s *Server) handleStartEnumerateJob(w http.ResponseWriter, r *http.Request)
 // @Param request body StartScanJobRequest true "Scan options"
 // @Success 202 {object} app.Job
 // @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /projects/{project}/websites/{site}/jobs/scan [post]
 func (s *Server) handleStartScanJob(w http.ResponseWriter, r *http.Request) {
@@ -737,8 +738,7 @@ func (s *Server) handleStartScanJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := s.orchestrator.StartScanJob(context.Background(), project, site, req)
 	if err != nil {
-		s.logger.Warn("starting scan job", logging.Field{Key: "error", Value: err.Error()})
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeDomainError(w, err, "starting scan job")
 		return
 	}
 	s.logger.Info("started scan job", logging.Field{Key: "job_id", Value: job.ID}, logging.Field{Key: "url", Value: body.URL})
