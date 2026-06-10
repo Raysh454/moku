@@ -460,7 +460,11 @@ func (o *Orchestrator) buildEnumerator(cfg api.EnumerationConfig, wc webclient.W
 		if maxDepth == 0 {
 			maxDepth = 4 // default
 		}
-		enumerators = append(enumerators, enumerator.NewSpider(maxDepth, wc, o.logger))
+		spider := enumerator.NewSpider(maxDepth, wc, o.logger)
+		if cfg.Spider.MaxPages > 0 {
+			spider.MaxPages = cfg.Spider.MaxPages
+		}
+		enumerators = append(enumerators, spider)
 		methods = append(methods, "spider")
 	}
 
@@ -483,9 +487,11 @@ func (o *Orchestrator) buildEnumerator(cfg api.EnumerationConfig, wc webclient.W
 		methods = append(methods, "wayback")
 	}
 
-	// Default to spider if nothing specified
+	// Default to spider if nothing specified. The constructor applies the
+	// default page cap; there is no per-request override in this branch.
 	if len(enumerators) == 0 {
-		enumerators = append(enumerators, enumerator.NewSpider(4, wc, o.logger))
+		spider := enumerator.NewSpider(4, wc, o.logger)
+		enumerators = append(enumerators, spider)
 		methods = append(methods, "spider")
 	}
 

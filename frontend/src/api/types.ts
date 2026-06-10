@@ -290,7 +290,7 @@ export type Version = {
 
 export type SpiderConfig = {
   max_depth?: number;
-  concurrency?: number;
+  max_pages?: number;
 };
 
 export type SitemapConfig = Record<string, never>;

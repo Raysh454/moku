@@ -12,8 +12,17 @@ import (
 	"golang.org/x/net/html"
 )
 
+// defaultMaxSpiderPages bounds the total number of pages a single spider run
+// will discover when MaxPages is left at its zero value. It caps both the work
+// queue and the result set so a densely linked or adversarial site cannot make
+// the crawler enumerate (and fetch) an unbounded number of URLs.
+const defaultMaxSpiderPages = 1000
+
 type Spider struct {
 	MaxDepth int
+	// MaxPages bounds the total number of pages discovered in a single run.
+	// A non-positive value is replaced with defaultMaxSpiderPages by NewSpider.
+	MaxPages int
 	wc       webclient.WebClient
 	logger   logging.Logger
 }
@@ -25,10 +34,13 @@ type spiderHelper struct {
 	results []string
 }
 
-// NewSpider creates a new Spider with the given webclient and logger.
+// NewSpider creates a new Spider with the given webclient and logger. The page
+// cap defaults to defaultMaxSpiderPages; callers may override Spider.MaxPages
+// afterward.
 func NewSpider(maxDepth int, wc webclient.WebClient, logger logging.Logger) *Spider {
 	return &Spider{
 		MaxDepth: maxDepth,
+		MaxPages: defaultMaxSpiderPages,
 		wc:       wc,
 		logger:   logger,
 	}
@@ -139,8 +151,18 @@ func (sh *spiderHelper) crawlPage(ctx context.Context, target string) ([]string,
 	return links, nil
 }
 
+// pageCapReached reports whether the result set has grown to the configured
+// MaxPages cap. A non-positive MaxPages means "no cap".
+func (sh *spiderHelper) pageCapReached() bool {
+	maxPages := sh.spider.MaxPages
+	return maxPages > 0 && len(sh.results) >= maxPages
+}
+
 func (sh *spiderHelper) appendPages(pages []string, lastDepth int) {
 	for _, page := range pages {
+		if sh.pageCapReached() {
+			return
+		}
 
 		pageUrlTools, err := utils.NewURLTools(page)
 		if err != nil {
@@ -169,6 +191,12 @@ func (sh *spiderHelper) run(ctx context.Context, cb utils.ProgressCallback) erro
 	currPage := 0
 
 	for currPage < len(sh.results) {
+		// Stop crawling once we have processed MaxPages pages, even if more
+		// remain queued. appendPages already bounds queue growth; this bounds
+		// the work done so an early burst of links cannot exceed the cap.
+		if maxPages := sh.spider.MaxPages; maxPages > 0 && currPage >= maxPages {
+			break
+		}
 		if depth, exists := sh.depth[sh.results[currPage]]; exists && depth > sh.spider.MaxDepth {
 			break
 		}

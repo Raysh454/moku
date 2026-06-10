@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -131,6 +132,38 @@ func AssertEqual(t *testing.T, maxDepth int, addr string, want []string, testNum
 	} else {
 		fmt.Printf("Got: %v\n", got)
 		fmt.Printf("%sPASS %d/%d%s\n", green, testNum, totalTests, reset)
+	}
+}
+
+// TestSpider_StopsAtMaxPages verifies that the spider honors a configured
+// MaxPages cap: even when a deep chain of same-domain pages is reachable within
+// MaxDepth, the crawl stops once MaxPages results have been collected.
+func TestSpider_StopsAtMaxPages(t *testing.T) {
+	// Each /page{n} links to /page{n+1}, forming a long single-domain chain.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		next := r.URL.Path + "/next"
+		fmt.Fprintf(w, `<a href=%q>next</a>`, next)
+	}))
+	defer ts.Close()
+
+	cfg := webclient.Config{Client: webclient.ClientNetHTTP, AllowPrivateHosts: true}
+	wc, err := webclient.NewNetHTTPClient(cfg, logging.NewStdoutLogger("test"), nil)
+	if err != nil {
+		t.Fatalf("failed to create webclient: %v", err)
+	}
+
+	const maxPages = 3
+	spider := enumerator.NewSpider(100, wc, nil)
+	spider.MaxPages = maxPages
+
+	got, err := spider.Enumerate(context.Background(), ts.URL, nil)
+	if err != nil {
+		t.Fatalf("Enumerate: %v", err)
+	}
+
+	if len(got) > maxPages {
+		t.Errorf("spider returned %d pages, want at most %d: %v", len(got), maxPages, got)
 	}
 }
 
