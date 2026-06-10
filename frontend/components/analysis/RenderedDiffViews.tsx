@@ -27,7 +27,7 @@ function changeToHighlight(change: AttackSurfaceChange): HighlightedElement[] {
   return change.evidence_locations
     .filter((location) => location.dom_index !== undefined)
     .map((location) => ({
-      type: location.type,
+      type: location.type ?? "",
       domIndex: location.dom_index,
       parentDomIndex: location.parent_dom_index,
       change,
@@ -42,7 +42,7 @@ function filterHighlightsByType(
 ): HighlightedElement[] {
   return highlights.filter((highlight) => {
     if (!highlight.change) return false;
-    const kind = highlight.change.kind.toLowerCase();
+    const kind = (highlight.change.kind ?? "").toLowerCase();
     if (includeAdded && kind.includes("_added")) return true;
     if (includeRemoved && kind.includes("_removed")) return true;
     if (includeChanged && kind.includes("_changed")) return true;
@@ -330,11 +330,12 @@ function SecurityElementsView({ securityDiff }: { securityDiff?: SecurityDiff | 
     if (!securityDiff?.attack_surface_changes) return groups;
 
     for (const change of securityDiff.attack_surface_changes) {
-      if (change.kind.includes("form")) groups.forms.push(change);
-      else if (change.kind.includes("input")) groups.inputs.push(change);
-      else if (change.kind.includes("cookie")) groups.cookies.push(change);
-      else if (change.kind.includes("header")) groups.headers.push(change);
-      else if (change.kind.includes("script")) groups.scripts.push(change);
+      const kind = change.kind ?? "";
+      if (kind.includes("form")) groups.forms.push(change);
+      else if (kind.includes("input")) groups.inputs.push(change);
+      else if (kind.includes("cookie")) groups.cookies.push(change);
+      else if (kind.includes("header")) groups.headers.push(change);
+      else if (kind.includes("script")) groups.scripts.push(change);
       else groups.other.push(change);
     }
     return groups;
@@ -363,8 +364,8 @@ function SecurityElementsView({ securityDiff }: { securityDiff?: SecurityDiff | 
             <div className="securityCards">
               {changes.map((change, index) => (
                 <div key={index} className="securityCard">
-                  <div className={`cardKind kind-${change.kind.split("_")[1] || "changed"}`}>
-                    {change.kind.split("_")[1] || "changed"}
+                  <div className={`cardKind kind-${(change.kind ?? "").split("_")[1] || "changed"}`}>
+                    {(change.kind ?? "").split("_")[1] || "changed"}
                   </div>
                   <p className="cardDetail">{change.detail}</p>
                   {change.evidence_locations && change.evidence_locations.length > 0 && (

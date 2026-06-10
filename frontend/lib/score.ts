@@ -47,11 +47,14 @@ export function groupChangesByCategory(
 ): Map<ChangeCategory, AttackSurfaceChange[]> {
   const groups = new Map<ChangeCategory, AttackSurfaceChange[]>();
   for (const change of changes) {
-    const bucket = groups.get(change.category);
+    // `category` is optional on the wire; fall back to "generic" so an
+    // unclassified change still lands in a bucket.
+    const category = change.category ?? "generic";
+    const bucket = groups.get(category);
     if (bucket) {
       bucket.push(change);
     } else {
-      groups.set(change.category, [change]);
+      groups.set(category, [change]);
     }
   }
   return groups;

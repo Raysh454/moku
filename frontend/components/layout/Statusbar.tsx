@@ -25,7 +25,7 @@ export const Statusbar: React.FC = () => {
         if (siteFilter && job.website !== siteFilter) return false;
         return true;
       })
-        .sort((left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()),
+        .sort((left, right) => new Date(right.started_at ?? 0).getTime() - new Date(left.started_at ?? 0).getTime()),
     [jobs, projectFilter, siteFilter],
   );
 
@@ -144,7 +144,7 @@ export const Statusbar: React.FC = () => {
                               {job.status}
                             </span>
                           </div>
-                          <span className="text-slate-500 font-mono">{job.id.slice(0, 8)}</span>
+                          <span className="text-slate-500 font-mono">{(job.id ?? "").slice(0, 8)}</span>
                         </div>
                         {job.status !== "failed" && job.processed !== undefined && job.total !== undefined && job.total > 0 && (
                           <div className="mt-2 h-1.5 w-full bg-border rounded-full overflow-hidden">
@@ -161,7 +161,7 @@ export const Statusbar: React.FC = () => {
                           )}
                         </div>
                         <div className="mt-1 text-slate-500">
-                          started: {new Date(job.started_at).toLocaleString()}
+                          started: {new Date(job.started_at ?? 0).toLocaleString()}
                           {job.ended_at ? ` • ended: ${new Date(job.ended_at).toLocaleString()}` : ""}
                         </div>
                         {job.error && <div className="mt-1 text-danger">error: {job.error}</div>}

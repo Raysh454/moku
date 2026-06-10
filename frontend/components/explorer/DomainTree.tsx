@@ -149,7 +149,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
       setAnalyzerStatus({
         backend: capabilities?.backend || health?.backend || "unknown",
         health: health?.status || "unreachable",
-        supportsProfile: capabilities ? capabilities.capabilities.supports_scan_profile : true,
+        supportsProfile: capabilities?.capabilities?.supports_scan_profile ?? true,
       });
     };
     void probeAnalyzer();
@@ -258,7 +258,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
       notify({
         kind: "success",
         title: `Scan started for ${domain.hostname}`,
-        message: `Job ${started.id.slice(0, 8)} queued — findings appear in the Analysis tab`,
+        message: `Job ${(started.id ?? "").slice(0, 8)} queued — findings appear in the Analysis tab`,
       });
     } catch (error) {
       notify({
@@ -355,7 +355,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
 
     const endpointsByPath = new Map<string, SecurityDiffOverviewEntry>();
     for (const entry of overview) {
-      endpointsByPath.set(normalizePath(entry.url), entry);
+      endpointsByPath.set(normalizePath(entry.url ?? ""), entry);
     }
 
     return [...domain.endpoints].sort((a, b) => {
@@ -381,7 +381,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
     const overview = domainOverviews?.get(domain.slug);
     if (!overview || !Array.isArray(overview)) return undefined;
     const normalizedTarget = normalizePath(endpoint.path);
-    return overview.find((entry) => normalizePath(entry.url) === normalizedTarget);
+    return overview.find((entry) => normalizePath(entry.url ?? "") === normalizedTarget);
   };
 
   const currentMenuState = openMenuId ? domainMenuState[openMenuId] || defaultMenuState() : defaultMenuState();
@@ -456,11 +456,11 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
                             <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
                               {overview.score_head !== undefined && (
                                 <div
-                                  title={`Risk: ${overview.score_base.toFixed(2)} → ${overview.score_head.toFixed(2)} (Delta: ${overview.score_delta > 0 ? "+" : ""}${overview.score_delta.toFixed(2)})`}
+                                  title={`Risk: ${(overview.score_base ?? 0).toFixed(2)} → ${overview.score_head.toFixed(2)} (Delta: ${(overview.score_delta ?? 0) > 0 ? "+" : ""}${(overview.score_delta ?? 0).toFixed(2)})`}
                                   className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${
-                                    overview.score_delta > 0
+                                    (overview.score_delta ?? 0) > 0
                                       ? "bg-danger/20 text-danger"
-                                      : overview.score_delta < 0
+                                      : (overview.score_delta ?? 0) < 0
                                         ? "bg-success/20 text-success"
                                         : "bg-accent/20 text-accent"
                                   }`}

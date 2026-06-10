@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "generate:api": "swagger2openapi --patch ../docs/swagger/swagger.json --outfile src/api/openapi3.json && openapi-typescript src/api/openapi3.json -o src/api/generated.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
@@ -18,11 +20,18 @@
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^25.6.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "jsdom": "^29.1.1",
+    "openapi-typescript": "^7.13.0",
+    "swagger2openapi": "^7.0.8",
     "typescript": "~6.0.3",
-    "vite": "^8.0.11"
+    "vite": "^8.0.11",
+    "vitest": "^4.1.8"
   }
 }
