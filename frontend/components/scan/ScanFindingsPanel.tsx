@@ -4,7 +4,8 @@ import { Badge } from "../common/Badge";
 
 const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
 
-const severityRank = (severity: Severity): number => {
+const severityRank = (severity: Severity | undefined): number => {
+  if (severity === undefined) return SEVERITY_ORDER.length;
   const rank = SEVERITY_ORDER.indexOf(severity);
   return rank === -1 ? SEVERITY_ORDER.length : rank;
 };
@@ -112,7 +113,7 @@ export function ScanFindingsPanel({ result }: Props) {
 
       {result.status === "running" && result.progress && (
         <p className="text-xs text-slate-400">
-          {result.progress.percent >= 0 ? `${result.progress.percent}%` : "In progress"}
+          {(result.progress.percent ?? -1) >= 0 ? `${result.progress.percent}%` : "In progress"}
           {result.progress.phase ? ` • ${result.progress.phase}` : ""}
         </p>
       )}
@@ -142,7 +143,7 @@ export function ScanFindingsPanel({ result }: Props) {
               finding={finding}
               isExpanded={expandedFindingId === finding.id}
               onToggle={() =>
-                setExpandedFindingId((current) => (current === finding.id ? null : finding.id))
+                setExpandedFindingId((current) => (current === finding.id ? null : finding.id ?? null))
               }
             />
           ))}

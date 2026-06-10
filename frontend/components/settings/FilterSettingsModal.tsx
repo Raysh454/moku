@@ -573,13 +573,13 @@ export function FilterSettingsModal({
                         {endpoint.url}
                       </p>
                     </div>
-                    <div className="col-span-2 text-xs text-warning truncate" title={parseFilterReason(endpoint.meta)}>
-                      {parseFilterReason(endpoint.meta)}
+                    <div className="col-span-2 text-xs text-warning truncate" title={parseFilterReason(endpoint.meta ?? "")}>
+                      {parseFilterReason(endpoint.meta ?? "")}
                     </div>
                     <div className="col-span-2 flex justify-end">
                       <button
                         className="px-2.5 py-2 rounded-lg border border-accent/30 text-xs font-semibold text-accent hover:bg-accent/10"
-                        onClick={() => void unfilter([endpoint.canonical_url])}
+                        onClick={() => void unfilter([endpoint.canonical_url ?? ""])}
                         disabled={loading}
                       >
                         Unfilter

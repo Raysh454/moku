@@ -1,0 +1,4 @@
+# Intermediate OpenAPI 3 document produced by `npm run generate:api` from
+# docs/swagger/swagger.json (Swagger 2.0). Only the generated TypeScript
+# (src/api/generated.ts) is committed; this conversion artifact is not.
+src/api/openapi3.json

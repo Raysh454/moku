@@ -19,9 +19,9 @@ const directionColor: Record<string, string> = {
 export function SecurityDiffPanel({ diff }: Props) {
   if (!diff) return null;
 
-  const compositeDirection = scoreDirection(diff.score_delta);
-  const exposureDirection = scoreDirection(diff.exposure_delta);
-  const hardeningDirection = scoreDirection(diff.hardening_delta, {
+  const compositeDirection = scoreDirection(diff.score_delta ?? 0);
+  const exposureDirection = scoreDirection(diff.exposure_delta ?? 0);
+  const hardeningDirection = scoreDirection(diff.hardening_delta ?? 0, {
     higherIsWorse: false,
   });
 

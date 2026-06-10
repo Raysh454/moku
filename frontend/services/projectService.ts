@@ -1,5 +1,12 @@
 import { api } from "../src/api/client";
-import type { EndpointDetails, Version } from "../src/api/types";
+import type {
+  Endpoint as ApiEndpoint,
+  EndpointDetails,
+  Project as ApiProject,
+  Snapshot as ApiSnapshot,
+  Version,
+  Website as ApiWebsite,
+} from "../src/api/types";
 import type { Domain, Endpoint, Project, Snapshot } from "../types/project";
 import { getSnapshotContentInfo, readHeaderValue } from "../lib/contentView";
 
@@ -20,20 +27,31 @@ const deriveVersionNumber = (versionId: string, versions: Version[]): number => 
 };
 
 const toSnapshot = (details: EndpointDetails, versions: Version[]): Snapshot => {
+  const snapshot: ApiSnapshot = details.snapshot ?? {
+    id: "",
+    version_id: "",
+    status_code: 0,
+    url: "",
+    created_at: "",
+  };
+  const versionId = snapshot.version_id ?? "";
+  const headers = snapshot.headers ?? {};
+  const body = snapshot.body ?? "";
+
   const provisional: Snapshot = {
-    id: details.snapshot.id,
-    versionId: details.snapshot.version_id,
-    version: deriveVersionNumber(details.snapshot.version_id, versions),
-    versionLabel: details.snapshot.version_id,
-    statusCode: details.snapshot.status_code,
-    url: details.snapshot.url,
-    body: details.snapshot.body || "",
-    headers: details.snapshot.headers ?? {},
-    createdAt: details.snapshot.created_at,
+    id: snapshot.id ?? "",
+    versionId,
+    version: deriveVersionNumber(versionId, versions),
+    versionLabel: versionId,
+    statusCode: snapshot.status_code ?? 0,
+    url: snapshot.url ?? "",
+    body,
+    headers,
+    createdAt: snapshot.created_at ?? "",
     metadata: {
-      contentLength: details.snapshot.body?.length || 0,
+      contentLength: body.length,
       loadTime: 0,
-      contentType: readHeaderValue(details.snapshot.headers ?? {}, "content-type"),
+      contentType: readHeaderValue(headers, "content-type"),
     },
     scoreResult: details.score_result,
     securityDiff: details.security_diff,
@@ -41,7 +59,7 @@ const toSnapshot = (details: EndpointDetails, versions: Version[]): Snapshot => 
     details,
   };
   const content = getSnapshotContentInfo(provisional);
-  const contentLength = details.snapshot.body?.length ?? content.textBody.length;
+  const contentLength = body.length || content.textBody.length;
 
   return {
     ...provisional,
@@ -56,64 +74,60 @@ const toSnapshot = (details: EndpointDetails, versions: Version[]): Snapshot => 
   };
 };
 
-const createSnapshotStub = (endpoint: Endpoint, version: Version, index: number, total: number): Snapshot => ({
-  id: `${endpoint.id}:${version.id}`,
-  versionId: version.id,
-  version: total - index,
-  versionLabel: version.id,
-  statusCode: 0,
-  url: endpoint.url,
-  body: "",
-  headers: {},
-  createdAt: version.timestamp,
-  metadata: {
-    contentLength: 0,
-    loadTime: 0,
-  },
-});
+const createSnapshotStub = (endpoint: Endpoint, version: Version, index: number, total: number): Snapshot => {
+  const versionId = version.id ?? "";
+  return {
+    id: `${endpoint.id}:${versionId}`,
+    versionId,
+    version: total - index,
+    versionLabel: versionId,
+    statusCode: 0,
+    url: endpoint.url,
+    body: "",
+    headers: {},
+    createdAt: version.timestamp ?? "",
+    metadata: {
+      contentLength: 0,
+      loadTime: 0,
+    },
+  };
+};
 
-const toEndpoint = (raw: {
-  id: string;
-  url: string;
-  canonical_url: string;
-  path: string;
-  status: string;
-  source: string;
-  meta: string;
-  last_fetched_version: string;
-}): Endpoint => ({
-  id: raw.id,
-  url: raw.url,
-  canonicalUrl: raw.canonical_url,
-  path: raw.path,
-  status: raw.status,
-  source: raw.source,
-  meta: raw.meta,
-  lastFetchedVersion: raw.last_fetched_version,
+const toEndpoint = (raw: ApiEndpoint): Endpoint => ({
+  id: raw.id ?? "",
+  url: raw.url ?? "",
+  canonicalUrl: raw.canonical_url ?? "",
+  path: raw.path ?? "",
+  status: raw.status ?? "",
+  source: raw.source ?? "",
+  meta: raw.meta ?? "",
+  lastFetchedVersion: raw.last_fetched_version ?? "",
   snapshots: [],
 });
 
-const toProject = (raw: { id: string; slug: string; name: string; description: string; created_at: number }, domains: Domain[]): Project => ({
-  id: raw.id,
-  slug: raw.slug,
-  name: raw.name,
-  description: raw.description,
-  createdAt: toIso(raw.created_at),
+const toProject = (raw: ApiProject, domains: Domain[]): Project => ({
+  id: raw.id ?? "",
+  slug: raw.slug ?? "",
+  name: raw.name ?? "",
+  description: raw.description ?? "",
+  createdAt: toIso(raw.created_at ?? 0),
   status: "active",
   domains,
 });
 
-const loadDomain = async (projectSlug: string, site: { id: string; slug: string; origin: string }): Promise<Domain> => {
-  let endpointsRaw: any[] = [];
-  let versions: any[] = [];
+const loadDomain = async (projectSlug: string, site: ApiWebsite): Promise<Domain> => {
+  const siteSlug = site.slug ?? "";
+  const origin = site.origin ?? "";
+  let endpointsRaw: ApiEndpoint[] = [];
+  let versions: Version[] = [];
 
   try {
     [endpointsRaw, versions] = await Promise.all([
-      api.listEndpoints(projectSlug, site.slug, "", 500),
-      api.listVersions(projectSlug, site.slug, 100),
+      api.listEndpoints(projectSlug, siteSlug, "", 500),
+      api.listVersions(projectSlug, siteSlug, 100),
     ]);
   } catch (error) {
-    console.error(`Failed to load domain data for ${site.slug}:`, error);
+    console.error(`Failed to load domain data for ${siteSlug}:`, error);
     // Fallback to empty data so the website can still be displayed
   }
 
@@ -123,10 +137,10 @@ const loadDomain = async (projectSlug: string, site: { id: string; slug: string;
   }
 
   return {
-    id: site.id,
-    slug: site.slug,
-    hostname: new URL(site.origin).hostname,
-    origin: site.origin,
+    id: site.id ?? "",
+    slug: siteSlug,
+    hostname: new URL(origin).hostname,
+    origin,
     endpoints,
     versions,
   };
@@ -143,8 +157,9 @@ export const projectService = {
     const target = projects.find((project) => project.id === id);
     if (!target) return undefined;
 
-    const websites = await api.listWebsites(target.slug);
-    const domains = await Promise.all(websites.map((site) => loadDomain(target.slug, site)));
+    const targetSlug = target.slug ?? "";
+    const websites = await api.listWebsites(targetSlug);
+    const domains = await Promise.all(websites.map((site) => loadDomain(targetSlug, site)));
     return toProject(target, domains);
   },
 

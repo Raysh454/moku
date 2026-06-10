@@ -25,7 +25,8 @@ export function AttackSurfaceChangesPanel({
       <h4>Attack Surface Changes ({changes.length})</h4>
       <div className="changesList">
         {changes.map((change, index) => {
-          const severity = severityForCategory(change.category);
+          const severity = severityForCategory(change.category ?? "generic");
+          const kind = change.kind ?? "";
           const isActive = activeChangeIndex === index;
           const isHovered = hoveredChange === change;
           const rowClasses = [
@@ -39,14 +40,14 @@ export function AttackSurfaceChangesPanel({
 
           return (
             <div
-              key={`${change.kind}-${index}`}
+              key={`${kind}-${index}`}
               className={rowClasses}
               onClick={() => onChangeClick(index)}
               onMouseEnter={() => onChangeHoverEnter(change)}
               onMouseLeave={onChangeHoverLeave}
             >
-              <span className={`changeKindBadge kind-${change.kind.split("_")[0]}`}>
-                {change.kind.replace(/_/g, " ")}
+              <span className={`changeKindBadge kind-${kind.split("_")[0]}`}>
+                {kind.replace(/_/g, " ")}
               </span>
               <span className="changeDetail">{change.detail}</span>
               <span className="changeLocationCount">+{formatScore(change.score)}</span>

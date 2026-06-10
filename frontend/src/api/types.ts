@@ -1,293 +1,106 @@
-export type JobStatus = "pending" | "running" | "done" | "failed" | "canceled";
+// Single import point for API wire types.
+//
+// The DEFAULT source of truth is `./generated`, produced from the backend's
+// Swagger document by `npm run generate:api`. swag emits dotted definition
+// names, so generated schemas are keyed like
+// `components['schemas']['registry.Website']`. Aliases below re-export those
+// shapes under the ergonomic names the rest of the frontend already imports,
+// so call sites never reference `components[...]` directly.
+//
+// A small number of types are kept hand-written; each is justified inline.
+// They fall into three buckets:
+//   1. Not in Swagger  — endpoints/payloads that carry no swag annotations
+//      (filter rules/config, SSE job events).
+//   2. Generator misrepresents the wire — Go `[]byte` is base64 on the wire
+//      but swag/openapi-typescript model it as `number[]` (Snapshot.body).
+//   3. Client-only enrichment — fields merged in from SSE, not on the wire
+//      (JobWithProgress).
+import type { components } from "./generated";
 
-export type ErrorResponse = {
-  error: string;
+type Schemas = components["schemas"];
+
+// --- Core domain entities (generated truth) -------------------------------
+
+export type JobStatus = Schemas["app.JobStatus"];
+export type Project = Schemas["registry.Project"];
+export type Job = Schemas["app.Job"];
+
+// `registry.Website` is the drift fix: it carries the real wire fields
+// (`config`, `last_seen_at`, `storage_path`) and has NO `meta` — the
+// hand-written type previously invented a phantom `meta` and omitted these.
+export type Website = Schemas["registry.Website"];
+
+// The endpoint list endpoint returns `indexer.Endpoint`. All fields are
+// optional on the wire (swag marks nothing required), so consumers must
+// tolerate `undefined`.
+export type Endpoint = Schemas["indexer.Endpoint"];
+
+// --- Error envelope (generated truth) -------------------------------------
+
+export type ErrorResponse = Schemas["server.ErrorResponse"];
+
+// --- Scan / analyzer (generated truth) ------------------------------------
+
+export type ScanStatus = Schemas["analyzer.ScanStatus"];
+export type Severity = Schemas["analyzer.Severity"];
+export type Confidence = Schemas["analyzer.Confidence"];
+export type ScanProfile = Schemas["analyzer.ScanProfile"];
+export type AnalyzerBackend = Schemas["analyzer.Backend"];
+export type Finding = Schemas["analyzer.Finding"];
+export type ScanProgress = Schemas["analyzer.ScanProgress"];
+export type ScanSummary = Schemas["analyzer.ScanSummary"];
+export type ScanResult = Schemas["analyzer.ScanResult"];
+export type AnalyzerCapabilities = Schemas["analyzer.Capabilities"];
+export type AnalyzerCapabilitiesResponse = Schemas["server.AnalyzerCapabilitiesResponse"];
+export type AnalyzerHealthResponse = Schemas["server.AnalyzerHealthResponse"];
+
+// --- Scoring / security diff (generated truth) ----------------------------
+
+export type ScoreEvidenceItem = Schemas["assessor.EvidenceItem"];
+export type ScoreResult = Schemas["assessor.ScoreResult"];
+export type SecurityDiff = Schemas["assessor.SecurityDiff"];
+export type SecurityDiffOverview = Schemas["assessor.SecurityDiffOverview"];
+export type SecurityDiffOverviewEntry = Schemas["assessor.SecurityDiffOverviewEntry"];
+
+// --- Attack surface (generated truth) -------------------------------------
+
+export type ChangeCategory = Schemas["attacksurface.ChangeCategory"];
+export type AttackSurfaceChange = Schemas["attacksurface.AttackSurfaceChange"];
+export type EvidenceLocation = Schemas["attacksurface.EvidenceLocation"];
+
+// --- Versioning / diffing (generated truth) -------------------------------
+
+export type Version = Schemas["models.Version"];
+export type CombinedFileDiff = Schemas["models.CombinedFileDiff"];
+
+// `app.EndpointDetails` is generated truth except for its `snapshot`, which
+// references `models.Snapshot` (whose `body: []byte` is misrepresented as
+// `number[]`; see the Snapshot exception below). Reuse the generated
+// sub-shapes but swap in the corrected string-bodied Snapshot.
+export type EndpointDetails = Omit<Schemas["app.EndpointDetails"], "snapshot"> & {
+  snapshot?: Snapshot;
 };
 
-export type Project = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  created_at: number;
-  meta?: string;
-};
+// --- Request bodies (generated truth) -------------------------------------
 
-export type Website = {
-  id: string;
-  project_id: string;
-  slug: string;
-  origin: string;
-  storage_path?: string;
-  created_at: number;
-  meta?: string;
-};
+export type CreateProjectRequest = Schemas["server.CreateProjectRequest"];
+export type CreateWebsiteRequest = Schemas["server.CreateWebsiteRequest"];
+export type StartEnumerateJobRequest = Schemas["server.StartEnumerateJobRequest"];
+export type StartFetchJobRequest = Schemas["server.StartFetchJobRequest"];
+export type StartScanJobRequest = Schemas["server.StartScanJobRequest"];
+export type AddWebsiteEndpointsRequest = Schemas["server.AddWebsiteEndpointsRequest"];
+export type AddedEndpointsResponse = Schemas["server.AddedEndpointsResponse"];
 
-export type Endpoint = {
-  id: string;
-  url: string;
-  canonical_url: string;
-  host: string;
-  path: string;
-  first_discovered_at: number;
-  last_discovered_at: number;
-  last_fetched_version: string;
-  last_fetched_at: number;
-  status: string;
-  source: string;
-  meta: string;
-};
+// `api.FetchConfig` is expressible by the generator (`concurrency?: number`).
+export type FetchConfig = Schemas["api.FetchConfig"];
 
-export type JobEvent = {
-  job_id: string;
-  project?: string;
-  website?: string;
-  type: "status" | "progress" | "result";
-  status?: JobStatus;
-  error?: string;
-  processed?: number;
-  failed?: number;
-  total?: number;
-};
-
-export type SecurityDiffOverviewEntry = {
-  url: string;
-  base_snapshot_id?: string;
-  head_snapshot_id?: string;
-  score_base: number;
-  score_head: number;
-  score_delta: number;
-  exposure_delta: number;
-  hardening_delta: number;
-  attack_surface_changed: boolean;
-  num_attack_surface_changes: number;
-  regressed: boolean;
-};
-
-export type SecurityDiffOverview = {
-  base_version_id: string;
-  head_version_id: string;
-  entries: SecurityDiffOverviewEntry[];
-};
-
-export type ScanStatus = "pending" | "running" | "completed" | "failed" | "canceled";
-
-export type Severity = "info" | "low" | "medium" | "high" | "critical";
-
-export type Confidence = "tentative" | "firm" | "certain";
-
-export type ScanProfile = "quick" | "balanced" | "thorough";
-
-export type AnalyzerBackend =
-  | "moku"
-  | "zap"
-  | "dast"
-  | "nuclei"
-  | "nikto"
-  | "shodan"
-  | "virustotal";
-
-export type Finding = {
-  id: string;
-  title: string;
-  severity: Severity;
-  confidence: Confidence;
-  url?: string;
-  path?: string;
-  method?: string;
-  parameter?: string;
-  cwe?: number[];
-  wasc?: number[];
-  description?: string;
-  evidence?: string;
-  remediation?: string;
-  references?: string[];
-  raw_data?: Record<string, unknown>;
-};
-
-export type ScanProgress = {
-  percent: number;
-  phase?: string;
-  note?: string;
-};
-
-export type ScanSummary = {
-  total: number;
-  info: number;
-  low: number;
-  medium: number;
-  high: number;
-  critical: number;
-};
-
-export type ScanResult = {
-  job_id: string;
-  backend: AnalyzerBackend;
-  status: ScanStatus;
-  url: string;
-  error?: string;
-  submitted_at: string;
-  completed_at?: string;
-  progress?: ScanProgress;
-  findings: Finding[];
-  summary?: ScanSummary;
-  raw_data?: Record<string, unknown>;
-};
-
-export type AnalyzerCapabilities = {
-  async: boolean;
-  supports_auth: boolean;
-  supports_scope: boolean;
-  supports_scan_profile: boolean;
-  max_concurrent_scans?: number;
-  version?: string;
-};
-
-export type AnalyzerCapabilitiesResponse = {
-  backend: AnalyzerBackend;
-  capabilities: AnalyzerCapabilities;
-};
-
-export type AnalyzerHealthResponse = {
-  backend: AnalyzerBackend;
-  status: string;
-};
-
-export type Job = {
-  id: string;
-  type: string;
-  project: string;
-  website: string;
-  status: JobStatus;
-  error?: string;
-  started_at: string;
-  ended_at?: string;
-  security_overview?: SecurityDiffOverview;
-  enumerated_urls?: string[];
-  scan_result?: ScanResult;
-  processed?: number;
-  total?: number;
-};
-
-export type Snapshot = {
-  id: string;
-  version_id: string;
-  status_code: number;
-  url: string;
-  body?: string;
-  headers?: Record<string, string[]>;
-  created_at: string;
-};
-
-export type ScoreEvidenceItem = {
-  id?: string;
-  key: string;
-  rule_id?: string;
-  severity: "info" | "low" | "medium" | "high" | "critical";
-  description: string;
-  value?: unknown;
-  contribution?: number;
-};
-
-export type ScoreResult = {
-  score: number;
-  exposure_score: number;
-  hardening_score: number;
-  normalized: number;
-  confidence: number;
-  version: string;
-  snapshot_id: string;
-  version_id: string;
-  timestamp?: string;
-  evidence?: ScoreEvidenceItem[];
-  meta?: Record<string, unknown>;
-  attack_surface?: unknown;
-};
-
-export type ChangeCategory =
-  | "upload_surface"
-  | "auth_surface"
-  | "admin_surface"
-  | "security_regression"
-  | "cookie_risk"
-  | "cookie_regression"
-  | "form_surface"
-  | "input_surface"
-  | "script_surface"
-  | "param_surface"
-  | "generic";
-
-export type EvidenceLocation = {
-  type: string;
-  snapshot_id?: string;
-  dom_index?: number;
-  parent_dom_index?: number;
-  header_name?: string;
-  cookie_name?: string;
-  param_name?: string;
-};
-
-export type AttackSurfaceChange = {
-  kind: string;
-  detail: string;
-  category: ChangeCategory;
-  score: number;
-  evidence_locations?: EvidenceLocation[];
-};
-
-export type SecurityDiff = {
-  url: string;
-  base_version_id: string;
-  head_version_id: string;
-  base_snapshot_id: string;
-  head_snapshot_id: string;
-  score_base: number;
-  score_head: number;
-  score_delta: number;
-  exposure_delta: number;
-  hardening_delta: number;
-  attack_surface_changed: boolean;
-  attack_surface_changes?: AttackSurfaceChange[];
-};
-
-export type CombinedFileDiff = {
-  file_path: string;
-  body_diff: {
-    base_id: string;
-    head_id: string;
-    chunks: Array<{
-      type: string;
-      path?: string;
-      content?: string;
-      base_start?: number;
-      base_len?: number;
-      head_start?: number;
-      head_len?: number;
-    }>;
-  };
-  headers_diff: {
-    added?: Record<string, string[]>;
-    removed?: Record<string, string[]>;
-    changed?: Record<string, { from: string[]; to: string[] }>;
-    redacted?: string[];
-  };
-};
-
-export type EndpointDetails = {
-  snapshot: Snapshot;
-  score_result?: ScoreResult;
-  security_diff?: SecurityDiff;
-  diff?: CombinedFileDiff;
-};
-
-export type Version = {
-  id: string;
-  parent: string;
-  message: string;
-  author: string;
-  timestamp: string;
-};
-
+// EXCEPTION (generator cannot express the wire): the Go `api.EnumerationConfig`
+// fields carry `swaggertype:"object"`, so swag emits each enumerator sub-config
+// as an opaque object (`Record<string, never>`) instead of $ref-ing the
+// detailed SpiderConfig/WaybackConfig definitions. The generated type therefore
+// loses `max_depth`/`max_pages`/`use_wayback_machine`/`use_common_crawl`, which
+// the endpoint genuinely accepts. Keep these hand-written so the spider/wayback
+// knobs in the UI stay typed.
 export type SpiderConfig = {
   max_depth?: number;
   max_pages?: number;
@@ -308,10 +121,51 @@ export type EnumerationConfig = {
   wayback?: WaybackConfig;
 };
 
-export type FetchConfig = {
-  concurrency?: number;
+// --- Client-only enrichment (NOT on the wire) -----------------------------
+
+// `processed` / `total` are not part of the `app.Job` wire shape; they are
+// merged in client-side from SSE progress events (see ProjectContext). Keep
+// them as an explicit extension so they never leak into the base wire type.
+export type JobWithProgress = Job & {
+  processed?: number;
+  total?: number;
 };
 
+// --- Hand-written exceptions ----------------------------------------------
+
+// EXCEPTION (generator misrepresents the wire): Go's `models.Snapshot.Body`
+// is `[]byte`, which `encoding/json` serializes as a base64 STRING. swag
+// describes it as an integer array, so the generated `models.Snapshot.body`
+// is `number[]`, which is wrong for the real wire and for how the codebase
+// consumes it (as a string, decoded in lib/contentView.ts). Keep the
+// string-bodied shape here.
+export type Snapshot = {
+  id: string;
+  version_id: string;
+  status_code: number;
+  url: string;
+  body?: string;
+  headers?: Record<string, string[]>;
+  created_at: string;
+};
+
+// EXCEPTION (not in Swagger): the SSE job-event stream is not an annotated
+// HTTP response, so it has no generated schema. This mirrors the JSON the
+// server pushes over `/jobs/events`.
+export type JobEvent = {
+  job_id: string;
+  project?: string;
+  website?: string;
+  type: "status" | "progress" | "result";
+  status?: JobStatus;
+  error?: string;
+  processed?: number;
+  failed?: number;
+  total?: number;
+};
+
+// EXCEPTION (not in Swagger): the filter rules/config endpoints carry no swag
+// annotations, so these shapes have no generated counterpart.
 export type RuleType = "extension" | "pattern" | "status_code";
 
 export type FilterRule = {
@@ -343,8 +197,4 @@ export type ApplyFiltersResponse = {
 
 export type UnfilterEndpointsResponse = {
   unfiltered: number;
-};
-
-export type AddedEndpointsResponse = {
-  added: number;
 };

@@ -97,29 +97,30 @@ const WorkspacePage: React.FC = () => {
 
       const endpointUrl = selectedEndpoint?.url || "";
       for (const version of versionOptions) {
-        const derivedVersion = deriveVersionNumber(version.id, versionOptions);
-        const existing = map.get(version.id);
+        const versionId = version.id ?? "";
+        const derivedVersion = deriveVersionNumber(versionId, versionOptions);
+        const existing = map.get(versionId);
         if (existing) {
           if (existing.version <= 0 && derivedVersion > 0) {
-            map.set(version.id, {
+            map.set(versionId, {
               ...existing,
               version: derivedVersion,
-              versionLabel: existing.versionLabel || version.id,
-              createdAt: existing.createdAt || version.timestamp,
+              versionLabel: existing.versionLabel || versionId,
+              createdAt: existing.createdAt || version.timestamp || "",
             });
           }
           continue;
         }
-        map.set(version.id, {
-          id: `${selectedEndpoint?.id || "endpoint"}:${version.id}`,
-          versionId: version.id,
+        map.set(versionId, {
+          id: `${selectedEndpoint?.id || "endpoint"}:${versionId}`,
+          versionId,
           version: derivedVersion,
-          versionLabel: version.id,
+          versionLabel: versionId,
           statusCode: 0,
           url: endpointUrl,
           body: "",
           headers: {},
-          createdAt: version.timestamp,
+          createdAt: version.timestamp ?? "",
           metadata: { contentLength: 0, loadTime: 0 },
         });
       }
@@ -153,12 +154,13 @@ const WorkspacePage: React.FC = () => {
     }
 
     for (const version of versionOptions) {
+      const versionId = version.id ?? "";
       const parsedCount = parsePagesFetchedFromMessage(version.message);
-      const fallbackCount = pagesFetchedByVersion[version.id] ?? 0;
+      const fallbackCount = pagesFetchedByVersion[versionId] ?? 0;
       const pagesFetched = parsedCount ?? fallbackCount;
-      const derivedVersionNumber = deriveVersionNumber(version.id, versionOptions);
-      const existing = map.get(version.id);
-      map.set(version.id, {
+      const derivedVersionNumber = deriveVersionNumber(versionId, versionOptions);
+      const existing = map.get(versionId);
+      map.set(versionId, {
         fetchedAt: existing?.fetchedAt || version.timestamp,
         pagesFetched: existing?.pagesFetched ? Math.max(existing.pagesFetched, pagesFetched) : pagesFetched,
         versionNumber: existing?.versionNumber || derivedVersionNumber,
@@ -167,10 +169,11 @@ const WorkspacePage: React.FC = () => {
 
     if (selectedDomain) {
       for (const version of selectedDomain.versions) {
-        const existing = map.get(version.id);
-        map.set(version.id, {
+        const versionId = version.id ?? "";
+        const existing = map.get(versionId);
+        map.set(versionId, {
           fetchedAt: existing?.fetchedAt || version.timestamp,
-          pagesFetched: existing?.pagesFetched ?? pagesFetchedByVersion[version.id] ?? 0,
+          pagesFetched: existing?.pagesFetched ?? pagesFetchedByVersion[versionId] ?? 0,
           versionNumber: existing?.versionNumber,
         });
       }
@@ -628,7 +631,7 @@ const WorkspacePage: React.FC = () => {
                         <ul className="space-y-1 text-xs text-slate-300">
                           {Object.entries(headerDiff?.changed || {}).map(([key, change]) => (
                             <li key={key}>
-                              <span className="font-semibold">{key}:</span> {change.from.join(", ")} → {change.to.join(", ")}
+                              <span className="font-semibold">{key}:</span> {(change.from ?? []).join(", ")} → {(change.to ?? []).join(", ")}
                             </li>
                           ))}
                           {Object.keys(headerDiff?.changed || {}).length === 0 && <li className="text-slate-500">None</li>}
