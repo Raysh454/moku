@@ -123,9 +123,9 @@ The HTTP server exposes interactive API documentation powered by Swagger/UI. Reg
   Ensure `$GOBIN` (or `~/go/bin`) is in your `PATH` so the `swag` binary is available.
 2. Generate the spec and embedded docs:
   ```bash
-  make swagger
+  go run make.go swagger
   ```
-3. Run the server (`go run .` or `make run`) and open `http://127.0.0.1:8080/swagger/index.html` (adjust the port if you changed it). You can read every endpoint description and use **Try it out** to exercise the REST endpoints without building a full UI.
+3. Run the server (`go run .` or `go run make.go run`) and open `http://127.0.0.1:8080/swagger/index.html` (adjust the port if you changed it). You can read every endpoint description and use **Try it out** to exercise the REST endpoints without building a full UI.
 
 The generated files live under `docs/swagger/` and are committed so CI/CD environments can serve the docs without running `swag init`.
 

@@ -16,7 +16,7 @@ You do **not** need to manually drive Swagger for the main demo flow anymore.
 - Node.js 18+ and npm
 
 Optional but useful:
-- `make` (for Swagger/doc regeneration and helper targets)
+- `make.go` script for Swagger/doc regeneration and helper targets (run with `go run make.go <target>`)
 
 ---
 
