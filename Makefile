@@ -214,7 +214,7 @@ clean:
 
 # ─── Sidecar analyzer (Python FastAPI service) ─────────────────────────────────
 
-sidecar-install:
+services/analyzer/.installed: services/analyzer/requirements.txt services/analyzer/requirements-dev.txt
 	@echo "==> installing sidecar dependencies"
 ifeq ($(GOOS),windows)
 	@if not exist "services\analyzer\.venv\Scripts\python.exe" python -m venv services\analyzer\.venv
@@ -225,6 +225,14 @@ else
 	@"$(SIDECAR_PIP)" install -r services/analyzer/requirements.txt -r services/analyzer/requirements-dev.txt
 	@touch services/analyzer/.installed
 endif
+
+sidecar-install:
+ifeq ($(GOOS),windows)
+	@if not exist "services\analyzer\.venv\Scripts\python.exe" ( if exist "services\analyzer\.installed" del /Q "services\analyzer\.installed" )
+else
+	@test -x "$(SIDECAR_PYTHON)" || rm -f services/analyzer/.installed
+endif
+	@$(MAKE) services/analyzer/.installed
 
 sidecar-start:
 ifeq ($(GOOS),windows)
@@ -247,7 +255,7 @@ else
 	@bash services/analyzer/scripts/health.sh
 endif
 
-sidecar-test:
+sidecar-test: sidecar-install
 	@echo "==> running sidecar pytest suite"
 ifeq ($(GOOS),windows)
 	@cd services/analyzer && .venv/Scripts/python.exe -m pytest tests/ -v
@@ -273,7 +281,7 @@ endif
 # Validate canned sidecar payloads in internal/analyzer/testdata/sidecar
 # against the Pydantic ScanResult schema. The actual validation logic
 # lives in services/analyzer/scripts/schema_check.py.
-schema-check:
+schema-check: sidecar-install
 	@echo "==> validating sidecar JSON fixtures against ScanResult schema"
 ifeq ($(GOOS),windows)
 	@cd services/analyzer && PYTHONPATH=. .venv/Scripts/python.exe scripts/schema_check.py
