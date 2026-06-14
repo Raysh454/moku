@@ -38,7 +38,7 @@ const (
 	swaggerOutDir  = "docs/swagger"
 
 	golangciLintVersion = "v1.64.8"
-	swagVersion         = "v1.16.4"
+	swagVersion         = "v1.16.6"
 
 	golangciLintPkg = "github.com/golangci/golangci-lint/cmd/golangci-lint"
 	swagPkg         = "github.com/swaggo/swag/cmd/swag"
@@ -61,6 +61,14 @@ func binDir() string {
 	return filepath.Join(cwd, "bin")
 }
 
+func absPath(rel ...string) string {
+	abs, err := filepath.Abs(filepath.Join(rel...))
+	if err != nil {
+		fatal(err)
+	}
+	return abs
+}
+
 type targetFunc func(args []string) error
 
 type target struct {
@@ -72,10 +80,12 @@ func targets() map[string]target {
 	return map[string]target{
 		"build":            {build, "Build the moku binary into bin/ (regenerates swagger docs first)"},
 		"run":              {run, "Build and run the moku binary; remaining args forwarded"},
+		"run-with-sidecar": {runWithSidecar, "Build and run the moku binary with the sidecar service running"},
 		"demo-server":      {demoServer, "Build the demo-server binary into bin/"},
 		"test":             {test, "Run all tests with verbose output"},
 		"test-race":        {testRace, "Run all tests with the race detector (skipped on Windows)"},
 		"test-pkg":         {testPkg, "Run tests for a single package: test-pkg <pkg-path>"},
+		"test-acceptance":  {testAcceptance, "Run acceptance tests"},
 		"fmt":              {fmtCmd, "Format all Go source files with gofmt -w"},
 		"vet":              {vet, "Run go vet ./..."},
 		"lint":             {lint, "Run golangci-lint (installs to bin/ if missing)"},
@@ -84,8 +94,15 @@ func targets() map[string]target {
 		"swagger":          {swagger, "Regenerate Swagger docs under docs/swagger/"},
 		"coverage":         {coverage, "Run tests with coverage and write test-results/coverage.txt"},
 		"coverage-html":    {coverageHTML, "Produce coverage.html from coverage.out"},
-		"ci":               {ci, "Run the full CI pipeline (swagger, fmt, vet, lint, test-race, coverage)"},
+		"ci":               {ci, "Run the full CI pipeline (swagger, fmt, vet, lint, test-race, coverage, acceptance, sidecar)"},
 		"clean":            {clean, "Remove bin/, coverage.out, coverage.html, test-results/"},
+		"sidecar-install":  {sidecarInstall, "Install sidecar Python dependencies"},
+		"sidecar-start":    {sidecarStart, "Start the sidecar service"},
+		"sidecar-stop":     {sidecarStop, "Stop the sidecar service"},
+		"sidecar-health":   {sidecarHealth, "Check the health of the sidecar service"},
+		"sidecar-test":     {sidecarTest, "Run sidecar pytest suite"},
+		"sidecar-clean":    {sidecarClean, "Clean sidecar runtime artifacts"},
+		"schema-check":     {schemaCheck, "Validate sidecar JSON fixtures against ScanResult schema"},
 		"help":             {help, "Print this help message"},
 	}
 }
@@ -166,6 +183,24 @@ func removeAll(paths ...string) error {
 	return nil
 }
 
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o755)
+}
+
+func checkPython() (string, bool) {
+	if p, err := exec.LookPath("python"); err == nil {
+		return p, true
+	}
+	if p, err := exec.LookPath("python3"); err == nil {
+		return p, true
+	}
+	return "", false
+}
+
 // --- targets -----------------------------------------------------------------
 
 func help(_ []string) error {
@@ -218,6 +253,18 @@ func run(args []string) error {
 	return runCmd(bin, args...)
 }
 
+func runWithSidecar(args []string) error {
+	if err := sidecarStart(nil); err != nil {
+		return err
+	}
+	if err := build(nil); err != nil {
+		return err
+	}
+	bin := filepath.Join(binDir(), exe(binaryName))
+	info("running %s with sidecar", bin)
+	return runCmd(bin, args...)
+}
+
 func demoServer(_ []string) error {
 	if err := ensureDir(binDir()); err != nil {
 		return err
@@ -250,6 +297,16 @@ func testPkg(args []string) error {
 	return runCmd("go", "test", pkg, "-v")
 }
 
+func testAcceptance(_ []string) error {
+	info("acceptance suite (acceptance/)")
+	cmd := exec.Command("go", "test", "./...", "-v")
+	cmd.Dir = absPath("acceptance")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
 func fmtCmd(_ []string) error {
 	info("gofmt -l -w .")
 	return runCmd("gofmt", "-l", "-w", ".")
@@ -264,24 +321,29 @@ func lint(_ []string) error {
 	if err := installGolangci(nil); err != nil {
 		return err
 	}
-	bin := filepath.Join(binDir(), exe("golangci-lint"))
-	info("golangci-lint run")
+	bin := filepath.Join(binDir(), exe("golangci-lint-"+golangciLintVersion))
+	info("golangci-lint run (%s)", golangciLintVersion)
 	return runCmd(bin, "run")
 }
 
 func installGolangci(_ []string) error {
-	bin := filepath.Join(binDir(), exe("golangci-lint"))
-	if fileExists(bin) {
+	versionedBin := filepath.Join(binDir(), exe("golangci-lint-"+golangciLintVersion))
+	if fileExists(versionedBin) {
 		return nil
 	}
 	if err := ensureDir(binDir()); err != nil {
 		return err
 	}
-	info("installing golangci-lint %s -> %s", golangciLintVersion, bin)
-	return runCmdWith(
+	info("installing golangci-lint %s -> %s", golangciLintVersion, versionedBin)
+	err := runCmdWith(
 		[]string{"GOBIN=" + binDir()},
 		"go", "install", golangciLintPkg+"@"+golangciLintVersion,
 	)
+	if err != nil {
+		return err
+	}
+	src := filepath.Join(binDir(), exe("golangci-lint"))
+	return copyFile(src, versionedBin)
 }
 
 func installSwagger(_ []string) error {
@@ -357,12 +419,21 @@ func ci(_ []string) error {
 		{"lint", lint},
 		{"test-race", testRace},
 		{"coverage", coverage},
+		{"test-acceptance", testAcceptance},
 	}
 	for _, s := range steps {
 		info("ci step: %s", s.name)
 		if err := s.fn(nil); err != nil {
 			return fmt.Errorf("ci step %s: %w", s.name, err)
 		}
+	}
+	if _, hasPy := checkPython(); hasPy {
+		info("ci step: sidecar-test")
+		if err := sidecarTest(nil); err != nil {
+			return fmt.Errorf("ci step sidecar-test: %w", err)
+		}
+	} else {
+		info("python not found; skipping sidecar tests")
 	}
 	info("CI checks completed")
 	return nil
@@ -371,4 +442,139 @@ func ci(_ []string) error {
 func clean(_ []string) error {
 	info("cleaning")
 	return removeAll(binDir(), "coverage.out", "coverage.html", "test-results")
+}
+
+func sidecarInstall(_ []string) error {
+	installedFile := absPath("services", "analyzer", ".installed")
+	reqsFile := absPath("services", "analyzer", "requirements.txt")
+	reqsDevFile := absPath("services", "analyzer", "requirements-dev.txt")
+
+	venvPython := absPath("services", "analyzer", ".venv", "bin", "python")
+	if isWindows {
+		venvPython = absPath("services", "analyzer", ".venv", "Scripts", "python.exe")
+	}
+
+	needInstall := true
+	if fileExists(installedFile) && fileExists(venvPython) {
+		instStat, err1 := os.Stat(installedFile)
+		reqsStat, err2 := os.Stat(reqsFile)
+		reqsDevStat, err3 := os.Stat(reqsDevFile)
+		if err1 == nil && err2 == nil && err3 == nil {
+			if instStat.ModTime().After(reqsStat.ModTime()) && instStat.ModTime().After(reqsDevStat.ModTime()) {
+				needInstall = false
+			}
+		}
+	}
+
+	if !needInstall {
+		return nil
+	}
+
+	info("installing sidecar dependencies")
+
+	if !fileExists(venvPython) {
+		pyCmd, hasPy := checkPython()
+		if !hasPy {
+			return errors.New("python/python3 not found; cannot create virtual environment")
+		}
+		venvPath := absPath("services", "analyzer", ".venv")
+		if err := runCmd(pyCmd, "-m", "venv", venvPath); err != nil {
+			return fmt.Errorf("create venv: %w", err)
+		}
+	}
+
+	if err := runCmd(venvPython, "-m", "pip", "install", "--upgrade", "pip"); err != nil {
+		return fmt.Errorf("upgrade pip: %w", err)
+	}
+
+	if err := runCmd(venvPython, "-m", "pip", "install", "-r", reqsFile, "-r", reqsDevFile); err != nil {
+		return fmt.Errorf("pip install: %w", err)
+	}
+
+	return os.WriteFile(installedFile, []byte{}, 0o644)
+}
+
+func sidecarStart(_ []string) error {
+	info("starting sidecar")
+	if isWindows {
+		return runCmd("pwsh", "-ExecutionPolicy", "Bypass", "-File", absPath("services", "analyzer", "scripts", "start.ps1"))
+	}
+	return runCmd("bash", absPath("services", "analyzer", "scripts", "start.sh"))
+}
+
+func sidecarStop(_ []string) error {
+	info("stopping sidecar")
+	if isWindows {
+		return runCmd("pwsh", "-ExecutionPolicy", "Bypass", "-File", absPath("services", "analyzer", "scripts", "stop.ps1"))
+	}
+	return runCmd("bash", absPath("services", "analyzer", "scripts", "stop.sh"))
+}
+
+func sidecarHealth(_ []string) error {
+	info("checking sidecar health")
+	if isWindows {
+		return runCmd("pwsh", "-ExecutionPolicy", "Bypass", "-File", absPath("services", "analyzer", "scripts", "health.ps1"))
+	}
+	return runCmd("bash", absPath("services", "analyzer", "scripts", "health.sh"))
+}
+
+func sidecarTest(_ []string) error {
+	if err := sidecarInstall(nil); err != nil {
+		return err
+	}
+	info("running sidecar pytest suite")
+	venvPython := absPath("services", "analyzer", ".venv", "bin", "python")
+	if isWindows {
+		venvPython = absPath("services", "analyzer", ".venv", "Scripts", "python.exe")
+	}
+	cmd := exec.Command(venvPython, "-m", "pytest", "tests/", "-v")
+	cmd.Dir = absPath("services", "analyzer")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+func sidecarClean(_ []string) error {
+	info("cleaning sidecar runtime artifacts")
+	paths := []string{
+		absPath("services", "analyzer", ".venv"),
+		absPath("services", "analyzer", ".run"),
+		absPath("services", "analyzer", ".pytest_cache"),
+		absPath("services", "analyzer", ".installed"),
+	}
+	if err := removeAll(paths...); err != nil {
+		return err
+	}
+	return filepath.Walk(absPath("services", "analyzer"), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() && info.Name() == "__pycache__" {
+			_ = os.RemoveAll(path)
+			return filepath.SkipDir
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".db") {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
+}
+
+func schemaCheck(_ []string) error {
+	if err := sidecarInstall(nil); err != nil {
+		return err
+	}
+	info("validating sidecar JSON fixtures against ScanResult schema")
+	venvPython := absPath("services", "analyzer", ".venv", "bin", "python")
+	if isWindows {
+		venvPython = absPath("services", "analyzer", ".venv", "Scripts", "python.exe")
+	}
+	cmd := exec.Command(venvPython, "scripts/schema_check.py")
+	cmd.Dir = absPath("services", "analyzer")
+	cmd.Env = append(os.Environ(), "PYTHONPATH=.")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }
