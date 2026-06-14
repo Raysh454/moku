@@ -116,3 +116,9 @@ def _stub_dns(monkeypatch):
         "app.net_guard.socket.getaddrinfo",
         lambda *a, **kw: [(0, 0, 0, "", ("93.184.216.34", 0))],
     )
+
+
+@pytest.fixture(autouse=True)
+def _disallow_private_hosts_for_tests(monkeypatch):
+    monkeypatch.setenv("MOKU_ANALYZER_ALLOW_PRIVATE_HOSTS", "false")
+    monkeypatch.setenv("MOKU_ALLOW_PRIVATE_HOSTS", "false")
