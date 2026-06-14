@@ -75,19 +75,18 @@ All routes sit behind the `X-Moku-Token` auth dependency (a no-op when
 Requirements: Python 3.11+. Optionally the `nuclei`/`nikto`/`zap` CLIs and
 Shodan/VirusTotal API keys for those adapters.
 
-From the repo root, the Makefile drives the lifecycle:
+From the repo root, the `make.go` script drives the lifecycle:
 
 ```bash
-make sidecar-install    # create .venv + install requirements + requirements-dev
-make sidecar-start      # boot uvicorn (default 127.0.0.1:8181)
-make sidecar-health     # probe /health
-make sidecar-stop       # stop via PID file under services/analyzer/.run/
-make sidecar-test       # pytest tests/
-make schema-check       # round-trip the Go testdata fixtures through Pydantic
+go run make.go sidecar-install    # create .venv + install requirements + requirements-dev
+go run make.go sidecar-start      # boot uvicorn (default 127.0.0.1:8181)
+go run make.go sidecar-health     # probe /health
+go run make.go sidecar-stop       # stop via PID file under services/analyzer/.run/
+go run make.go sidecar-test       # pytest tests/
+go run make.go schema-check       # round-trip the Go testdata fixtures through Pydantic
 ```
 
-`make run` (Go API server) depends on `sidecar-start`, so booting the API also
-boots the sidecar.
+`go run make.go run-with-sidecar` boots the API server with the sidecar running automatically.
 
 Manual launch:
 
@@ -196,7 +195,7 @@ changed the port) and `MOKU_ANALYZER_TOKEN`.
 ## Testing
 
 ```bash
-make sidecar-test          # or: cd services/analyzer && pytest tests/ -v
+go run make.go sidecar-test       # or: cd services/analyzer && pytest tests/ -v
 ```
 
 CI (`.github/workflows/ci.yml`) runs `ruff`, the full `pytest` suite, and

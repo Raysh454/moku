@@ -1,8 +1,6 @@
 //go:build ignore
 
-// make.go is a portable, dependency-free build script for moku.
-// It replaces the Makefile for contributors who prefer (or are required to use)
-// a toolchain that does not include `make` -- notably Windows users.
+// make.go is Moku's portable, dependency-free build script.
 //
 // Usage:
 //

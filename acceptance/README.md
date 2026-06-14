@@ -21,7 +21,7 @@ the suite.
 
 ```bash
 cd acceptance && go test ./... -v     # directly
-make test-acceptance                  # from the repo root
+go run make.go test-acceptance        # from the repo root
 ```
 
 The first run builds `bin/acceptance-moku` and `bin/acceptance-demoserver`
