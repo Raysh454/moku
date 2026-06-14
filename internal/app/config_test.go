@@ -168,16 +168,16 @@ func TestDefaultConfig_AllowPrivateHostsFromEnv(t *testing.T) {
 		setEnv   bool
 		want     bool
 	}{
-		{name: "unset_keeps_guard", setEnv: false, want: false},
-		{name: "empty_keeps_guard", setEnv: true, envValue: "", want: false},
-		{name: "one_enables", setEnv: true, envValue: "1", want: true},
-		{name: "true_enables", setEnv: true, envValue: "true", want: true},
-		{name: "yes_enables", setEnv: true, envValue: "yes", want: true},
-		{name: "true_uppercase_enables", setEnv: true, envValue: "TRUE", want: true},
-		{name: "yes_whitespace_enables", setEnv: true, envValue: "  yes  ", want: true},
-		{name: "zero_keeps_guard", setEnv: true, envValue: "0", want: false},
-		{name: "false_keeps_guard", setEnv: true, envValue: "false", want: false},
-		{name: "bogus_keeps_guard", setEnv: true, envValue: "maybe", want: false},
+		{name: "unset_allows", setEnv: false, want: true},
+		{name: "empty_allows", setEnv: true, envValue: "", want: true},
+		{name: "one_allows", setEnv: true, envValue: "1", want: true},
+		{name: "true_allows", setEnv: true, envValue: "true", want: true},
+		{name: "yes_allows", setEnv: true, envValue: "yes", want: true},
+		{name: "true_uppercase_allows", setEnv: true, envValue: "TRUE", want: true},
+		{name: "yes_whitespace_allows", setEnv: true, envValue: "  yes  ", want: true},
+		{name: "zero_disallows", setEnv: true, envValue: "0", want: false},
+		{name: "false_disallows", setEnv: true, envValue: "false", want: false},
+		{name: "bogus_allows", setEnv: true, envValue: "maybe", want: true},
 	}
 
 	for _, tc := range cases {

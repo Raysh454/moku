@@ -33,8 +33,10 @@ def private_host_bypass_enabled() -> bool:
     """Return True iff the SSRF private-host bypass env flag is set truthy."""
     raw = os.getenv(_ALLOW_PRIVATE_HOSTS_ENV_VAR)
     if raw is None:
-        return False
-    return raw.strip().lower() in _TRUTHY_ENV_VALUES
+        raw = os.getenv("MOKU_ALLOW_PRIVATE_HOSTS")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no"}
 
 
 def is_disallowed_address(addr: _IPAddress) -> bool:

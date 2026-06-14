@@ -244,32 +244,6 @@ export const subscribeToJobEvents = (
   let reconnectTimer: number | null = null;
   let backoff = 1000; // start 1s
   const maxBackoff = 30000; // 30s
-  let healthCheckTimer: number | null = null;
-
-  const stopHealthCheck = () => {
-    if (healthCheckTimer) {
-      clearInterval(healthCheckTimer as unknown as number);
-      healthCheckTimer = null;
-    }
-  };
-
-  const startHealthCheck = () => {
-    stopHealthCheck();
-    // Poll /jobs to detect when backend is available again. Runs every 2s.
-    healthCheckTimer = window.setInterval(async () => {
-      try {
-        const resp = await fetch(`${apiBase}/jobs`, { method: "GET", cache: "no-cache" });
-        if (resp.ok) {
-          stopHealthCheck();
-          // Attempt immediate reconnect
-          backoff = 1000;
-          if (!closed) create();
-        }
-      } catch (_e) {
-        // ignore
-      }
-    }, 2000) as unknown as number;
-  };
 
   const create = () => {
     if (closed) return;
@@ -285,7 +259,6 @@ export const subscribeToJobEvents = (
 
     eventSource.onopen = () => {
       backoff = 1000;
-      stopHealthCheck();
       if (onOpen) onOpen();
     };
 
@@ -312,10 +285,6 @@ export const subscribeToJobEvents = (
       } catch (_) {}
       eventSource = null;
 
-      // Start a health-check loop that will try to detect when the backend
-      // becomes responsive again and trigger an immediate reconnect.
-      startHealthCheck();
-
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
@@ -332,7 +301,6 @@ export const subscribeToJobEvents = (
   const onOnline = () => {
     if (closed) return;
     backoff = 1000;
-    stopHealthCheck();
     if (!eventSource) create();
   };
   const onVisibility = () => {
@@ -348,7 +316,6 @@ export const subscribeToJobEvents = (
 
   return () => {
     closed = true;
-    stopHealthCheck();
     window.removeEventListener("online", onOnline);
     document.removeEventListener("visibilitychange", onVisibility);
     if (reconnectTimer) {

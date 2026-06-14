@@ -119,16 +119,19 @@ func resolveStorageRoot() string {
 	return defaultStorageRoot
 }
 
-// resolveAllowPrivateHosts reports whether EnvAllowPrivateHosts is set to a
-// truthy value. It accepts the same tokens as the sidecar's escape hatch —
-// "1", "true", "yes" (case-insensitive, whitespace-trimmed). Any other value,
-// including unset, keeps the SSRF guard engaged (the secure default).
+// resolveAllowPrivateHosts reports whether private hosts are allowed. It
+// defaults to true (allowing loopback, RFC1918, etc.) unless EnvAllowPrivateHosts
+// is explicitly set to a falsy value ("0", "false", "no").
 func resolveAllowPrivateHosts() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvAllowPrivateHosts))) {
-	case "1", "true", "yes":
+	raw := os.Getenv(EnvAllowPrivateHosts)
+	if raw == "" {
 		return true
-	default:
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "0", "false", "no":
 		return false
+	default:
+		return true
 	}
 }
 
