@@ -2,16 +2,11 @@ package analyzer_test
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"testing"
 	"time"
 
 	"github.com/raysh454/moku/internal/analyzer"
-	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/logging"
-	"github.com/raysh454/moku/internal/tracker/models"
-	"github.com/raysh454/moku/internal/webclient"
 )
 
 // noopLogger discards all log messages. Shared by every analyzer test.
@@ -24,40 +19,6 @@ func (noopLogger) Error(msg string, fields ...logging.Field) {}
 func (noopLogger) With(fields ...logging.Field) logging.Logger {
 	return noopLogger{}
 }
-
-// fakeWebClient is a minimal webclient.WebClient used to construct the Moku
-// backend in tests without hitting the network.
-type fakeWebClient struct {
-	getFunc func(ctx context.Context, url string) (*webclient.Response, error)
-}
-
-func (f *fakeWebClient) Do(ctx context.Context, req *webclient.Request) (*webclient.Response, error) {
-	return nil, errors.New("fakeWebClient.Do not wired")
-}
-
-func (f *fakeWebClient) Get(ctx context.Context, url string) (*webclient.Response, error) {
-	if f.getFunc != nil {
-		return f.getFunc(ctx, url)
-	}
-	return nil, errors.New("fakeWebClient.Get not wired")
-}
-
-func (f *fakeWebClient) Close() error { return nil }
-
-// fakeAssessor is a minimal assessor.Assessor used to construct the Moku
-// backend in tests without running the real heuristics engine.
-type fakeAssessor struct {
-	scoreFunc func(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error)
-}
-
-func (f *fakeAssessor) ScoreSnapshot(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
-	if f.scoreFunc != nil {
-		return f.scoreFunc(ctx, snapshot, versionID)
-	}
-	return nil, errors.New("fakeAssessor.ScoreSnapshot not wired")
-}
-
-func (f *fakeAssessor) Close() error { return nil }
 
 // analyzerFactory constructs a fresh analyzer for a single contract sub-test.
 // The factory is responsible for any fakes it needs and for failing the test
@@ -211,79 +172,5 @@ func runAnalyzerContract(t *testing.T, expectedBackend analyzer.Backend, newA an
 		if err := a.Close(); err != nil {
 			t.Errorf("second Close: %v (Close must be idempotent)", err)
 		}
-	})
-}
-
-// cannedHappyPathWebClient returns a fakeWebClient wired to return a
-// deterministic 200-OK HTML response. Used by contract tests that need a
-// working fetch to exercise the full Moku pipeline.
-func cannedHappyPathWebClient() *fakeWebClient {
-	return &fakeWebClient{
-		getFunc: func(ctx context.Context, url string) (*webclient.Response, error) {
-			return &webclient.Response{
-				Request:    &webclient.Request{Method: "GET", URL: url},
-				Headers:    http.Header{"Content-Type": []string{"text/html"}},
-				Body:       []byte(`<html><head><title>hello</title></head><body><p>hi</p></body></html>`),
-				StatusCode: 200,
-				FetchedAt:  time.Now(),
-			}, nil
-		},
-	}
-}
-
-// cannedHappyPathAssessor returns a fakeAssessor wired to produce a
-// deterministic ScoreResult with one evidence item. Used by contract tests
-// that need a successful score to exercise the full Moku pipeline.
-func cannedHappyPathAssessor() *fakeAssessor {
-	return &fakeAssessor{
-		scoreFunc: func(ctx context.Context, snapshot *models.Snapshot, versionID string) (*assessor.ScoreResult, error) {
-			return &assessor.ScoreResult{
-				Score:      0.5,
-				SnapshotID: snapshot.ID,
-				VersionID:  versionID,
-				Normalized: 50,
-				Confidence: 0.8,
-				Version:    "test",
-				Evidence: []assessor.EvidenceItem{
-					{
-						Key:         "missing-csp",
-						RuleID:      "security-headers.csp",
-						Severity:    "medium",
-						Description: "Content-Security-Policy header is not set",
-					},
-				},
-				ExposureScore:  0.5,
-				HardeningScore: 0.5,
-				Timestamp:      time.Now(),
-			}, nil
-		},
-	}
-}
-
-// TestMokuAnalyzer_Contract runs the shared contract suite against the Moku
-// backend. Future Burp/ZAP adapters add TestBurpAnalyzer_Contract and
-// TestZAPAnalyzer_Contract that re-use runAnalyzerContract.
-func TestMokuAnalyzer_Contract(t *testing.T) {
-	runAnalyzerContract(t, analyzer.BackendMoku, func(t *testing.T) analyzer.Analyzer {
-		t.Helper()
-		a, err := analyzer.NewAnalyzer(analyzer.Config{
-			Backend: analyzer.BackendMoku,
-			DefaultPoll: analyzer.PollOptions{
-				Timeout:  2 * time.Second,
-				Interval: 25 * time.Millisecond,
-			},
-			Moku: analyzer.MokuConfig{
-				DefaultProfile: analyzer.ProfileBalanced,
-				JobRetention:   1 * time.Minute,
-			},
-		}, analyzer.Dependencies{
-			Logger:    noopLogger{},
-			WebClient: cannedHappyPathWebClient(),
-			Assessor:  cannedHappyPathAssessor(),
-		})
-		if err != nil {
-			t.Fatalf("NewAnalyzer: %v", err)
-		}
-		return a
 	})
 }

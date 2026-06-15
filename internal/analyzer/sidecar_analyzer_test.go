@@ -750,7 +750,7 @@ func intToString(n int) string {
 // real sidecar would emit.
 func sidecarAdapterNameForBackend(b analyzer.Backend) string {
 	switch b {
-	case analyzer.BackendDAST:
+	case analyzer.BackendDAST, analyzer.BackendMoku:
 		return "builtin"
 	case analyzer.BackendNuclei:
 		return "nuclei"
@@ -767,6 +767,10 @@ func sidecarAdapterNameForBackend(b analyzer.Backend) string {
 
 func TestSidecarAnalyzer_Contract_DAST(t *testing.T) {
 	runSidecarContract(t, analyzer.BackendDAST)
+}
+
+func TestSidecarAnalyzer_Contract_Moku(t *testing.T) {
+	runSidecarContract(t, analyzer.BackendMoku)
 }
 
 func TestSidecarAnalyzer_Contract_Nuclei(t *testing.T) {

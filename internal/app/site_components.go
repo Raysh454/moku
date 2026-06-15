@@ -74,9 +74,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 	}
 
 	an, err := analyzer.NewAnalyzer(cfg.AnalyzerCfg, analyzer.Dependencies{
-		Logger:    scopedLogger,
-		WebClient: wc,
-		Assessor:  a,
+		Logger: scopedLogger,
 	})
 	if err != nil {
 		tr.Close()
