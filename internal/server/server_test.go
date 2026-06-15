@@ -15,6 +15,15 @@ import (
 func newTestServer(t *testing.T) *server.Server {
 	t.Helper()
 
+	// Spin up a fake analyzer sidecar server to handle health checks
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","contract_version":"1"}`))
+	})
+	fakeSidecar := httptest.NewServer(mux)
+	t.Cleanup(fakeSidecar.Close)
+
 	dir := t.TempDir()
 	logger := &testutil.DummyLogger{}
 	cfg := server.Config{
@@ -30,6 +39,8 @@ func newTestServer(t *testing.T) *server.Server {
 		appCfg.StorageRoot = dir
 		cfg.AppConfig = appCfg
 	}
+
+	cfg.AppConfig.AnalyzerCfg.Sidecar.BaseURL = fakeSidecar.URL
 
 	s, err := server.NewServer(cfg)
 	if err != nil {

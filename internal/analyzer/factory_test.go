@@ -16,16 +16,13 @@ import (
 // Shared fixtures for factory tests.
 func factoryValidDeps() analyzer.Dependencies {
 	return analyzer.Dependencies{
-		Logger:    noopLogger{},
-		WebClient: cannedHappyPathWebClient(),
-		Assessor:  cannedHappyPathAssessor(),
+		Logger: noopLogger{},
 	}
 }
 
 func factoryDefaultConfig() analyzer.Config {
 	return analyzer.Config{
 		DefaultPoll: analyzer.PollOptions{Timeout: 1 * time.Second, Interval: 25 * time.Millisecond},
-		Moku:        analyzer.MokuConfig{JobRetention: 1 * time.Minute},
 	}
 }
 
@@ -44,6 +41,7 @@ func TestNewAnalyzer_NilLogger_Errors(t *testing.T) {
 func TestNewAnalyzer_EmptyBackend_DefaultsToMoku(t *testing.T) {
 	t.Parallel()
 	cfg := factoryDefaultConfig() // Backend left empty on purpose
+	cfg.Sidecar = analyzer.SidecarConfig{BaseURL: "http://127.0.0.1:8181"}
 	a, err := analyzer.NewAnalyzer(cfg, factoryValidDeps())
 	if err != nil {
 		t.Fatalf("NewAnalyzer: %v", err)
@@ -60,28 +58,6 @@ func TestNewAnalyzer_UnknownBackend_Errors(t *testing.T) {
 	cfg.Backend = "definitely-not-a-backend"
 	if _, err := analyzer.NewAnalyzer(cfg, factoryValidDeps()); err == nil {
 		t.Error("expected error for unknown backend")
-	}
-}
-
-// ─── Moku dispatch ─────────────────────────────────────────────────────
-
-func TestNewAnalyzer_Moku_RequiresWebClientAndAssessor(t *testing.T) {
-	t.Parallel()
-	cfg := factoryDefaultConfig()
-	cfg.Backend = analyzer.BackendMoku
-
-	// Missing WebClient.
-	deps := factoryValidDeps()
-	deps.WebClient = nil
-	if _, err := analyzer.NewAnalyzer(cfg, deps); err == nil {
-		t.Error("expected error when Moku backend has nil WebClient")
-	}
-
-	// Missing Assessor.
-	deps = factoryValidDeps()
-	deps.Assessor = nil
-	if _, err := analyzer.NewAnalyzer(cfg, deps); err == nil {
-		t.Error("expected error when Moku backend has nil Assessor")
 	}
 }
 
@@ -188,6 +164,11 @@ func TestNewAnalyzer_DAST_RoutesToSidecar(t *testing.T) {
 	assertSidecarBackendRoutes(t, analyzer.BackendDAST, "builtin")
 }
 
+func TestNewAnalyzer_Moku_RoutesToSidecar(t *testing.T) {
+	t.Parallel()
+	assertSidecarBackendRoutes(t, analyzer.BackendMoku, "builtin")
+}
+
 func TestNewAnalyzer_Nuclei_RoutesToSidecar(t *testing.T) {
 	t.Parallel()
 	assertSidecarBackendRoutes(t, analyzer.BackendNuclei, "nuclei")
@@ -221,6 +202,7 @@ func TestNewAnalyzer_ZAP_RoutesToSidecar(t *testing.T) {
 func TestNewAnalyzer_SidecarBackends_DoNotRequireHTTPClient(t *testing.T) {
 	t.Parallel()
 	sidecarBackends := []analyzer.Backend{
+		analyzer.BackendMoku,
 		analyzer.BackendDAST,
 		analyzer.BackendNuclei,
 		analyzer.BackendNikto,
@@ -248,6 +230,7 @@ func TestNewAnalyzer_SidecarBackends_DoNotRequireHTTPClient(t *testing.T) {
 func TestNewAnalyzer_SidecarBackends_RequireBaseURL(t *testing.T) {
 	t.Parallel()
 	sidecarBackends := []analyzer.Backend{
+		analyzer.BackendMoku,
 		analyzer.BackendDAST,
 		analyzer.BackendNuclei,
 		analyzer.BackendNikto,

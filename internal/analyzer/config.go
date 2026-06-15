@@ -8,6 +8,9 @@ import "time"
 type Backend string
 
 const (
+	// BackendMoku routes scan requests to the Python sidecar's "builtin"
+	// adapter — the same engine as BackendDAST. It is the default backend
+	// when no MOKU_ANALYZER_BACKEND env var is set.
 	BackendMoku Backend = "moku"
 
 	// BackendDAST routes scan requests to the Python sidecar's "builtin"
@@ -39,12 +42,8 @@ type Config struct {
 	// if ever needed.
 	DefaultPoll PollOptions `json:"default_poll"`
 
-	// Moku holds settings specific to the Moku backend. Ignored when
-	// Backend != BackendMoku.
-	Moku MokuConfig `json:"moku"`
-
-	// Sidecar holds settings shared by every backend that routes through the
-	// Python analyzer sidecar (DAST/Nuclei/Nikto/Shodan/VirusTotal/ZAP). The
+	// Sidecar holds settings shared by every backend. All backends route
+	// through the Python analyzer sidecar (services/analyzer/). The
 	// adapter-name dispatch happens inside the sidecar — the Go side selects
 	// it via the Backend field on each ScanRequest payload.
 	Sidecar SidecarConfig `json:"sidecar"`
@@ -88,15 +87,4 @@ type PollOptions struct {
 
 	// MaxInterval caps the backoff. Zero means no cap.
 	MaxInterval time.Duration `json:"max_interval"`
-}
-
-// MokuConfig holds settings for the Moku native backend.
-type MokuConfig struct {
-	// DefaultProfile is used when ScanRequest.Profile is empty.
-	DefaultProfile ScanProfile `json:"default_profile"`
-
-	// JobRetention controls how long a completed or failed scan remains in
-	// the in-memory job registry before a background cleanup task removes
-	// it. Zero disables cleanup.
-	JobRetention time.Duration `json:"job_retention"`
 }

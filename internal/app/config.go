@@ -198,14 +198,9 @@ func DefaultConfig() *Config {
 				BackoffFactor: 1.5,
 				MaxInterval:   30 * time.Second,
 			},
-			Moku: analyzer.MokuConfig{
-				DefaultProfile: analyzer.ProfileBalanced,
-				JobRetention:   60 * time.Minute,
-			},
 			// Sidecar holds the connection details for the Python analyzer
-			// sidecar process (services/analyzer/). Used when AnalyzerCfg.Backend
-			// is one of BackendDAST / BackendNuclei / BackendNikto / BackendShodan /
-			// BackendVirusTotal — those routes all share the same sidecar.
+			// sidecar process (services/analyzer/). All backends route through
+			// the sidecar; the adapter-name dispatch happens inside it.
 			Sidecar: analyzer.SidecarConfig{
 				BaseURL:        resolveSidecarBaseURL(),
 				SharedSecret:   os.Getenv(EnvAnalyzerToken),
