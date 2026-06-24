@@ -30,7 +30,7 @@ export const Topbar: React.FC = () => {
         </button>
 
         <div className="flex items-center gap-3">
-          <img src="/MOKU_icon.png" alt="MOKU Logo" className="h-14 w-auto" />
+          <img src="/MOKU_icon.svg" alt="MOKU Logo" className="h-14 w-auto" />
 
           {activeProject && (
             <div className="flex flex-col leading-tight">
