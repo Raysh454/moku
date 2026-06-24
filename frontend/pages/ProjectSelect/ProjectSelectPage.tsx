@@ -37,7 +37,7 @@ const ProjectSelectPage: React.FC = () => {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(81,112,255,0.15)_0%,rgba(81,112,255,0.08)_40%,transparent_70%)] pointer-events-none"></div>
         <div className="flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-700 relative z-10">
           <img
-            src="/MOKU_main-nobg.png?v=1"
+            src="/MOKU_main-nobg.svg?v=1"
             alt="MOKU Logo"
             className="h-80 w-auto -mb-8"
             loading="eager"
