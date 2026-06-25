@@ -70,6 +70,7 @@ interface ProjectContextType {
   clearMessage: () => void;
   openSettings: () => void;
   closeSettings: () => void;
+  cancelJob: (jobId: string) => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -628,6 +629,23 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [activeProject, clearMessage, setNotice],
   );
 
+  const cancelJob = useCallback(
+    async (jobId: string) => {
+      setIsBusy(true);
+      clearMessage();
+      try {
+        await api.cancelJob(jobId);
+        setNotice("Job cancelled successfully");
+        await refreshJobs();
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to cancel job");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [clearMessage, setError, setNotice, refreshJobs],
+  );
+
   const latestScanJob = useMemo<JobWithProgress | null>(() => {
     if (!activeProject || !selectedDomain) return null;
     const scanJobs = jobs.filter(
@@ -815,6 +833,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       runEnumerateForDomain,
       runFetchForDomain,
       runScanForDomain,
+      cancelJob,
       setCompareVersions,
       clearMessage,
       domainOverviews,
@@ -853,6 +872,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       runEnumerateForDomain,
       runFetchForDomain,
       runScanForDomain,
+      cancelJob,
       setCompareVersions,
       clearMessage,
       domainOverviews,

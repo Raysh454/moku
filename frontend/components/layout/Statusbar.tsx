@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useProject } from "../../context/ProjectContext";
 
 export const Statusbar: React.FC = () => {
-  const { activeProject, selectedDomain, selectedSnapshot, jobs, refreshJobs, isBusy } = useProject();
+  const { activeProject, selectedDomain, selectedSnapshot, jobs, refreshJobs, isBusy, cancelJob } = useProject();
   const [showJobs, setShowJobs] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
@@ -144,7 +144,18 @@ export const Statusbar: React.FC = () => {
                               {job.status}
                             </span>
                           </div>
-                          <span className="text-slate-500 font-mono">{(job.id ?? "").slice(0, 8)}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-500 font-mono">{(job.id ?? "").slice(0, 8)}</span>
+                            {job.id && job.status !== "done" && job.status !== "failed" && job.status !== "canceled" && (
+                              <button
+                                onClick={() => void cancelJob(job.id!)}
+                                className="text-danger hover:text-danger/80 bg-danger/10 hover:bg-danger/20 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider cursor-pointer transition-all"
+                                title="Cancel Job"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
                         </div>
                         {job.status !== "failed" && job.processed !== undefined && job.total !== undefined && job.total > 0 && (
                           <div className="mt-2 h-1.5 w-full bg-border rounded-full overflow-hidden">

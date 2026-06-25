@@ -119,6 +119,7 @@ export const api = {
 
   listJobs: () => requestList<Job>("/jobs"),
   getJob: (jobId: string) => request<Job>(`/jobs/${jobId}`),
+  cancelJob: (jobId: string) => request<Job>(`/jobs/${jobId}`, { method: "DELETE" }),
 
   listEndpoints: (project: string, site: string, status = "", limit = 500) =>
     requestList<Endpoint>(
