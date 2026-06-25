@@ -6,11 +6,18 @@
 
   --color-bg: #0b0b18;
   --color-card: #131326;
+  --color-surface: #0f0f20;
   --color-accent: #5271ff;
   --color-success: #00d4aa;
   --color-danger: #ff5c5c;
   --color-warning: #ffb347;
   --color-border: #1f1f35;
+
+  /* Text roles — referenced as `text-primary`/`text-helper`/`text-muted`
+     across the app; defined here so those utilities resolve to real colors. */
+  --color-primary: #e6e8f0;
+  --color-helper: #7c84a3;
+  --color-muted: #5b6378;
 }
 
 .custom-scrollbar {
