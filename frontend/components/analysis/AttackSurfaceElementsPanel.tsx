@@ -112,7 +112,7 @@ export function AttackSurfaceElementsPanel({ snapshot }: Props) {
         .map((section) => (
           <article key={section.key} className="rounded-xl border border-border bg-bg/40 p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-black uppercase tracking-[0.16em] text-helper">{section.label}</span>
+              <span className="text-xs font-semibold text-helper">{section.label}</span>
               <span className="rounded-md border border-border px-2 py-0.5 text-[10px] font-semibold text-slate-200 tabular-nums">
                 {section.count}
               </span>

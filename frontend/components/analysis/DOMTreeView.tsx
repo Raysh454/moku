@@ -25,7 +25,14 @@ function TreeNode({
   const [expanded, setExpanded] = useState(initialExpanded);
   const hasChildren = node.children.length > 0;
 
-  const changeClass = node.changeType ? `treeNode-${node.changeType}` : "";
+  const changeClass =
+    node.changeType === "added"
+      ? "bg-success/10"
+      : node.changeType === "removed"
+        ? "bg-danger/10"
+        : node.changeType === "changed"
+          ? "bg-warning/10"
+          : "";
   const icon =
     node.changeType === "added"
       ? "+ "
@@ -53,21 +60,21 @@ function TreeNode({
   elementStr += ">";
 
   return (
-    <div className={`treeNodeContainer ${changeClass}`} style={{ marginLeft: depth * 16 }}>
+    <div className={`py-px ${changeClass}`} style={{ marginLeft: depth * 16 }}>
       <div
-        className="treeNodeRow"
+        className="flex cursor-pointer items-center gap-0.5 rounded-md px-[5px] py-[3px] hover:bg-white/5"
         onClick={handleClick}
         onMouseEnter={() => onHover?.(node)}
         onMouseLeave={() => onHover?.(null)}
       >
-        <span className="treeNodeExpander">{hasChildren ? (expanded ? "▼" : "▶") : " "}</span>
-        <span className="treeNodeIcon">{icon}</span>
-        <span className="treeNodeTag">{elementStr}</span>
-        {node.textContent && <span className="treeNodeText"> "{node.textContent.substring(0, 30)}..."</span>}
-        {node.changeDetail && <span className="treeNodeChange"> ({node.changeDetail})</span>}
+        <span className="w-3 text-muted">{hasChildren ? (expanded ? "▼" : "▶") : " "}</span>
+        <span>{icon}</span>
+        <span className="text-accent">{elementStr}</span>
+        {node.textContent && <span className="italic text-helper"> "{node.textContent.substring(0, 30)}..."</span>}
+        {node.changeDetail && <span className="text-warning"> ({node.changeDetail})</span>}
       </div>
       {expanded && hasChildren && (
-        <div className="treeNodeChildren">
+        <div>
           {node.children.map((child, index) => (
             <TreeNode
               key={`${child.tagName}-${child.domIndex}-${index}`}
@@ -109,10 +116,10 @@ export default function DOMTreeView({
     return filterChanged(tree);
   }, [tree, showOnlyChanged]);
 
-  if (!displayTree) return <div className={`domTreeView ${className}`}>No DOM tree available</div>;
+  if (!displayTree) return <div className={`font-mono text-xs ${className}`}>No DOM tree available</div>;
 
   return (
-    <div className={`domTreeView ${className}`}>
+    <div className={`font-mono text-xs ${className}`}>
       <TreeNode
         node={displayTree}
         depth={0}

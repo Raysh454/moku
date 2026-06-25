@@ -200,21 +200,25 @@ export default function RenderedDiffViews({
 
   return (
     <div className="renderedDiffViews">
-      <div className="viewModeSelector">
+      <div className="mb-3 flex flex-wrap gap-1.5 rounded-[10px] border border-border bg-card p-2.5">
         {viewModes.map((mode) => (
           <button
             key={mode.id}
-            className={`viewModeBtn ${viewMode === mode.id ? "active" : ""}`}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 ${
+              viewMode === mode.id
+                ? "border-accent bg-accent text-white"
+                : "border-border bg-bg text-helper"
+            }`}
             onClick={() => onViewModeChange(mode.id)}
             title={mode.label}
           >
-            <span className="viewModeIcon">{mode.icon}</span>
-            <span className="viewModeLabel">{mode.label}</span>
+            <span className="text-sm">{mode.icon}</span>
+            <span className="text-xs font-bold uppercase tracking-wide">{mode.label}</span>
           </button>
         ))}
         {(viewMode === "preview" || viewMode === "side-by-side") && (
           <>
-            <label className="highlightToggle">
+            <label className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-2 text-xs text-helper">
               <input
                 type="checkbox"
                 checked={showHighlights}
@@ -222,7 +226,7 @@ export default function RenderedDiffViews({
               />
               <span className="toggleLabel">Security Highlights</span>
             </label>
-            <label className="highlightToggle">
+            <label className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-2 text-xs text-helper">
               <input
                 type="checkbox"
                 checked={showTextHighlights}
@@ -260,7 +264,7 @@ export default function RenderedDiffViews({
         )}
 
         {viewMode === "side-by-side" && (
-          <div className="sideBySideFrames">
+          <div className="grid grid-cols-1 gap-3 min-[1000px]:grid-cols-2">
             <RenderedFrame
               html={baseHtml || "<p>No base version available</p>"}
               title="Base Version"
@@ -285,9 +289,9 @@ export default function RenderedDiffViews({
         )}
 
         {viewMode === "dom-tree" && (
-          <div className="domTreeMode">
-            <div className="domTreeControls">
-              <label>
+          <div className="overflow-hidden rounded-[10px] border border-border bg-bg">
+            <div className="flex items-center justify-between border-b border-border bg-card px-3 py-2.5">
+              <label className="inline-flex items-center gap-2 text-xs text-primary">
                 <input
                   type="checkbox"
                   checked={showOnlyChanged}
@@ -296,14 +300,18 @@ export default function RenderedDiffViews({
                 Show only changed elements
               </label>
               {changeSummary && (
-                <div className="changeSummary">
-                  <span className="summaryAdded">+{changeSummary.added} added</span>
-                  <span className="summaryRemoved">-{changeSummary.removed} removed</span>
-                  <span className="summaryChanged">~{changeSummary.changed} changed</span>
+                <div className="flex gap-2.5 text-xs">
+                  <span className="text-success">+{changeSummary.added} added</span>
+                  <span className="text-danger">-{changeSummary.removed} removed</span>
+                  <span className="text-warning">~{changeSummary.changed} changed</span>
                 </div>
               )}
             </div>
-            <DOMTreeView tree={diffTree} showOnlyChanged={showOnlyChanged} className="domTreeContainer" />
+            <DOMTreeView
+              tree={diffTree}
+              showOnlyChanged={showOnlyChanged}
+              className="max-h-[560px] overflow-auto p-2.5"
+            />
           </div>
         )}
 
@@ -351,45 +359,57 @@ function SecurityElementsView({ securityDiff }: { securityDiff?: SecurityDiff | 
   ];
 
   return (
-    <div className="securityElementsView">
+    <div className="flex flex-col gap-4">
       {sections.map((section) => {
         const changes = groupedChanges[section.key];
         if (changes.length === 0) return null;
 
         return (
-          <div key={section.key} className="securitySection">
-            <h4 style={{ borderLeftColor: section.color }}>
+          <div key={section.key}>
+            <h4
+              className="mb-2 rounded-lg border-l-[3px] bg-card px-2.5 py-2 text-[13px] text-primary"
+              style={{ borderLeftColor: section.color }}
+            >
               {section.icon} {section.label} ({changes.length})
             </h4>
-            <div className="securityCards">
-              {changes.map((change, index) => (
-                <div key={index} className="securityCard">
-                  <div className={`cardKind kind-${(change.kind ?? "").split("_")[1] || "changed"}`}>
-                    {(change.kind ?? "").split("_")[1] || "changed"}
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {changes.map((change, index) => {
+                const kind = (change.kind ?? "").split("_")[1] || "changed";
+                return (
+                  <div key={index} className="rounded-xl border border-border bg-bg p-2.5">
+                    <span className={`mb-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${SECURITY_KIND_TONE[kind] ?? SECURITY_KIND_TONE.changed}`}>
+                      {kind}
+                    </span>
+                    <p className="mb-2 text-[13px] text-helper">{change.detail}</p>
+                    {change.evidence_locations && change.evidence_locations.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {change.evidence_locations.map((location, locationIndex) => (
+                          <span key={locationIndex} className="rounded-md bg-card px-1.5 py-0.5 font-mono text-[11px] text-helper">
+                            {location.type}
+                            {location.dom_index !== undefined && ` [${location.dom_index}]`}
+                            {location.header_name && `: ${location.header_name}`}
+                            {location.cookie_name && `: ${location.cookie_name}`}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <p className="cardDetail">{change.detail}</p>
-                  {change.evidence_locations && change.evidence_locations.length > 0 && (
-                    <div className="cardLocations">
-                      {change.evidence_locations.map((location, locationIndex) => (
-                        <span key={locationIndex} className="locationTag">
-                          {location.type}
-                          {location.dom_index !== undefined && ` [${location.dom_index}]`}
-                          {location.header_name && `: ${location.header_name}`}
-                          {location.cookie_name && `: ${location.cookie_name}`}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
       })}
 
       {Object.values(groupedChanges).every((items) => items.length === 0) && (
-        <p className="noSecurityChanges">No security-relevant changes detected</p>
+        <p className="px-3 py-9 text-center text-muted">No security-relevant changes detected</p>
       )}
     </div>
   );
 }
+
+const SECURITY_KIND_TONE: Record<string, string> = {
+  added: "bg-success/20 text-success",
+  removed: "bg-danger/20 text-danger",
+  changed: "bg-warning/20 text-warning",
+};

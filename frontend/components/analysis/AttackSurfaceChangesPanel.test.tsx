@@ -16,11 +16,9 @@ function buildChange(overrides: Partial<AttackSurfaceChange> = {}): AttackSurfac
 const noop = () => {}
 
 describe('AttackSurfaceChangesPanel', () => {
-  it('appliesSeverityClassForEachChange', () => {
-    // The current panel encodes per-change severity as a `severity--<level>`
-    // class on each change row (there is no separate severity badge element),
-    // so assert the class rather than badge text. Intent preserved: each
-    // category maps to its taxonomy severity (high/medium/low).
+  it('exposes each change severity for its taxonomy category', () => {
+    // Each change row carries a stable `data-severity` reflecting its
+    // category's taxonomy severity (high/medium/low).
     const { container } = render(
       <AttackSurfaceChangesPanel
         changes={[
@@ -36,10 +34,10 @@ describe('AttackSurfaceChangesPanel', () => {
       />,
     )
 
-    const rows = container.querySelectorAll('.changeItem')
+    const rows = container.querySelectorAll('[data-severity]')
     expect(rows).toHaveLength(3)
-    expect(rows[0].className).toContain('severity--high')
-    expect(rows[1].className).toContain('severity--medium')
-    expect(rows[2].className).toContain('severity--low')
+    expect(rows[0].getAttribute('data-severity')).toBe('high')
+    expect(rows[1].getAttribute('data-severity')).toBe('medium')
+    expect(rows[2].getAttribute('data-severity')).toBe('low')
   })
 })

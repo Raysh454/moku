@@ -273,16 +273,26 @@ export default function RenderedFrame({
     }
   }, [activeHighlight, highlights, showHighlights, showTextHighlights]);
 
+  const iframeHeightClass = className.includes("halfWidthFrame")
+    ? "h-[480px]"
+    : className.includes("timelineFrame")
+      ? "h-[400px]"
+      : "h-[560px]";
+
   return (
-    <div className={`renderedFrame ${className}`}>
-      {title && <div className="renderedFrameTitle">{title}</div>}
+    <div className={`overflow-hidden rounded-[10px] border border-border bg-white ${className}`}>
+      {title && (
+        <div className="border-b border-border bg-card px-3 py-2 text-xs font-bold uppercase tracking-wide text-helper">
+          {title}
+        </div>
+      )}
       <iframe
         ref={iframeRef}
         srcDoc={preparedHtml()}
         sandbox="allow-same-origin allow-scripts"
         onLoad={handleLoad}
         title={title || "Rendered HTML"}
-        className="renderedFrameIframe"
+        className={`w-full border-none bg-white ${iframeHeightClass}`}
       />
     </div>
   );
