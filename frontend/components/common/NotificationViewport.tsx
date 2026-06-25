@@ -48,15 +48,15 @@ export const NotificationViewport: React.FC = () => {
         return (
           <div
             key={notification.id}
-            className={`pointer-events-auto bg-card/95 backdrop-blur-sm border ${styles.border} rounded-xl shadow-[0_14px_32px_rgba(0,0,0,0.65)] p-3`}
+            className={`pointer-events-auto bg-card/95 backdrop-blur-sm border ${styles.border} rounded-xl p-3`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${styles.badge}`}>
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide ${styles.badge}`}>
                     {notification.kind}
                   </span>
-                  <span className="text-[11px] text-helper uppercase tracking-wider">
+                  <span className="text-[11px] text-helper uppercase tracking-wide">
                     {new Date(notification.createdAt).toLocaleTimeString()}
                   </span>
                 </div>

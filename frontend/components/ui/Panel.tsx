@@ -2,7 +2,7 @@ import type { ElementType, ReactNode } from "react";
 
 /**
  * The single card/surface primitive. Replaces the repeated
- * `bg-card border border-border rounded-2xl p-5` soup. Use `tone="sunken"`
+ * `bg-card border border-border rounded-xl p-5` soup. Use `tone="sunken"`
  * for nested regions instead of nesting another bordered card.
  */
 type PanelTone = "card" | "sunken" | "plain";

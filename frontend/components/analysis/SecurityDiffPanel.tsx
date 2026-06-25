@@ -32,27 +32,27 @@ export function SecurityDiffPanel({ diff }: Props) {
     <section className="space-y-4">
       <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-5">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Base</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Base</div>
           <div className="text-lg font-bold tabular-nums text-white">{formatScore(diff.score_base)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Head</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Head</div>
           <div className="text-lg font-bold tabular-nums text-white">{formatScore(diff.score_head)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Posture Δ</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Posture Δ</div>
           <div className={`text-lg font-bold tabular-nums ${directionColor[compositeDirection]}`}>
             {formatScore(diff.score_delta)}
           </div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Exposure Δ</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Exposure Δ</div>
           <div className={`text-lg font-bold tabular-nums ${directionColor[exposureDirection]}`}>
             {formatScore(diff.exposure_delta)}
           </div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Hardening Δ</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Hardening Δ</div>
           <div className={`text-lg font-bold tabular-nums ${directionColor[hardeningDirection]}`}>
             {formatScore(diff.hardening_delta)}
           </div>
@@ -65,12 +65,12 @@ export function SecurityDiffPanel({ diff }: Props) {
             const severity = severityForCategory(category);
             return (
               <section key={category}>
-                <h4 className="mb-2 text-xs uppercase tracking-widest text-helper">{category}</h4>
+                <h4 className="mb-2 text-xs uppercase tracking-wide text-helper">{category}</h4>
                 <ul className="space-y-2">
                   {groupChanges.map((change, index) => (
                     <li key={`${change.kind}-${index}`} className="text-sm text-slate-300">
                       <span
-                        className={`inline-flex px-2 py-0.5 mr-2 rounded text-[10px] uppercase tracking-wider ${
+                        className={`inline-flex px-2 py-0.5 mr-2 rounded text-[10px] uppercase tracking-wide ${
                           severity === "high"
                             ? "bg-danger/20 text-danger"
                             : severity === "medium"

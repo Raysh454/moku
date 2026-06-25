@@ -30,7 +30,7 @@ const ProjectCreatePage = () => {
     <div className="flex min-h-screen items-center justify-center bg-bg p-4">
       <div className="w-full max-w-md">
         <div className="mb-8">
-          <h1 className="mb-2 text-2xl font-semibold text-primary">Create project</h1>
+          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-primary">Create project</h1>
           <p className="text-sm text-helper">Set up a new project to monitor websites for security changes.</p>
         </div>
 

@@ -69,7 +69,7 @@ export function Tabs({ items, value, onChange, ariaLabel, size = "md", className
             onClick={() => onChange(item.id)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={`inline-flex items-center gap-2 rounded-md font-medium transition-colors ${SIZE_CLASSES[size]} ${
-              isActive ? "bg-accent text-white shadow-sm" : "text-helper hover:text-primary hover:bg-white/5"
+              isActive ? "bg-accent text-white" : "text-helper hover:text-primary hover:bg-white/5"
             }`}
           >
             {Icon ? <Icon className="h-4 w-4" /> : null}

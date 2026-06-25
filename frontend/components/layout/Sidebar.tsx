@@ -61,7 +61,7 @@ export const Sidebar = () => {
         className={`flex items-center border-b border-border bg-card/40 px-2 py-2 ${isCollapsed ? "justify-center" : "justify-between"}`}
       >
         {!isCollapsed ? (
-          <span className="pl-2 text-xs font-semibold uppercase tracking-wider text-helper">Explorer</span>
+          <span className="pl-2 text-xs font-semibold uppercase tracking-wide text-helper">Explorer</span>
         ) : null}
         <div className="flex items-center gap-0.5">
           {!isCollapsed ? (

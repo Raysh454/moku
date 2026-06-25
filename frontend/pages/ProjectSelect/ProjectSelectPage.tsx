@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { LoadingSpinner } from "../../components/common/LoadingSpinner";
 import { Badge } from "../../components/common/Badge";
 import { EmptyState } from "../../components/ui";
-import { Folder, ChevronRight, Trash2 } from "../../components/ui/icons";
+import { Folder, ChevronRight, Trash2, Plus } from "../../components/ui/icons";
 
 const ProjectSelectPage: React.FC = () => {
   const { projects, isLoading, setActiveProjectById, deleteProject } = useProject();
@@ -26,7 +26,7 @@ const ProjectSelectPage: React.FC = () => {
     return (
       <div className="h-screen bg-bg flex flex-col items-center justify-center space-y-4">
         <LoadingSpinner />
-        <span className="text-xs text-slate-400 uppercase font-medium tracking-widest animate-pulse">
+        <span className="text-xs text-slate-400 uppercase font-medium tracking-wide animate-pulse">
           Loading projects...
         </span>
       </div>
@@ -35,7 +35,7 @@ const ProjectSelectPage: React.FC = () => {
   return (
     <div className="flex h-screen overflow-hidden">
       <div className="flex-1 bg-bg flex flex-col items-center justify-center relative">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(81,112,255,0.15)_0%,rgba(81,112,255,0.08)_40%,transparent_70%)] pointer-events-none"></div>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(81,112,255,0.06)_0%,transparent_60%)]"></div>
         <div className="flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-700 relative z-10">
           <img
             src="/MOKU_main-nobg.svg?v=1"
@@ -52,18 +52,14 @@ const ProjectSelectPage: React.FC = () => {
 
           <button
             onClick={() => navigate("/create")}
-            className="group flex items-center gap-2 px-8 py-2.5 bg-accent hover:bg-accent/90 text-white font-bold rounded-full transition-all active:scale-95"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white transition-all hover:brightness-110 active:scale-95"
           >
-            <span className="text-2xl leading-none font-light group-hover:rotate-90 transition-transform duration-300">
-              +
-            </span>
-            <span className="text-base tracking-tight uppercase">
-              New Project
-            </span>
+            <Plus className="h-4 w-4" />
+            New project
           </button>
         </div>
 
-        <div className="absolute bottom-8 text-[11px] font-medium text-slate-600 uppercase tracking-wider">
+        <div className="absolute bottom-8 text-[11px] font-medium text-slate-600 uppercase tracking-wide">
           v1.0.4
         </div>
       </div>
@@ -74,9 +70,7 @@ const ProjectSelectPage: React.FC = () => {
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <Folder className="w-5 h-5 text-accent" strokeWidth={2.5} />
-                <h1 className="text-xl font-semibold text-white">
-                  Existing Projects
-                </h1>
+                <h1 className="text-xl font-semibold tracking-tight text-white">Existing projects</h1>
               </div>
               <p className="text-xs text-slate-500">
                 {projects.length}{" "}

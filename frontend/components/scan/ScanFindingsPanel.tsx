@@ -43,7 +43,7 @@ const FindingItem = ({ finding, isExpanded, onToggle }: FindingItemProps) => {
             <span className="text-sm font-semibold text-slate-200 truncate">{finding.title}</span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-[10px] uppercase tracking-widest text-helper">{finding.confidence}</span>
+            <span className="text-[10px] uppercase tracking-wide text-helper">{finding.confidence}</span>
             {expandable && <span className="text-[10px] text-slate-500">{isExpanded ? "▲" : "▼"}</span>}
           </div>
         </div>
@@ -65,7 +65,7 @@ const FindingItem = ({ finding, isExpanded, onToggle }: FindingItemProps) => {
           )}
           {finding.remediation && (
             <p className="text-slate-400">
-              <span className="text-helper uppercase text-[10px] tracking-widest mr-2">Remediation</span>
+              <span className="text-helper uppercase text-[10px] tracking-wide mr-2">Remediation</span>
               {finding.remediation}
             </p>
           )}
@@ -97,7 +97,7 @@ export function ScanFindingsPanel({ result }: Props) {
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-        <span className="uppercase tracking-widest text-[10px] text-helper">
+        <span className="uppercase tracking-wide text-[10px] text-helper">
           {result.backend} • {result.status}
         </span>
         <span className="font-mono text-[11px] truncate">{result.url}</span>
@@ -129,7 +129,7 @@ export function ScanFindingsPanel({ result }: Props) {
               {severity}: {summary[severity]}
             </Badge>
           ))}
-          <span className="text-[10px] uppercase tracking-widest text-helper">
+          <span className="text-[10px] uppercase tracking-wide text-helper">
             total {summary.total}
           </span>
         </div>

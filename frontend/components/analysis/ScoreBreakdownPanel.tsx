@@ -21,19 +21,19 @@ export function ScoreBreakdownPanel({ result }: Props) {
     <section className="space-y-4">
       <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Posture Score</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Posture Score</div>
           <div className="text-lg font-bold tabular-nums text-white">{formatScore(result.score)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Exposure</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Exposure</div>
           <div className="text-lg font-bold tabular-nums text-warning">{formatScore(result.exposure_score)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Hardening</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Hardening</div>
           <div className="text-lg font-bold tabular-nums text-success">{formatPercent(result.hardening_score)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-helper">Confidence</div>
+          <div className="text-[10px] uppercase tracking-wide text-helper">Confidence</div>
           <div className="text-lg font-bold tabular-nums text-accent">{formatPercent(result.confidence)}</div>
         </div>
       </div>
@@ -43,7 +43,7 @@ export function ScoreBreakdownPanel({ result }: Props) {
           {result.evidence!.map((item, index) => (
             <li key={item.id ?? `${item.key}-${index}`} className="py-2 text-sm first:pt-0">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] uppercase tracking-widest text-helper">{item.severity}</span>
+                <span className="text-[10px] uppercase tracking-wide text-helper">{item.severity}</span>
                 {item.contribution !== undefined && (
                   <span className="text-[11px] text-accent">+{formatScore(item.contribution)}</span>
                 )}

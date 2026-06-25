@@ -366,17 +366,15 @@ function SecurityElementsView({ securityDiff }: { securityDiff?: SecurityDiff | 
 
         return (
           <div key={section.key}>
-            <h4
-              className="mb-2 rounded-lg border-l-[3px] bg-card px-2.5 py-2 text-[13px] text-primary"
-              style={{ borderLeftColor: section.color }}
-            >
-              {section.icon} {section.label} ({changes.length})
+            <h4 className="mb-2 flex items-center gap-2 text-[13px] text-primary">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: section.color }} />
+              {section.label} ({changes.length})
             </h4>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {changes.map((change, index) => {
                 const kind = (change.kind ?? "").split("_")[1] || "changed";
                 return (
-                  <div key={index} className="rounded-xl border border-border bg-bg p-2.5">
+                  <div key={index} className="rounded-lg bg-white/[0.02] p-2.5">
                     <span className={`mb-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${SECURITY_KIND_TONE[kind] ?? SECURITY_KIND_TONE.changed}`}>
                       {kind}
                     </span>

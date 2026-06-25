@@ -46,7 +46,7 @@ export function SnapshotContentView({ snapshot }: Props) {
   if (content.viewKind === "image") {
     return (
       <div className="rounded-xl border border-border bg-bg/50 p-4 space-y-3">
-        <div className="text-[10px] uppercase tracking-[0.16em] text-helper font-black">Image preview</div>
+        <div className="text-[10px] uppercase tracking-wide text-helper font-semibold">Image preview</div>
         {content.imageSrc ? (
           <img
             src={content.imageSrc}
@@ -63,7 +63,7 @@ export function SnapshotContentView({ snapshot }: Props) {
   if (content.viewKind === "directory") {
     return (
       <div className="rounded-xl border border-border bg-bg/50 p-4 space-y-3">
-        <div className="text-[10px] uppercase tracking-[0.16em] text-helper font-black">Directory listing</div>
+        <div className="text-[10px] uppercase tracking-wide text-helper font-semibold">Directory listing</div>
         {directoryEntries.length > 0 ? (
           <div className="max-h-[420px] overflow-auto custom-scrollbar rounded-lg border border-border bg-bg/70">
             <div className="divide-y divide-border/40">
@@ -86,7 +86,7 @@ export function SnapshotContentView({ snapshot }: Props) {
     const text = content.viewKind === "json" ? tryFormatJson(content.textBody) : content.textBody;
     return (
       <div className="rounded-xl border border-border bg-bg/50 p-4 space-y-3">
-        <div className="text-[10px] uppercase tracking-[0.16em] text-helper font-black">
+        <div className="text-[10px] uppercase tracking-wide text-helper font-semibold">
           {content.viewKind === "json" ? "JSON content" : "Text content"}
         </div>
         <pre className="max-h-[480px] overflow-auto custom-scrollbar rounded-lg border border-border bg-bg/70 p-3 text-xs text-slate-200 whitespace-pre-wrap break-words">
@@ -98,7 +98,7 @@ export function SnapshotContentView({ snapshot }: Props) {
 
   return (
     <div className="rounded-xl border border-border bg-bg/50 p-4 space-y-2">
-      <div className="text-[10px] uppercase tracking-[0.16em] text-helper font-black">Binary content</div>
+      <div className="text-[10px] uppercase tracking-wide text-helper font-semibold">Binary content</div>
       <p className="text-xs text-slate-300">
         Raw binary bodies are not rendered. Use response headers and metadata for context.
       </p>

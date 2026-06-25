@@ -13,7 +13,7 @@ const colorMap: Record<string, string> = {
   medium: "bg-warning/10 text-warning border-warning/20",
   high: "bg-danger/10 text-danger border-danger/20",
   critical:
-    "bg-danger text-white border-danger shadow-lg shadow-danger/20 font-semibold",
+    "bg-danger text-white border-danger font-semibold",
 
   active: "bg-success/10 text-success border-success/20",
   monitoring: "bg-warning/10 text-warning border-warning/20",
@@ -30,7 +30,7 @@ export const Badge: React.FC<BadgeProps> = ({
   const styles = colorMap[variant] || colorMap.default;
   return (
     <span
-      className={`px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.1em] rounded-md border tabular-nums inline-flex items-center justify-center ${styles} ${className}`}
+      className={`px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide rounded-md border tabular-nums inline-flex items-center justify-center ${styles} ${className}`}
     >
       {children}
     </span>

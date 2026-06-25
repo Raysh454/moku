@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { IconComponent } from "./icons";
 
 /** Centered empty/placeholder state. Replaces the giant opacity-30 inline-SVG
- * blocks with their `tracking-[0.4em]` shouting captions. */
+ * blocks with their `tracking-wide` shouting captions. */
 interface EmptyStateProps {
   icon?: IconComponent;
   title: string;

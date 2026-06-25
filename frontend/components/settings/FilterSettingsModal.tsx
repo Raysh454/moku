@@ -350,10 +350,10 @@ export function FilterSettingsModal({
 
   return (
     <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-6xl max-h-[90vh] overflow-hidden bg-card border border-border rounded-2xl shadow-2xl">
+      <div className="w-full max-w-6xl max-h-[90vh] overflow-hidden bg-card border border-border rounded-xl">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-black uppercase tracking-[0.25em] text-helper">Endpoint Filtering</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-helper">Endpoint Filtering</h2>
             <p className="text-xs text-slate-400 mt-1">
               {hasSelection
                 ? `${projectSlug} / ${siteSlug}`
@@ -361,7 +361,7 @@ export function FilterSettingsModal({
             </p>
           </div>
           <button
-            className="h-9 px-3 text-xs font-bold uppercase tracking-wider text-slate-300 hover:text-white rounded-lg border border-border hover:border-slate-500"
+            className="h-9 px-3 text-xs font-bold uppercase tracking-wide text-slate-300 hover:text-white rounded-lg border border-border hover:border-slate-500"
             onClick={onClose}
           >
             Close
@@ -372,9 +372,9 @@ export function FilterSettingsModal({
           {(["rules", "filtered", "config"] as Tab[]).map((tab) => (
             <button
               key={tab}
-              className={`px-4 py-2 rounded-lg text-[11px] font-bold uppercase tracking-widest transition ${
+              className={`px-4 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition ${
                 activeTab === tab
-                  ? "bg-accent text-white shadow-lg shadow-accent/20"
+                  ? "bg-accent text-white"
                   : "bg-bg border border-border text-helper hover:text-slate-200"
               }`}
               onClick={() => setActiveTab(tab)}
@@ -384,14 +384,14 @@ export function FilterSettingsModal({
           ))}
           <div className="ml-auto flex items-center gap-2">
             <button
-              className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-widest bg-bg border border-border text-slate-300 hover:text-white"
+              className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide bg-bg border border-border text-slate-300 hover:text-white"
               onClick={() => void loadAll(true)}
               disabled={loading || !hasSelection}
             >
               Refresh
             </button>
             <button
-              className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-widest bg-warning text-black hover:brightness-110 disabled:opacity-50"
+              className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide bg-warning text-black hover:brightness-110 disabled:opacity-50"
               onClick={() => void applyFilters()}
               disabled={loading || !hasSelection}
             >
@@ -401,7 +401,7 @@ export function FilterSettingsModal({
         </div>
 
         <div className="px-6 py-3 border-b border-border bg-bg/30 flex flex-wrap items-center gap-4 text-xs">
-          <span className="text-helper uppercase tracking-wider font-bold">Stats</span>
+          <span className="text-helper uppercase tracking-wide font-bold">Stats</span>
           {stats ? (
             <>
               <span className="text-slate-300">Total: {stats.total}</span>
@@ -434,7 +434,7 @@ export function FilterSettingsModal({
             <div className="space-y-4">
               <div className="grid grid-cols-12 gap-3 bg-bg/40 border border-border rounded-xl p-4">
                 <div className="col-span-3">
-                  <label className="text-[10px] text-helper uppercase tracking-wider font-bold mb-1 block">
+                  <label className="text-[10px] text-helper uppercase tracking-wide font-bold mb-1 block">
                     Rule Type
                   </label>
                   <select
@@ -448,7 +448,7 @@ export function FilterSettingsModal({
                   </select>
                 </div>
                 <div className="col-span-6">
-                  <label className="text-[10px] text-helper uppercase tracking-wider font-bold mb-1 block">
+                  <label className="text-[10px] text-helper uppercase tracking-wide font-bold mb-1 block">
                     Rule Value
                   </label>
                   <input
@@ -460,7 +460,7 @@ export function FilterSettingsModal({
                 </div>
                 <div className="col-span-3 flex items-end">
                   <button
-                    className="w-full h-10 rounded-lg bg-success text-black text-xs font-black uppercase tracking-wider hover:brightness-110 disabled:opacity-50"
+                    className="w-full h-10 rounded-lg bg-success text-black text-xs font-semibold uppercase tracking-wide hover:brightness-110 disabled:opacity-50"
                     onClick={() => void createRule()}
                     disabled={loading}
                   >
@@ -517,7 +517,7 @@ export function FilterSettingsModal({
                           className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
                         />
                       </div>
-                      <div className="col-span-1 text-center text-[10px] uppercase tracking-wider text-helper">
+                      <div className="col-span-1 text-center text-[10px] uppercase tracking-wide text-helper">
                         {rule.enabled ? "on" : "off"}
                       </div>
                       <div className="col-span-3 flex items-center justify-end gap-2">
@@ -552,7 +552,7 @@ export function FilterSettingsModal({
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-200">Filtered Endpoints ({filteredEndpoints.length})</h3>
                 <button
-                  className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-widest bg-accent text-white disabled:opacity-50"
+                  className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide bg-accent text-white disabled:opacity-50"
                   onClick={() => void unfilter([], true)}
                   disabled={loading || filteredEndpoints.length === 0}
                 >
@@ -595,7 +595,7 @@ export function FilterSettingsModal({
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="text-[10px] text-helper uppercase tracking-wider font-bold mb-1 block">
+                  <label className="text-[10px] text-helper uppercase tracking-wide font-bold mb-1 block">
                     Skip extensions (comma separated)
                   </label>
                   <input
@@ -606,7 +606,7 @@ export function FilterSettingsModal({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-helper uppercase tracking-wider font-bold mb-1 block">
+                  <label className="text-[10px] text-helper uppercase tracking-wide font-bold mb-1 block">
                     Skip patterns (comma separated)
                   </label>
                   <input
@@ -617,7 +617,7 @@ export function FilterSettingsModal({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-helper uppercase tracking-wider font-bold mb-1 block">
+                  <label className="text-[10px] text-helper uppercase tracking-wide font-bold mb-1 block">
                     Skip status codes (comma separated)
                   </label>
                   <input
@@ -631,7 +631,7 @@ export function FilterSettingsModal({
 
               <div className="flex items-center justify-between">
                 <button
-                  className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-widest bg-success text-black hover:brightness-110 disabled:opacity-50"
+                  className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide bg-success text-black hover:brightness-110 disabled:opacity-50"
                   onClick={() => void saveConfig()}
                   disabled={loading}
                 >

@@ -45,7 +45,7 @@ export const Statusbar = () => {
       <div className="flex items-center gap-5">
         <span className="flex items-center gap-2">
           <span
-            className={`h-1.5 w-1.5 rounded-full ${activeProject.status === "active" ? "bg-success shadow-[0_0_8px_rgba(0,212,170,0.4)]" : "bg-slate-700"}`}
+            className={`h-1.5 w-1.5 rounded-full ${activeProject.status === "active" ? "bg-success" : "bg-slate-700"}`}
           />
           <span className="font-medium text-primary">{activeProject.status}</span>
         </span>
@@ -75,7 +75,7 @@ export const Statusbar = () => {
           </button>
 
           {showJobs ? (
-            <div className="absolute bottom-10 right-0 max-h-[420px] w-[560px] overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+            <div className="absolute bottom-10 right-0 max-h-[420px] w-[560px] overflow-hidden rounded-xl border border-border bg-card">
               <div className="flex items-center justify-between border-b border-border bg-bg/40 px-4 py-3">
                 <span className="text-xs font-semibold text-primary">Job queue</span>
                 <button className="text-xs text-accent hover:text-primary" onClick={() => void refreshJobs()}>

@@ -43,7 +43,7 @@ export function Modal({ open, onClose, title, subtitle, footer, size = "md", chi
       <div
         role="dialog"
         aria-modal="true"
-        className={`w-full ${SIZE_CLASSES[size]} overflow-hidden rounded-2xl border border-border bg-card shadow-2xl`}
+        className={`w-full ${SIZE_CLASSES[size]} overflow-hidden rounded-xl border border-border bg-card`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         {title || subtitle ? (
