@@ -26,6 +26,7 @@ type RenderedFrameProps = {
   textChanges?: TextChange[];
   showTextHighlights?: boolean;
   className?: string;
+  baseUrl?: string;
 };
 
 const VOID_ELEMENTS = [
@@ -169,6 +170,23 @@ function injectTextHighlights(html: string, textChanges: TextChange[]): string {
   return modifiedHtml;
 }
 
+const sanitizeHtmlForPreview = (htmlStr: string): string => {
+  if (!htmlStr) return "";
+  let clean = htmlStr;
+  
+  // 1. Remove all <script> tags and their contents
+  clean = clean.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, "");
+  
+  // 2. Remove anti-clickjack styles
+  clean = clean.replace(/<style\b[^>]*id=["']?antiClickjack["']?[^>]*>([\s\S]*?)<\/style>/gi, "");
+  clean = clean.replace(/<style\b[^>]*>([\s\S]*?html\.js\s+body\s*\{\s*display\s*:\s*none[\s\S]*?)<\/style>/gi, "");
+
+  // 3. Remove inline event handlers (onload, onerror, etc.)
+  clean = clean.replace(/\bon[a-zA-Z]+\s*=\s*(['"])([\s\S]*?)\1/gi, "");
+  
+  return clean;
+};
+
 export default function RenderedFrame({
   html,
   title,
@@ -178,14 +196,16 @@ export default function RenderedFrame({
   textChanges = [],
   showTextHighlights = true,
   className = "",
+  baseUrl,
 }: RenderedFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const preparedHtml = useCallback(() => {
-    const baseTag = "<base href=\"about:blank\">";
+    const baseTag = baseUrl ? `<base href="${baseUrl}">` : "<base href=\"about:blank\">";
     const styleTag = `<style>${highlightStyles}</style>`;
-    let modified = injectTextHighlights(html, textChanges);
+    const sanitized = sanitizeHtmlForPreview(html);
+    let modified = injectTextHighlights(sanitized, textChanges);
 
     if (modified.includes("<head>")) {
       modified = modified.replace("<head>", `<head>${baseTag}${styleTag}`);
@@ -195,7 +215,7 @@ export default function RenderedFrame({
       modified = `${baseTag}${styleTag}${modified}`;
     }
     return modified;
-  }, [html, textChanges]);
+  }, [html, textChanges, baseUrl]);
 
   useEffect(() => {
     if (!iframeRef.current || !isLoaded) return;

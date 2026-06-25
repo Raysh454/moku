@@ -249,6 +249,7 @@ export default function RenderedDiffViews({
         {viewMode === "preview" && (
           <RenderedFrame
             html={headHtml}
+            baseUrl={headSnapshot.url}
             title="Current Version"
             highlights={addedChangedHighlights}
             activeHighlight={activeHighlight}
@@ -263,6 +264,7 @@ export default function RenderedDiffViews({
           <div className="sideBySideFrames">
             <RenderedFrame
               html={baseHtml || "<p>No base version available</p>"}
+              baseUrl={baseSnapshot?.url}
               title="Base Version"
               highlights={removedHighlights}
               activeHighlight={activeHighlight}
@@ -273,6 +275,7 @@ export default function RenderedDiffViews({
             />
             <RenderedFrame
               html={headHtml}
+              baseUrl={headSnapshot.url}
               title="Head Version"
               highlights={addedChangedHighlights}
               activeHighlight={activeHighlight}
