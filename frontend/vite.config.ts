@@ -9,6 +9,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './vitest.setup.ts',
+    // Unit tests are `*.test.*`; Playwright specs are `*.spec.ts` under e2e/.
+    // Constrain the include glob so vitest never collects the e2e specs.
+    include: ['**/*.test.{ts,tsx}'],
   },
   server: {
     port: 3000,
