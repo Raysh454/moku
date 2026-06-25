@@ -18,16 +18,16 @@
 
 /** Raw palette — mirrors the `@theme` tokens in `src/index.css`. */
 export const mokuPalette = {
-  bg: "#0b0b18",
-  card: "#131326",
-  surface: "#0f0f20",
-  border: "#1f1f35",
-  accent: "#5271ff",
-  success: "#00d4aa",
+  bg: "#0b0b0e",
+  card: "#161619",
+  surface: "#101014",
+  border: "#26262c",
+  accent: "#22d3ee",
+  success: "#34d399",
   danger: "#ff5c5c",
   warning: "#ffb347",
   text: "#e6e8f0",
-  muted: "#7c84a3",
+  muted: "#8b90a0",
 } as const;
 
 /** Theme name the diff adapter registers and references. */

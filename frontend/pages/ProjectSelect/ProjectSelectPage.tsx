@@ -35,7 +35,7 @@ const ProjectSelectPage: React.FC = () => {
   return (
     <div className="flex h-screen overflow-hidden">
       <div className="flex-1 bg-bg flex flex-col items-center justify-center relative">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(81,112,255,0.06)_0%,transparent_60%)]"></div>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(34, 211, 238,0.06)_0%,transparent_60%)]"></div>
         <div className="flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-700 relative z-10">
           <img
             src="/MOKU_main-nobg.svg?v=1"
@@ -52,7 +52,7 @@ const ProjectSelectPage: React.FC = () => {
 
           <button
             onClick={() => navigate("/create")}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white transition-all hover:brightness-110 active:scale-95"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-bg transition-all hover:brightness-110 active:scale-95"
           >
             <Plus className="h-4 w-4" />
             New project

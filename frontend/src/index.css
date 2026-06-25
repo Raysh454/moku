@@ -4,20 +4,20 @@
   --font-sans: "Inter", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  --color-bg: #0b0b18;
-  --color-card: #131326;
-  --color-surface: #0f0f20;
-  --color-accent: #5271ff;
-  --color-success: #00d4aa;
+  --color-bg: #0b0b0e;
+  --color-card: #161619;
+  --color-surface: #101014;
+  --color-accent: #22d3ee;
+  --color-success: #34d399;
   --color-danger: #ff5c5c;
   --color-warning: #ffb347;
-  --color-border: #1f1f35;
+  --color-border: #26262c;
 
   /* Text roles — referenced as `text-primary`/`text-helper`/`text-muted`
      across the app; defined here so those utilities resolve to real colors. */
   --color-primary: #e6e8f0;
-  --color-helper: #7c84a3;
-  --color-muted: #5b6378;
+  --color-helper: #8b90a0;
+  --color-muted: #5c606e;
 }
 
 .custom-scrollbar {

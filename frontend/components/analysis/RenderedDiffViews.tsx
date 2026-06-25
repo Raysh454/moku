@@ -205,7 +205,7 @@ export default function RenderedDiffViews({
           <button
             key={mode.id}
             className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors ${
-              viewMode === mode.id ? "bg-accent text-white" : "text-helper hover:bg-white/5 hover:text-primary"
+              viewMode === mode.id ? "bg-accent text-bg" : "text-helper hover:bg-white/5 hover:text-primary"
             }`}
             onClick={() => onViewModeChange(mode.id)}
             title={mode.label}

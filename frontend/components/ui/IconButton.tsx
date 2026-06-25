@@ -8,7 +8,7 @@ type IconButtonSize = "sm" | "md";
 
 const TONE_CLASSES: Record<IconButtonTone, string> = {
   ghost: "text-helper hover:text-primary hover:bg-white/5",
-  accent: "bg-accent text-white hover:brightness-110",
+  accent: "bg-accent text-bg hover:brightness-110",
   danger: "text-danger hover:bg-danger/10",
   success: "text-success hover:bg-success/10",
 };
