@@ -66,6 +66,12 @@ func (r *Registry) loadWebsiteFilterConfig(ctx context.Context, websiteID string
 
 // UpdateWebsiteFilterConfig updates the filter configuration in the website's config JSON column.
 func (r *Registry) UpdateWebsiteFilterConfig(ctx context.Context, websiteID string, cfg *filter.WebsiteConfig) error {
+	// Load existing filter config first to preserve fields like DefaultsSeeded
+	existing, err := r.GetWebsiteFilterConfig(ctx, websiteID)
+	if err == nil && existing != nil {
+		cfg.DefaultsSeeded = existing.DefaultsSeeded
+	}
+
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal filter config: %w", err)

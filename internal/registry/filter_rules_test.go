@@ -399,3 +399,144 @@ func TestSeedDefaultFilterRules(t *testing.T) {
 		t.Errorf("Expected %d extension rules, got %d", len(defaults.SkipExtensions), extensionCount)
 	}
 }
+
+func TestSeedDefaultFilterRules_Idempotent(t *testing.T) {
+	reg, cleanup := newTestRegistry(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	websiteID := createTestWebsiteWithDefaults(t, reg, ctx)
+
+	// Get initial count of rules
+	rules, err := reg.ListFilterRules(ctx, websiteID)
+	if err != nil {
+		t.Fatalf("ListFilterRules: %v", err)
+	}
+	initialCount := len(rules)
+
+	// Seed defaults again
+	if err := reg.SeedDefaultFilterRules(ctx, websiteID); err != nil {
+		t.Fatalf("SeedDefaultFilterRules: %v", err)
+	}
+
+	// Rule count should not change
+	rules2, err := reg.ListFilterRules(ctx, websiteID)
+	if err != nil {
+		t.Fatalf("ListFilterRules: %v", err)
+	}
+	if len(rules2) != initialCount {
+		t.Errorf("Rules count changed from %d to %d after reseeding", initialCount, len(rules2))
+	}
+}
+
+func TestSeedDefaultsForAllWebsites_Existing(t *testing.T) {
+	reg, cleanup := newTestRegistry(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Create a website without defaults manually by directly creating it and deleting all seeded rules
+	websiteID := createTestWebsiteWithDefaults(t, reg, ctx)
+
+	// Delete all rules so we can simulate an existing website with only a subset of rules
+	rules, err := reg.ListFilterRules(ctx, websiteID)
+	if err != nil {
+		t.Fatalf("ListFilterRules: %v", err)
+	}
+	for _, rule := range rules {
+		if err := reg.DeleteFilterRule(ctx, rule.ID); err != nil {
+			t.Fatalf("DeleteFilterRule: %v", err)
+		}
+	}
+
+	// Also clear the config from the website to simulate an old website
+	_, err = reg.db.ExecContext(ctx, `UPDATE websites SET config = '{}' WHERE id = ?`, websiteID)
+	if err != nil {
+		t.Fatalf("clear config: %v", err)
+	}
+
+	// Add just one dummy extension rule to represent an "existing" website with custom/old rules
+	_, err = reg.AddFilterRule(ctx, websiteID, filter.RuleTypeExtension, ".customext")
+	if err != nil {
+		t.Fatalf("AddFilterRule: %v", err)
+	}
+
+	// 2. Call SeedDefaultsForAllWebsites
+	if err := reg.SeedDefaultsForAllWebsites(ctx); err != nil {
+		t.Fatalf("SeedDefaultsForAllWebsites: %v", err)
+	}
+
+	// 3. Verify it has the new defaults plus the existing custom rule
+	rules, err = reg.ListFilterRules(ctx, websiteID)
+	if err != nil {
+		t.Fatalf("ListFilterRules: %v", err)
+	}
+
+	defaults := filter.DefaultConfig()
+	expectedCount := len(defaults.SkipExtensions) + len(defaults.SkipPatterns) + len(defaults.SkipStatusCodes) + 1 // +1 for the .customext
+
+	if len(rules) != expectedCount {
+		t.Errorf("Expected %d rules, got %d", expectedCount, len(rules))
+	}
+
+	// Verify the custom rule still exists
+	foundCustom := false
+	for _, r := range rules {
+		if r.RuleType == filter.RuleTypeExtension && r.RuleValue == ".customext" {
+			foundCustom = true
+			break
+		}
+	}
+	if !foundCustom {
+		t.Error("Expected custom rule '.customext' to be preserved")
+	}
+
+	// Verify that the website config has defaults_seeded set to true
+	cfg, err := reg.GetWebsiteFilterConfig(ctx, websiteID)
+	if err != nil {
+		t.Fatalf("GetWebsiteFilterConfig: %v", err)
+	}
+	if !cfg.DefaultsSeeded {
+		t.Error("Expected DefaultsSeeded to be true in config after seeding defaults")
+	}
+
+	// 4. Test preservation of manual deletion:
+	// Find and delete the "404" status code rule
+	var codeRuleID string
+	for _, r := range rules {
+		if r.RuleType == filter.RuleTypeStatusCode && r.RuleValue == "404" {
+			codeRuleID = r.ID
+			break
+		}
+	}
+	if codeRuleID == "" {
+		t.Fatal("Could not find status code 404 default rule")
+	}
+
+	if err := reg.DeleteFilterRule(ctx, codeRuleID); err != nil {
+		t.Fatalf("DeleteFilterRule: %v", err)
+	}
+
+	// Call SeedDefaultsForAllWebsites again
+	if err := reg.SeedDefaultsForAllWebsites(ctx); err != nil {
+		t.Fatalf("SeedDefaultsForAllWebsites (second run): %v", err)
+	}
+
+	// Verify that the deleted 404 rule was NOT re-seeded
+	rules, err = reg.ListFilterRules(ctx, websiteID)
+	if err != nil {
+		t.Fatalf("ListFilterRules (after second run): %v", err)
+	}
+
+	found404 := false
+	for _, r := range rules {
+		if r.RuleType == filter.RuleTypeStatusCode && r.RuleValue == "404" {
+			found404 = true
+			break
+		}
+	}
+	if found404 {
+		t.Error("Deleted status code 404 rule was automatically re-seeded")
+	}
+}

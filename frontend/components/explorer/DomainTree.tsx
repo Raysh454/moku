@@ -335,24 +335,39 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
       return endpoint.url;
     }
   };
-
   const normalizePath = (p: string) => {
     if (!p) return "";
     let normalized = p;
-    if (normalized.endsWith("/") && normalized.length > 1) {
+    try {
+      if (normalized.includes("://") || normalized.startsWith("//")) {
+        const urlStr = normalized.startsWith("//") ? `http:${normalized}` : normalized;
+        normalized = new URL(urlStr).pathname;
+      }
+    } catch {
+      // ignore
+    }
+    while (normalized.startsWith("/")) {
+      normalized = normalized.slice(1);
+    }
+    while (normalized.endsWith("/")) {
       normalized = normalized.slice(0, -1);
     }
-    // Also handle root path consistency: "/" vs ""
-    if (normalized === "/") return "";
     return normalized;
   };
 
   const getSortedEndpoints = (domain: Domain): Endpoint[] => {
-    // Deduplicate endpoints by canonicalURL
+    // Deduplicate endpoints by normalized path (label)
+    // To keep the cleanest/simplest URL, sort by canonical URL length first
+    const sortedRaw = [...domain.endpoints].sort((a, b) => {
+      const lenA = a.canonicalUrl?.length ?? a.url?.length ?? 0;
+      const lenB = b.canonicalUrl?.length ?? b.url?.length ?? 0;
+      return lenA - lenB;
+    });
+
     const seen = new Set<string>();
-    const uniqueEndpoints = domain.endpoints.filter((ep) => {
-      if (!ep.canonical_url) return true;
-      const normalized = ep.canonical_url.toLowerCase().trim();
+    const uniqueEndpoints = sortedRaw.filter((ep) => {
+      const label = endpointLabel(ep);
+      const normalized = normalizePath(label).toLowerCase().trim();
       if (seen.has(normalized)) return false;
       seen.add(normalized);
       return true;

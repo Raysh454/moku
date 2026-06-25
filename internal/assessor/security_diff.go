@@ -25,6 +25,7 @@ func NewSecurityDiff(
 
 	return &SecurityDiff{
 		FilePath:       filepath,
+		URL:            url,
 		BaseVersionID:  baseVersionID,
 		HeadVersionID:  headVersionID,
 		BaseSnapshotID: baseSnapshotID,
@@ -61,6 +62,7 @@ func NewSecurityDiffOverview(diffs []*SecurityDiff) *SecurityDiffOverview {
 
 		entry := SecurityDiffOverviewEntry{
 			FilePath:                d.FilePath,
+			URL:                     d.URL,
 			BaseSnapshotID:          d.BaseSnapshotID,
 			HeadSnapshotID:          d.HeadSnapshotID,
 			ScoreBase:               d.ScoreBase,

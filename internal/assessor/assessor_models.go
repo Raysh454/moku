@@ -158,7 +158,8 @@ type ScoreDiff struct {
 // Tells us exactly what changed and why between two security snapshots.
 // Includes score deltas and attack surface changes.
 type SecurityDiff struct {
-	FilePath       string `json:"url"`
+	FilePath       string `json:"file_path"`
+	URL            string `json:"url"`
 	BaseVersionID  string `json:"base_version_id"`
 	HeadVersionID  string `json:"head_version_id"`
 	BaseSnapshotID string `json:"base_snapshot_id"`
@@ -187,7 +188,8 @@ type SecurityDiffOverview struct {
 }
 
 type SecurityDiffOverviewEntry struct {
-	FilePath                string  `json:"url"`
+	FilePath                string  `json:"file_path"`
+	URL                     string  `json:"url"`
 	BaseSnapshotID          string  `json:"base_snapshot_id,omitempty"`
 	HeadSnapshotID          string  `json:"head_snapshot_id,omitempty"`
 	ScoreBase               float64 `json:"score_base"`

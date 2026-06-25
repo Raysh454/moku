@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -288,8 +289,34 @@ func (r *Registry) DisableFilterRule(ctx context.Context, ruleID string) error {
 }
 
 // SeedDefaultFilterRules creates default filter rules for a website.
-// This seeds the default skip extensions so they appear in the UI as toggleable rules.
+// This seeds the default skip extensions, patterns, and status codes so they appear in the UI as toggleable rules.
 func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string) error {
+	// Query existing rules for the website to avoid duplicates
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT rule_type, rule_value FROM filter_rules WHERE website_id = ?`,
+		websiteID,
+	)
+	if err != nil {
+		return fmt.Errorf("query existing rules: %w", err)
+	}
+	defer rows.Close()
+
+	type ruleKey struct {
+		ruleType  string
+		ruleValue string
+	}
+	existing := make(map[ruleKey]bool)
+	for rows.Next() {
+		var rt, rv string
+		if err := rows.Scan(&rt, &rv); err != nil {
+			return fmt.Errorf("scan rule: %w", err)
+		}
+		existing[ruleKey{rt, rv}] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows error: %w", err)
+	}
+
 	defaults := filter.DefaultConfig()
 	now := time.Now().Unix()
 
@@ -310,6 +337,9 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 
 	// Seed extension rules
 	for _, ext := range defaults.SkipExtensions {
+		if existing[ruleKey{string(filter.RuleTypeExtension), ext}] {
+			continue
+		}
 		rule := &filter.Rule{
 			ID:        uuid.New().String(),
 			WebsiteID: websiteID,
@@ -332,6 +362,9 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 
 	// Seed pattern rules (if any defaults exist)
 	for _, pattern := range defaults.SkipPatterns {
+		if existing[ruleKey{string(filter.RuleTypePattern), pattern}] {
+			continue
+		}
 		rule := &filter.Rule{
 			ID:        uuid.New().String(),
 			WebsiteID: websiteID,
@@ -354,11 +387,15 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 
 	// Seed status code rules (if any defaults exist)
 	for _, code := range defaults.SkipStatusCodes {
+		codeStr := fmt.Sprintf("%d", code)
+		if existing[ruleKey{string(filter.RuleTypeStatusCode), codeStr}] {
+			continue
+		}
 		rule := &filter.Rule{
 			ID:        uuid.New().String(),
 			WebsiteID: websiteID,
 			RuleType:  filter.RuleTypeStatusCode,
-			RuleValue: fmt.Sprintf("%d", code),
+			RuleValue: codeStr,
 			Enabled:   true,
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -374,6 +411,32 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 		}
 	}
 
+	// Update websites config to mark defaults as seeded
+	var configJSON string
+	err = tx.QueryRowContext(ctx, `SELECT config FROM websites WHERE id = ?`, websiteID).Scan(&configJSON)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("query website config: %w", err)
+	}
+
+	var websiteFilterCfg filter.WebsiteConfig
+	if configJSON != "" && configJSON != "{}" {
+		_ = json.Unmarshal([]byte(configJSON), &websiteFilterCfg)
+	}
+	websiteFilterCfg.DefaultsSeeded = true
+
+	newConfigJSON, err := json.Marshal(websiteFilterCfg)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("marshal website config: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `UPDATE websites SET config = ? WHERE id = ?`, string(newConfigJSON), websiteID)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("update website config: %w", err)
+	}
+
 	if err = tx.Commit(); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("commit transaction: %w", err)
@@ -382,17 +445,13 @@ func (r *Registry) SeedDefaultFilterRules(ctx context.Context, websiteID string)
 	return nil
 }
 
-// SeedDefaultsForAllWebsites seeds default filter rules for all websites that have no rules.
-// This is intended to be called at startup for backwards compatibility with existing websites.
+// SeedDefaultsForAllWebsites seeds default filter rules for all websites.
+// This is intended to be called at startup to ensure all websites have the latest default filter rules.
 func (r *Registry) SeedDefaultsForAllWebsites(ctx context.Context) error {
 	// Get all websites
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT w.id FROM websites w
-		 WHERE NOT EXISTS (
-			SELECT 1 FROM filter_rules fr WHERE fr.website_id = w.id
-		 )`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM websites`)
 	if err != nil {
-		return fmt.Errorf("query websites without rules: %w", err)
+		return fmt.Errorf("query all websites: %w", err)
 	}
 	defer rows.Close()
 
@@ -408,8 +467,16 @@ func (r *Registry) SeedDefaultsForAllWebsites(ctx context.Context) error {
 		return fmt.Errorf("iterate websites: %w", err)
 	}
 
-	// Seed defaults for each website without rules
+	// Seed defaults for each website
 	for _, websiteID := range websiteIDs {
+		// Load existing filter config to check if defaults are already seeded
+		cfg, err := r.GetWebsiteFilterConfig(ctx, websiteID)
+		if err == nil && cfg != nil && cfg.DefaultsSeeded {
+			r.logger.Debug("defaults already seeded for website, skipping",
+				logging.Field{Key: "website_id", Value: websiteID})
+			continue
+		}
+
 		if err := r.SeedDefaultFilterRules(ctx, websiteID); err != nil {
 			r.logger.Warn("failed to seed defaults for website",
 				logging.Field{Key: "website_id", Value: websiteID},

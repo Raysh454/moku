@@ -180,6 +180,7 @@ type WebsiteConfig struct {
 	SkipExtensions  []string `json:"skip_extensions,omitempty"`
 	SkipPatterns    []string `json:"skip_patterns,omitempty"`
 	SkipStatusCodes []int    `json:"skip_status_codes,omitempty"`
+	DefaultsSeeded  bool     `json:"defaults_seeded,omitempty"`
 }
 
 // ToConfig converts WebsiteConfig to Config.

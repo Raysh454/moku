@@ -318,10 +318,8 @@ func (s *Server) handleEndpointStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total := 0
-	for _, count := range byStatus {
-		total += count
-	}
+	total := byStatus["total"]
+	delete(byStatus, "total")
 
 	filteredByReason, err := idx.GetFilteredEndpointsByReason(r.Context())
 	if err != nil {
