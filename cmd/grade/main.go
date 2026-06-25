@@ -24,7 +24,7 @@ import (
 )
 
 func main() {
-	backend := flag.String("backend", "nethttp", "webclient backend to grade (nethttp, tls, chromedp)")
+	backend := flag.String("backend", "nethttp", "webclient backend to grade (nethttp, tls, chromedp, escalating)")
 	repeats := flag.Int("repeats", 3, "samples taken per probe")
 	format := flag.String("format", "text", "report format (text, json)")
 	timeout := flag.Duration("timeout", 30*time.Second, "per-request timeout")
@@ -41,10 +41,8 @@ func main() {
 func run(backend string, repeats int, format string, timeout time.Duration, url string, allowPrivate bool) error {
 	logger := logging.NewStdoutLogger("grade")
 
-	client, err := webclient.NewWebClient(webclient.Config{
-		Client:            webclient.Client(backend),
-		AllowPrivateHosts: allowPrivate,
-	}, logger)
+	cfg := webclient.Config{Client: webclient.Client(backend), AllowPrivateHosts: allowPrivate}
+	client, err := buildClient(backend, cfg, logger)
 	if err != nil {
 		return fmt.Errorf("constructing %q backend: %w", backend, err)
 	}
@@ -60,6 +58,47 @@ func run(backend string, repeats int, format string, timeout time.Duration, url 
 	card := grader.Grade(context.Background(), panel(url))
 
 	return render(card, format)
+}
+
+// buildClient constructs the requested backend. Most backends come from the
+// webclient factory; "escalating" is assembled here because the composition root
+// is where the grading challenge detector is wired in as the escalation
+// predicate (the webclient package must not depend on grading).
+func buildClient(backend string, cfg webclient.Config, logger logging.Logger) (webclient.WebClient, error) {
+	if backend == "escalating" {
+		return buildEscalatingClient(cfg, logger)
+	}
+	return webclient.NewWebClient(cfg, logger)
+}
+
+// buildEscalatingClient wires the tiered chain: tls (fast, fingerprint-only)
+// first, escalating to chromedp (real browser) when grading's Cloudflare
+// classifier judges a response challenged or blocked. The chromedp tier is
+// optional so the tool still runs where Chrome is unavailable.
+func buildEscalatingClient(cfg webclient.Config, logger logging.Logger) (webclient.WebClient, error) {
+	tlsTier, err := webclient.NewTLSClient(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("tls tier: %w", err)
+	}
+	tiers := []webclient.WebClient{tlsTier}
+
+	if chromeTier, cerr := webclient.NewChromedpClient(cfg, logger); cerr != nil {
+		logger.Warn("chromedp tier unavailable; escalating with tls tier only",
+			logging.Field{Key: "error", Value: cerr.Error()})
+	} else {
+		tiers = append(tiers, chromeTier)
+	}
+
+	classifier := grading.DefaultClassifier()
+	shouldEscalate := func(resp *webclient.Response) bool {
+		switch classifier.Classify(resp).Outcome {
+		case grading.OutcomeChallenged, grading.OutcomeBlocked:
+			return true
+		default:
+			return false
+		}
+	}
+	return webclient.NewEscalatingClient(tiers, shouldEscalate, logger)
 }
 
 // panel returns a single-URL panel when url is set, otherwise the default panel.
