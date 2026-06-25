@@ -19,39 +19,36 @@ export function ScoreBreakdownPanel({ result }: Props) {
 
   return (
     <section className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Posture Score</div>
-          <div className="text-lg font-bold text-white">{formatScore(result.score)}</div>
+          <div className="text-lg font-bold tabular-nums text-white">{formatScore(result.score)}</div>
         </div>
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Exposure</div>
-          <div className="text-lg font-bold text-warning">{formatScore(result.exposure_score)}</div>
+          <div className="text-lg font-bold tabular-nums text-warning">{formatScore(result.exposure_score)}</div>
         </div>
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Hardening</div>
-          <div className="text-lg font-bold text-success">{formatPercent(result.hardening_score)}</div>
+          <div className="text-lg font-bold tabular-nums text-success">{formatPercent(result.hardening_score)}</div>
         </div>
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Confidence</div>
-          <div className="text-lg font-bold text-accent">{formatPercent(result.confidence)}</div>
+          <div className="text-lg font-bold tabular-nums text-accent">{formatPercent(result.confidence)}</div>
         </div>
       </div>
 
       {hasEvidence && (
-        <ul className="space-y-2 max-h-72 overflow-auto pr-1">
+        <ul className="max-h-72 divide-y divide-border/40 overflow-auto pr-1">
           {result.evidence!.map((item, index) => (
-            <li
-              key={item.id ?? `${item.key}-${index}`}
-              className="bg-bg/60 border border-border rounded-lg px-3 py-2 text-sm"
-            >
+            <li key={item.id ?? `${item.key}-${index}`} className="py-2 text-sm first:pt-0">
               <div className="flex items-center justify-between gap-3">
-                <span className="uppercase text-[10px] tracking-widest text-helper">{item.severity}</span>
+                <span className="text-[10px] uppercase tracking-widest text-helper">{item.severity}</span>
                 {item.contribution !== undefined && (
                   <span className="text-[11px] text-accent">+{formatScore(item.contribution)}</span>
                 )}
               </div>
-              <p className="mt-1 text-slate-300">{item.description}</p>
+              <p className="mt-0.5 text-slate-300">{item.description}</p>
             </li>
           ))}
         </ul>

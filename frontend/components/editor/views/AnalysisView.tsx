@@ -5,7 +5,7 @@ import { ScoreBreakdownPanel } from "../../analysis/ScoreBreakdownPanel";
 import { SecurityDiffPanel } from "../../analysis/SecurityDiffPanel";
 import { AttackSurfaceElementsPanel } from "../../analysis/AttackSurfaceElementsPanel";
 import { ScanFindingsPanel } from "../../scan/ScanFindingsPanel";
-import { Panel, SectionHeading, StatusPill, scoreTone, type StatusTone } from "../../ui";
+import { SectionHeading, StatusPill, scoreTone, type StatusTone } from "../../ui";
 import { formatScore } from "../../../lib/score";
 
 interface AnalysisViewProps {
@@ -43,8 +43,8 @@ export function AnalysisView({ headSnapshot }: AnalysisViewProps) {
   const posture = score?.score ?? security?.score_head;
 
   return (
-    <div className="space-y-4">
-      <Panel className="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/60 pb-5">
         <Metric label="Posture" value={formatScore(posture)} tone="accent" title="Composite security posture score (higher = more exposed)" />
         <Metric
           label="Score Δ"
@@ -67,35 +67,31 @@ export function AnalysisView({ headSnapshot }: AnalysisViewProps) {
         <StatusPill tone={security?.attack_surface_changed ? "warning" : "neutral"}>
           {security?.attack_surface_changed ? "Attack surface changed" : "Attack surface stable"}
         </StatusPill>
-      </Panel>
+      </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="space-y-4">
-          <Panel>
-            <SectionHeading title="Security scoring" className="mb-3" />
-            <ScoreBreakdownPanel result={score} />
-          </Panel>
-          <Panel>
-            <SectionHeading title="Security diff overview" className="mb-3" />
-            <SecurityDiffPanel diff={security} />
-          </Panel>
-        </div>
-        <div className="space-y-4">
-          <Panel>
-            <SectionHeading title="Attack surface elements" className="mb-3" />
-            <AttackSurfaceElementsPanel snapshot={headSnapshot} />
-          </Panel>
-          <Panel>
-            <SectionHeading title="Vulnerability scan" className="mb-3" />
-            {latestScanJob?.scan_result ? (
-              <ScanFindingsPanel result={latestScanJob.scan_result} />
-            ) : (
-              <p className="text-xs text-muted">
-                {latestScanJob ? scanStatusMessage(latestScanJob) : "No scans for this domain yet. Start one from the explorer action bar."}
-              </p>
-            )}
-          </Panel>
-        </div>
+      <div className="grid grid-cols-1 gap-x-10 gap-y-8 xl:grid-cols-2">
+        <section className="space-y-3">
+          <SectionHeading title="Security scoring" />
+          <ScoreBreakdownPanel result={score} />
+        </section>
+        <section className="space-y-3">
+          <SectionHeading title="Security diff overview" />
+          <SecurityDiffPanel diff={security} />
+        </section>
+        <section className="space-y-3">
+          <SectionHeading title="Attack surface elements" />
+          <AttackSurfaceElementsPanel snapshot={headSnapshot} />
+        </section>
+        <section className="space-y-3">
+          <SectionHeading title="Vulnerability scan" />
+          {latestScanJob?.scan_result ? (
+            <ScanFindingsPanel result={latestScanJob.scan_result} />
+          ) : (
+            <p className="text-xs text-muted">
+              {latestScanJob ? scanStatusMessage(latestScanJob) : "No scans for this domain yet. Start one from the explorer action bar."}
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );

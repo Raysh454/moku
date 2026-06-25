@@ -30,42 +30,42 @@ export function SecurityDiffPanel({ diff }: Props) {
 
   return (
     <section className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-5">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Base</div>
-          <div className="text-lg font-bold text-white">{formatScore(diff.score_base)}</div>
+          <div className="text-lg font-bold tabular-nums text-white">{formatScore(diff.score_base)}</div>
         </div>
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Head</div>
-          <div className="text-lg font-bold text-white">{formatScore(diff.score_head)}</div>
+          <div className="text-lg font-bold tabular-nums text-white">{formatScore(diff.score_head)}</div>
         </div>
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Posture Δ</div>
-          <div className={`text-lg font-bold ${directionColor[compositeDirection]}`}>
+          <div className={`text-lg font-bold tabular-nums ${directionColor[compositeDirection]}`}>
             {formatScore(diff.score_delta)}
           </div>
         </div>
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Exposure Δ</div>
-          <div className={`text-lg font-bold ${directionColor[exposureDirection]}`}>
+          <div className={`text-lg font-bold tabular-nums ${directionColor[exposureDirection]}`}>
             {formatScore(diff.exposure_delta)}
           </div>
         </div>
-        <div className="bg-card/70 border border-border rounded-lg p-3">
+        <div>
           <div className="text-[10px] uppercase tracking-wider text-helper">Hardening Δ</div>
-          <div className={`text-lg font-bold ${directionColor[hardeningDirection]}`}>
+          <div className={`text-lg font-bold tabular-nums ${directionColor[hardeningDirection]}`}>
             {formatScore(diff.hardening_delta)}
           </div>
         </div>
       </div>
 
       {groups && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {[...groups.entries()].map(([category, groupChanges]) => {
             const severity = severityForCategory(category);
             return (
-              <section key={category} className="bg-bg/60 border border-border rounded-lg p-3">
-                <h4 className="text-xs uppercase tracking-widest text-helper mb-2">{category}</h4>
+              <section key={category}>
+                <h4 className="mb-2 text-xs uppercase tracking-widest text-helper">{category}</h4>
                 <ul className="space-y-2">
                   {groupChanges.map((change, index) => (
                     <li key={`${change.kind}-${index}`} className="text-sm text-slate-300">

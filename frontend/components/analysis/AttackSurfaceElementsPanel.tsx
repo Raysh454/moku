@@ -106,19 +106,17 @@ export function AttackSurfaceElementsPanel({ snapshot }: Props) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-x-8 gap-y-5 lg:grid-cols-2">
       {sections
         .filter((section) => section.count > 0)
         .map((section) => (
-          <article key={section.key} className="rounded-xl border border-border bg-bg/40 p-3">
-            <div className="flex items-center justify-between gap-2">
+          <article key={section.key} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 border-b border-border/50 pb-1">
               <span className="text-xs font-semibold text-helper">{section.label}</span>
-              <span className="rounded-md border border-border px-2 py-0.5 text-[10px] font-semibold text-slate-200 tabular-nums">
-                {section.count}
-              </span>
+              <span className="text-[11px] tabular-nums text-muted">{section.count}</span>
             </div>
             {section.items.length > 0 && (
-              <ul className="mt-2 space-y-1 text-xs text-slate-300">
+              <ul className="space-y-1 text-xs text-slate-300">
                 {section.items.map((item, index) => (
                   <li key={`${section.key}-${index}`} className="truncate" title={item}>
                     {item}

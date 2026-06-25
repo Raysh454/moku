@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { Snapshot } from "../../../types/project";
 import { getSnapshotContentInfo, viewKindToDiffLanguage } from "../../../lib/contentView";
 import { DiffView, type DiffMode } from "../../../adapters/diff";
-import { Panel, SectionHeading, Tabs } from "../../ui";
+import { SectionHeading, Tabs } from "../../ui";
 
 interface BodyDiffViewProps {
   headSnapshot: Snapshot;
@@ -29,7 +29,7 @@ export function BodyDiffView({ headSnapshot, baseSnapshot, fileName = "page" }: 
   const tooLarge = headText.length + baseText.length > MAX_DIFF_CHARS;
 
   return (
-    <Panel tone="sunken" className="space-y-3">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <SectionHeading title="Body diff" size="sub" />
         <Tabs items={MODE_TABS} value={mode} onChange={(value) => setMode(value as DiffMode)} ariaLabel="Diff layout" size="sm" />
@@ -41,6 +41,6 @@ export function BodyDiffView({ headSnapshot, baseSnapshot, fileName = "page" }: 
       ) : (
         <DiffView base={baseText} head={headText} language={language} mode={mode} fileName={fileName} />
       )}
-    </Panel>
+    </div>
   );
 }

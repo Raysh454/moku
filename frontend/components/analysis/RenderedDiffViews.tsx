@@ -200,39 +200,39 @@ export default function RenderedDiffViews({
 
   return (
     <div className="renderedDiffViews">
-      <div className="mb-3 flex flex-wrap gap-1.5 rounded-[10px] border border-border bg-card p-2.5">
+      <div className="mb-3 flex flex-wrap items-center gap-1 border-b border-border/60 pb-3">
         {viewModes.map((mode) => (
           <button
             key={mode.id}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 ${
-              viewMode === mode.id
-                ? "border-accent bg-accent text-white"
-                : "border-border bg-bg text-helper"
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors ${
+              viewMode === mode.id ? "bg-accent text-white" : "text-helper hover:bg-white/5 hover:text-primary"
             }`}
             onClick={() => onViewModeChange(mode.id)}
             title={mode.label}
           >
             <span className="text-sm">{mode.icon}</span>
-            <span className="text-xs font-bold uppercase tracking-wide">{mode.label}</span>
+            <span className="font-medium">{mode.label}</span>
           </button>
         ))}
         {(viewMode === "preview" || viewMode === "side-by-side") && (
           <>
-            <label className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-2 text-xs text-helper">
+            <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-helper">
               <input
                 type="checkbox"
+                className="accent-accent"
                 checked={showHighlights}
                 onChange={(event) => setShowHighlights(event.target.checked)}
               />
-              <span className="toggleLabel">Security Highlights</span>
+              Security Highlights
             </label>
-            <label className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-2 text-xs text-helper">
+            <label className="inline-flex items-center gap-1.5 text-xs text-helper">
               <input
                 type="checkbox"
+                className="accent-accent"
                 checked={showTextHighlights}
                 onChange={(event) => setShowTextHighlights(event.target.checked)}
               />
-              <span className="toggleLabel">Text Changes</span>
+              Text Changes
             </label>
           </>
         )}
