@@ -2,12 +2,12 @@ import type { ButtonHTMLAttributes } from "react";
 import type { IconComponent } from "./icons";
 
 /** Text button with consistent variants. Replaces the dozens of ad-hoc
- * `bg-accent text-bg rounded px-3 py-2 ...` button strings. */
+ * `bg-accent text-on-accent rounded px-3 py-2 ...` button strings. */
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost" | "success";
 type ButtonSize = "sm" | "md";
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: "bg-accent text-bg hover:brightness-110",
+  primary: "bg-accent text-on-accent hover:brightness-110",
   success: "bg-success text-black hover:brightness-110",
   danger: "border border-danger/30 bg-danger/10 text-danger hover:bg-danger/20",
   secondary: "border border-border bg-bg text-primary hover:border-slate-500",

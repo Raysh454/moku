@@ -1,6 +1,7 @@
 import React, { Suspense } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 
+import { ThemeProvider } from "../context/ThemeContext";
 import { ProjectProvider } from "../context/ProjectContext";
 import { EditorProvider } from "../context/EditorContext";
 import { NotificationProvider } from "../context/NotificationContext";
@@ -16,12 +17,13 @@ const WorkspacePage = React.lazy(() => import("../pages/Workspace/WorkspacePage"
 
 function App() {
   return (
-    <NotificationProvider>
+    <ThemeProvider>
+      <NotificationProvider>
       <JobEventProvider>
         <ProjectProvider>
           <EditorProvider>
             <HashRouter>
-              <main className="min-h-screen bg-bg text-gray-200 selection:bg-accent selection:text-bg">
+              <main className="min-h-screen bg-bg text-gray-200 selection:bg-accent selection:text-on-accent">
               <Routes>
                 <Route path="/" element={<ProjectSelectPage />} />
 
@@ -50,7 +52,8 @@ function App() {
           </EditorProvider>
         </ProjectProvider>
       </JobEventProvider>
-    </NotificationProvider>
+      </NotificationProvider>
+    </ThemeProvider>
   );
 }
 

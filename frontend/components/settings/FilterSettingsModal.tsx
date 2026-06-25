@@ -374,7 +374,7 @@ export function FilterSettingsModal({
               key={tab}
               className={`px-4 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition ${
                 activeTab === tab
-                  ? "bg-accent text-bg"
+                  ? "bg-accent text-on-accent"
                   : "bg-bg border border-border text-helper hover:text-slate-200"
               }`}
               onClick={() => setActiveTab(tab)}
@@ -552,7 +552,7 @@ export function FilterSettingsModal({
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-200">Filtered Endpoints ({filteredEndpoints.length})</h3>
                 <button
-                  className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide bg-accent text-bg disabled:opacity-50"
+                  className="px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide bg-accent text-on-accent disabled:opacity-50"
                   onClick={() => void unfilter([], true)}
                   disabled={loading || filteredEndpoints.length === 0}
                 >

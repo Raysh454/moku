@@ -3,7 +3,7 @@ import { useProject } from "../../context/ProjectContext";
 import { useNavigate } from "react-router-dom";
 import { LoadingSpinner } from "../../components/common/LoadingSpinner";
 import { Badge } from "../../components/common/Badge";
-import { EmptyState } from "../../components/ui";
+import { EmptyState, Logo, ThemeMenu } from "../../components/ui";
 import { Folder, ChevronRight, Trash2, Plus } from "../../components/ui/icons";
 
 const ProjectSelectPage: React.FC = () => {
@@ -35,24 +35,17 @@ const ProjectSelectPage: React.FC = () => {
   return (
     <div className="flex h-screen overflow-hidden">
       <div className="flex-1 bg-bg flex flex-col items-center justify-center relative">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(34, 211, 238,0.06)_0%,transparent_60%)]"></div>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,color-mix(in_srgb,var(--color-accent)_8%,transparent)_0%,transparent_65%)]"></div>
         <div className="flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-700 relative z-10">
-          <img
-            src="/MOKU_main-nobg.svg?v=1"
-            alt="MOKU Logo"
-            className="h-80 w-auto -mb-8"
-            loading="eager"
-            decoding="async"
-            draggable={false}
-          />
-
-          <h2 className="text-lg font-normal text-slate-300 tracking-normal mb-6">
+          <Logo className="h-24 w-24" />
+          <h1 className="mt-3 text-5xl font-semibold tracking-tight text-primary">MOKU</h1>
+          <h2 className="mt-4 mb-6 text-lg font-normal text-helper">
             Easily track and monitor your projects
           </h2>
 
           <button
             onClick={() => navigate("/create")}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-bg transition-all hover:brightness-110 active:scale-95"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-on-accent transition-all hover:brightness-110 active:scale-95"
           >
             <Plus className="h-4 w-4" />
             New project
@@ -77,6 +70,7 @@ const ProjectSelectPage: React.FC = () => {
                 {projects.length === 1 ? "project" : "projects"}
               </p>
             </div>
+            <ThemeMenu />
           </div>
         </div>
 

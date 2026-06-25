@@ -33,6 +33,7 @@ export {
   Trash2,
   MoreVertical,
   Search,
+  Palette,
   X,
   Check,
   ArrowLeft,

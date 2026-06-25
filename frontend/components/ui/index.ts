@@ -12,5 +12,7 @@ export { Checkbox } from "./Checkbox";
 export { Field } from "./Field";
 export { EmptyState } from "./EmptyState";
 export { Modal } from "./Modal";
+export { Logo } from "./Logo";
+export { ThemeMenu } from "./ThemeMenu";
 export { StatusPill, httpStatusTone, scoreTone, type StatusTone } from "./StatusPill";
 export * as icons from "./icons";

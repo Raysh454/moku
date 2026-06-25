@@ -10,27 +10,33 @@ import {
   type ThemeRegistration,
   type ThemesType,
 } from "@pierre/diffs";
-import { mokuShikiTheme, MOKU_DIFF_THEME_NAME } from "../shiki/highlighterTheme";
+import { buildShikiTheme, diffThemeName } from "../shiki/highlighterTheme";
+import { THEMES } from "../../lib/themes";
+import { useTheme } from "../../context/ThemeContext";
 import type { DiffViewProps } from "./DiffAdapter";
 
-// `@pierre/diffs` resolves themes by name; register the moku theme once.
-registerCustomTheme(MOKU_DIFF_THEME_NAME, () => Promise.resolve(mokuShikiTheme as unknown as ThemeRegistration));
-
-const MOKU_THEMES: ThemesType = { dark: MOKU_DIFF_THEME_NAME, light: MOKU_DIFF_THEME_NAME };
 const DIFF_LANGS: SupportedLanguages[] = ["html", "json", "http", "text"];
 
-// With the worker pool disabled the shared highlighter must be preloaded before
-// FileDiff will paint — it renders nothing while the highlighter is absent.
+// Register one Shiki theme per app theme so the diff can switch by name.
+for (const theme of THEMES) {
+  registerCustomTheme(diffThemeName(theme.id), () =>
+    Promise.resolve(buildShikiTheme(theme.id, theme.colors) as unknown as ThemeRegistration),
+  );
+}
+
+// With the worker pool disabled the shared highlighter must be preloaded
+// before FileDiff paints; preload every theme so switching is instant.
 let preloadPromise: Promise<void> | null = null;
 function ensureHighlighter(): Promise<void> {
   if (!preloadPromise) {
-    preloadPromise = preloadHighlighter({ themes: [MOKU_DIFF_THEME_NAME], langs: DIFF_LANGS });
+    preloadPromise = preloadHighlighter({ themes: THEMES.map((theme) => diffThemeName(theme.id)), langs: DIFF_LANGS });
   }
   return preloadPromise;
 }
 
 /** `@pierre/diffs`-backed implementation of the diff contract. */
 export function PierreDiffView({ base, head, language = "text", fileName = "file", mode = "split", wordLevel = true }: DiffViewProps) {
+  const { themeId } = useTheme();
   const [ready, setReady] = useState(() => getHighlighterIfLoaded() != null);
 
   useEffect(() => {
@@ -43,12 +49,14 @@ export function PierreDiffView({ base, head, language = "text", fileName = "file
     };
   }, []);
 
+  const themeName = diffThemeName(themeId);
+  const themes: ThemesType = { dark: themeName, light: themeName };
   const oldFile: FileContents = { name: fileName, contents: base, lang: language };
   const newFile: FileContents = { name: fileName, contents: head, lang: language };
   const options: FileDiffOptions<undefined> = {
     diffStyle: mode,
     lineDiffType: wordLevel ? "word" : "none",
-    theme: MOKU_THEMES,
+    theme: themes,
     disableFileHeader: true,
     overflow: "wrap",
   };

@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { themeToTreeStyles, type GitStatusEntry } from "@pierre/trees";
 import { flattenEndpointLeaves, type EndpointLeaf } from "../../lib/endpointTree";
-import { mokuTreeThemeInput } from "../shiki/highlighterTheme";
+import { buildTreeThemeInput } from "../shiki/highlighterTheme";
+import { useTheme } from "../../context/ThemeContext";
 import type { FileTreeViewProps } from "./TreeAdapter";
 
-// The tree renders in Shadow DOM, so it cannot read Tailwind tokens. We restate
-// the palette once via the shared theme bridge; the resulting custom properties
-// inherit across the shadow boundary when applied to the host element.
-const TREE_THEME_STYLE = themeToTreeStyles(mokuTreeThemeInput) as CSSProperties;
+// The tree renders in Shadow DOM, so it can't read Tailwind tokens. We restate
+// the active palette as `--trees-theme-*` custom properties on the host, which
+// inherit across the shadow boundary and update when the theme changes.
 
 function decorate(leaf: EndpointLeaf | undefined): { text: string; title: string } | null {
   if (!leaf || leaf.scoreHead === undefined) return null;
@@ -27,6 +27,8 @@ export function PierreFileTreeView({
   onSelectEndpoint,
   density = "compact",
 }: FileTreeViewProps) {
+  const { theme } = useTheme();
+  const treeStyle = useMemo(() => themeToTreeStyles(buildTreeThemeInput(theme.colors)) as CSSProperties, [theme.id, theme.colors]);
   const leaves = useMemo(() => flattenEndpointLeaves(nodes), [nodes]);
   const paths = useMemo(() => leaves.map((leaf) => leaf.path), [leaves]);
   const leafByPath = useMemo(() => new Map(leaves.map((leaf) => [leaf.path, leaf])), [leaves]);
@@ -82,5 +84,5 @@ export function PierreFileTreeView({
     model.scrollToPath(selectedPath, { offset: "nearest" });
   }, [model, selectedPath]);
 
-  return <FileTree model={model} className="moku-tree-host" style={{ ...TREE_THEME_STYLE, height: "100%" }} />;
+  return <FileTree model={model} className="moku-tree-host" style={{ ...treeStyle, height: "100%" }} />;
 }
