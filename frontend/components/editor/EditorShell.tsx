@@ -2,7 +2,8 @@ import { useEditor } from "../../context/EditorContext";
 import { EditorTabBar } from "./EditorTabBar";
 import { CompareToolbar } from "./CompareToolbar";
 import { PreviewView } from "./views/PreviewView";
-import { TextDiffView } from "./views/TextDiffView";
+import { BodyDiffView } from "./views/BodyDiffView";
+import { HeaderDiffView } from "./views/HeaderDiffView";
 import { AnalysisView } from "./views/AnalysisView";
 import { EmptyState, Tabs, type TabItem } from "../ui";
 import { Eye, FileText, GitCompare, ShieldAlert } from "../ui/icons";
@@ -44,7 +45,12 @@ export function EditorShell() {
         {headSnapshot ? (
           <div className="mx-auto w-full max-w-6xl pb-16">
             {viewMode === "preview" ? <PreviewView headSnapshot={headSnapshot} baseSnapshot={baseSnapshot} /> : null}
-            {viewMode === "diff" ? <TextDiffView headSnapshot={headSnapshot} /> : null}
+            {viewMode === "diff" ? (
+              <div className="space-y-4">
+                <BodyDiffView headSnapshot={headSnapshot} baseSnapshot={baseSnapshot} fileName={activeEndpoint?.path || "page"} />
+                <HeaderDiffView headSnapshot={headSnapshot} baseSnapshot={baseSnapshot} />
+              </div>
+            ) : null}
             {viewMode === "analysis" ? <AnalysisView headSnapshot={headSnapshot} /> : null}
           </div>
         ) : (

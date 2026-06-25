@@ -127,3 +127,10 @@ export const getSnapshotContentInfo = (snapshot: Snapshot | null | undefined): S
     imageSrc,
   };
 };
+
+/** Maps a snapshot view kind to a Shiki grammar id for the diff renderer. */
+export const viewKindToDiffLanguage = (viewKind: SnapshotViewKind): "html" | "json" | "text" => {
+  if (viewKind === "html" || viewKind === "directory") return "html";
+  if (viewKind === "json") return "json";
+  return "text";
+};

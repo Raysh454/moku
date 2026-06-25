@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import { ProjectProvider } from "../context/ProjectContext";
@@ -8,8 +8,11 @@ import { JobEventProvider } from "../context/JobEventContext";
 
 import ProjectSelectPage from "../pages/ProjectSelect/ProjectSelectPage";
 import ProjectCreatePage from "../pages/ProjectCreate/ProjectCreatePage";
-import WorkspacePage from "../pages/Workspace/WorkspacePage";
 import { NotificationViewport } from "../components/common/NotificationViewport";
+
+// The workspace pulls in the heavy diff/tree engines (Shiki); lazy-load it so
+// the project routes stay lightweight.
+const WorkspacePage = React.lazy(() => import("../pages/Workspace/WorkspacePage"));
 
 function App() {
   return (
@@ -24,7 +27,20 @@ function App() {
 
                 <Route path="/create" element={<ProjectCreatePage />} />
 
-                <Route path="/workspace" element={<WorkspacePage />} />
+                <Route
+                  path="/workspace"
+                  element={
+                    <Suspense
+                      fallback={
+                        <div className="flex h-screen items-center justify-center bg-bg text-sm text-helper">
+                          Loading workspace…
+                        </div>
+                      }
+                    >
+                      <WorkspacePage />
+                    </Suspense>
+                  }
+                />
 
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
