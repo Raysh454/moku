@@ -13,6 +13,7 @@ export function EditorTabBar() {
         return (
           <div
             key={editor.id}
+            data-testid="editor-tab"
             onClick={() => setActiveEditor(editor.id)}
             className={`group flex cursor-pointer items-center gap-2 border-r border-border px-3 py-2 ${
               isActive ? "bg-bg text-primary" : "text-helper hover:bg-white/5 hover:text-primary"

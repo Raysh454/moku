@@ -18,6 +18,10 @@ export default defineConfig({
   outputDir: "./e2e/.artifacts",
   fullyParallel: false,
   workers: 1,
+  // The workspace route lazy-loads a large Shiki-backed chunk that the dev
+  // server compiles on first navigation, so allow a generous per-test budget.
+  timeout: 240_000,
+  expect: { timeout: 15_000 },
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { outputFolder: "e2e/.report", open: "never" }]],
@@ -28,7 +32,10 @@ export default defineConfig({
     trace: "on-first-retry",
     viewport: { width: 1440, height: 900 },
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "setup", testMatch: /global\.setup\.ts/ },
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, dependencies: ["setup"] },
+  ],
   webServer: {
     command: "npm run dev",
     url: BASE_URL,
