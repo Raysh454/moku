@@ -11,15 +11,17 @@ import (
 func NewWebClient(cfg Config, logger logging.Logger) (WebClient, error) {
 	backend := cfg.Client
 	if backend == "" {
-		backend = "nethttp"
+		backend = ClientNetHTTP
 	}
 
 	switch backend {
-	case "nethttp":
+	case ClientNetHTTP:
 		return NewNetHTTPClient(cfg, logger, nil)
-	case "chromedp":
+	case ClientChromedp:
 		return NewChromedpClient(cfg, logger)
+	case ClientTLS:
+		return NewTLSClient(cfg, logger)
 	default:
-		return nil, fmt.Errorf("unknown webclient backend %q (supported: nethttp, chromedp)", backend)
+		return nil, fmt.Errorf("unknown webclient backend %q (supported: nethttp, chromedp, tls)", backend)
 	}
 }

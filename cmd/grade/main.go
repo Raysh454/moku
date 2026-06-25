@@ -24,7 +24,7 @@ import (
 )
 
 func main() {
-	backend := flag.String("backend", "nethttp", "webclient backend to grade (nethttp, chromedp)")
+	backend := flag.String("backend", "nethttp", "webclient backend to grade (nethttp, tls, chromedp)")
 	repeats := flag.Int("repeats", 3, "samples taken per probe")
 	format := flag.String("format", "text", "report format (text, json)")
 	timeout := flag.Duration("timeout", 30*time.Second, "per-request timeout")

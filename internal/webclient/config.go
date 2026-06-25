@@ -5,6 +5,9 @@ type Client string
 const (
 	ClientNetHTTP  Client = "nethttp"
 	ClientChromedp Client = "chromedp"
+	// ClientTLS selects the tls-client backend: net/http-class speed with a real
+	// Chrome TLS/HTTP2 fingerprint to clear Cloudflare's transport-layer gate.
+	ClientTLS Client = "tls"
 )
 
 // Config is the minimal interface required for constructing a WebClient.

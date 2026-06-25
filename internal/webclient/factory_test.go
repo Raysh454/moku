@@ -67,6 +67,22 @@ func TestNewWebClient_ChromeDP(t *testing.T) {
 	}
 }
 
+// TestNewWebClient_TLS verifies that the factory can create a tls-client backend
+func TestNewWebClient_TLS(t *testing.T) {
+	t.Parallel()
+	cfg := webclient.Config{Client: webclient.ClientTLS}
+	logger := &factoryNoopLogger{}
+
+	client, err := webclient.NewWebClient(cfg, logger)
+	if err != nil {
+		t.Fatalf("Failed to create tls client: %v", err)
+	}
+	if client == nil {
+		t.Fatal("client is nil")
+	}
+	defer client.Close()
+}
+
 // TestNewWebClient_UnknownBackend verifies that unknown backend returns error
 func TestNewWebClient_UnknownBackend(t *testing.T) {
 	t.Parallel()
