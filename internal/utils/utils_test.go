@@ -187,6 +187,44 @@ func TestURLTools_GetPath(t *testing.T) {
 	}
 }
 
+func TestSanitizeFilePathFromURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"/", ""},
+		{"/index.html", "index.html"},
+		{"/foo/bar", "foo/bar"},
+		{"/foo/../bar", "foo/_dot_dot_/bar"},
+		{"/cdn-cgi/challenge-platform/h/g/flow/ov1/.../YEBdalox", "cdn-cgi/challenge-platform/h/g/flow/ov1/_dot_dot_/YEBdalox"},
+		{"/foo/..bar/baz", "foo/..bar/baz"}, // Wait, is this handled correctly? Since we replace 2+ dots, "..bar" has 2 dots, so it becomes "_dot_dot_bar"
+		{"/foo/a:b/c?d/e*f", "foo/a_b/c_d/e_f"},
+		{"/foo/..", "foo/_dot_dot_"},
+		{"/foo/...", "foo/_dot_dot_"},
+		{"/foo/....", "foo/_dot_dot_"},
+	}
+
+	for _, tt := range tests {
+		got := utils.SanitizeFilePathFromURL(tt.input)
+		// Wait, let's see how our sanitize function behaves on "..bar"
+		// If input is "/foo/..bar/baz", it has segment "..bar".
+		// In our function, dotCount counts 2 dots, writes "_dot_dot_", then writes "bar".
+		// So it will become "foo/_dot_dot_bar/baz". Let's verify that's what we want, yes it defuses the two dots!
+		// Let's modify the want accordingly:
+		var expected string
+		if tt.input == "/foo/..bar/baz" {
+			expected = "foo/_dot_dot_bar/baz"
+		} else {
+			expected = tt.want
+		}
+		if got != expected {
+			t.Errorf("SanitizeFilePathFromURL(%q) = %q, want %q", tt.input, got, expected)
+		}
+	}
+}
+
 func TestURLTools_ResolveFullUrlString(t *testing.T) {
 	t.Parallel()
 	base, _ := utils.NewURLTools("https://example.com/app")
@@ -289,5 +327,22 @@ func TestCanonicalize_NonDefaultPortPreserved(t *testing.T) {
 	}
 	if got != "https://example.com:8443/page" {
 		t.Errorf("expected port preserved, got %q", got)
+	}
+}
+
+func TestCanonicalize_InvalidCharacters(t *testing.T) {
+	t.Parallel()
+	invalidURLs := []string{
+		"https://example.com/page{",
+		"https://example.com/page}",
+		"https://example.com/page;",
+		"https://example.com/wp-content/uploads/2021/10/Fold_01_skywheel-1.png);background-size:contain;}.elementor-4694",
+	}
+
+	for _, raw := range invalidURLs {
+		_, err := utils.Canonicalize(raw, utils.CanonicalizeOptions{})
+		if err == nil {
+			t.Errorf("expected error for URL with invalid characters: %q", raw)
+		}
 	}
 }

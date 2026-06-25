@@ -348,9 +348,19 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
   };
 
   const getSortedEndpoints = (domain: Domain): Endpoint[] => {
+    // Deduplicate endpoints by canonicalURL
+    const seen = new Set<string>();
+    const uniqueEndpoints = domain.endpoints.filter((ep) => {
+      if (!ep.canonical_url) return true;
+      const normalized = ep.canonical_url.toLowerCase().trim();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+
     const overview = domainOverviews?.get(domain.slug);
     if (!overview || !Array.isArray(overview)) {
-      return domain.endpoints;
+      return uniqueEndpoints;
     }
 
     const endpointsByPath = new Map<string, SecurityDiffOverviewEntry>();
@@ -358,7 +368,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
       endpointsByPath.set(normalizePath(entry.url ?? ""), entry);
     }
 
-    return [...domain.endpoints].sort((a, b) => {
+    return [...uniqueEndpoints].sort((a, b) => {
       const overviewA = endpointsByPath.get(normalizePath(a.path));
       const overviewB = endpointsByPath.get(normalizePath(b.path));
 
@@ -373,7 +383,7 @@ const DomainTree: React.FC<DomainTreeProps> = ({ isCollapsed = false, domainOver
       if (exposureA !== exposureB) return exposureB - exposureA;
 
       // Fallback: original order
-      return domain.endpoints.indexOf(a) - domain.endpoints.indexOf(b);
+      return uniqueEndpoints.indexOf(a) - uniqueEndpoints.indexOf(b);
     });
   };
 

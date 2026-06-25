@@ -98,6 +98,53 @@ func (u *URLTools) GetPath() string {
 	}
 }
 
+// SanitizeFilePathFromURL sanitizes a URL path so that it is safe to use as a filesystem path
+// (e.g. no directory traversal, no illegal characters, and replaces any sequence of 2+ dots with _dot_dot_).
+func SanitizeFilePathFromURL(urlPath string) string {
+	segments := strings.Split(urlPath, "/")
+	var sanitized []string
+
+	for _, seg := range segments {
+		if seg == "" || seg == "." {
+			continue
+		}
+
+		var sb strings.Builder
+		dotCount := 0
+		for i := 0; i < len(seg); i++ {
+			c := seg[i]
+			if c == '.' {
+				dotCount++
+			} else {
+				if dotCount >= 2 {
+					sb.WriteString("_dot_dot_")
+				} else if dotCount == 1 {
+					sb.WriteByte('.')
+				}
+				dotCount = 0
+
+				if c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|' || c == '\\' {
+					sb.WriteByte('_')
+				} else {
+					sb.WriteByte(c)
+				}
+			}
+		}
+		if dotCount >= 2 {
+			sb.WriteString("_dot_dot_")
+		} else if dotCount == 1 {
+			sb.WriteByte('.')
+		}
+
+		sanitizedSeg := sb.String()
+		if sanitizedSeg != "" && sanitizedSeg != ".." {
+			sanitized = append(sanitized, sanitizedSeg)
+		}
+	}
+
+	return path.Join(sanitized...)
+}
+
 // CanonicalizeOptions controls optional canonicalization policies.
 type CanonicalizeOptions struct {
 	DropTrackingParams     bool     // remove common tracking params (utm_*, gclid, fbclid, ...)
@@ -118,6 +165,10 @@ func Canonicalize(raw string, opts CanonicalizeOptions) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", &url.Error{Op: "parse", URL: raw, Err: ErrEmptyURL}
+	}
+
+	if strings.ContainsAny(raw, "{};") {
+		return "", fmt.Errorf("url contains invalid characters: %s", raw)
 	}
 
 	// If user provided a default scheme and the input has none, prepend it.

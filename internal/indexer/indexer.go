@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"time"
 
@@ -34,7 +35,8 @@ type Index struct {
 	db     *sql.DB
 	logger logging.Logger
 	// canonicalization options can be made configurable later
-	canonOpts utils.CanonicalizeOptions
+	canonOpts  utils.CanonicalizeOptions
+	originHost string
 }
 
 type Endpoint struct {
@@ -54,6 +56,15 @@ type Endpoint struct {
 
 func NewIndex(db *sql.DB, logger logging.Logger, opts utils.CanonicalizeOptions) *Index {
 	return &Index{db: db, logger: logger, canonOpts: opts}
+}
+
+// SetOrigin configures the website origin to restrict the indexer to same-origin endpoints.
+func (ix *Index) SetOrigin(websiteOrigin string) {
+	if websiteOrigin != "" {
+		if u, err := url.Parse(websiteOrigin); err == nil {
+			ix.originHost = strings.ToLower(u.Hostname())
+		}
+	}
 }
 
 // AddEndpoints canonicalizes and inserts endpoints. Returns newly created canonical URLs.
@@ -113,6 +124,16 @@ func (ix *Index) AddEndpoints(ctx context.Context, rawUrls []string, source stri
 		}
 		host := u.URL.Hostname()
 		path := u.URL.Path
+
+		if ix.originHost != "" && strings.ToLower(host) != ix.originHost {
+			if ix.logger != nil {
+				ix.logger.Info("index: skipping cross-origin endpoint",
+					logging.Field{Key: "url", Value: canon},
+					logging.Field{Key: "expected_host", Value: ix.originHost},
+					logging.Field{Key: "actual_host", Value: host})
+			}
+			continue
+		}
 
 		id := uuid.New().String()
 		res, err := stmtInsert.ExecContext(ctx, id, ru, canon, host, path, now, now, "new", source, "{}")

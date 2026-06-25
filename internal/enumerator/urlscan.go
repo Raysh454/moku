@@ -8,8 +8,9 @@ import (
 
 // urlCandidateRegex matches http(s) URLs in free-form text. It rejects the
 // obvious structural delimiters (whitespace, quotes, angle brackets,
-// backticks) so the match boundary is close to the URL's own boundary.
-var urlCandidateRegex = regexp.MustCompile(`https?://[^\s"'<>` + "`" + `]+`)
+// backticks, braces, parentheses, semicolons) so the match boundary is close
+// to the URL's own boundary and avoids capturing trailing CSS syntax.
+var urlCandidateRegex = regexp.MustCompile(`https?://[^\s"'<>` + "`" + `{}();]+`)
 
 // urlTrailingTrimSet is the set of punctuation characters we strip from the
 // right end of a candidate before validation. These commonly appear after a
@@ -31,7 +32,11 @@ func findURLsInText(text string) []string {
 	out := make([]string, 0, len(matches))
 	for _, candidate := range matches {
 		trimmed := strings.TrimRight(candidate, urlTrailingTrimSet)
+		trimmed = strings.Trim(trimmed, "\"'")
 		if trimmed == "" {
+			continue
+		}
+		if strings.ContainsAny(trimmed, "{};") {
 			continue
 		}
 		u, err := url.Parse(trimmed)

@@ -207,7 +207,7 @@ func (t *SQLiteTracker) Commit(ctx context.Context, snapshot *models.Snapshot, m
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse snapshot URL: %w", err)
 	}
-	filePath := urlTools.GetPath()
+	filePath := utils.SanitizeFilePathFromURL(urlTools.GetPath())
 
 	if err := t.insertVersion(ctx, tx, versionID, parentID, message, author, timestamp); err != nil {
 		return nil, fmt.Errorf("failed to insert version: %w", err)
@@ -405,7 +405,7 @@ func (t *SQLiteTracker) DiffSnapshots(ctx context.Context, baseSnapshotID, headS
 			t.logger.Warn("Failed to parse snapshot URL during diff", logging.Field{Key: "error", Value: err.Error()})
 			continue
 		}
-		if fileDiff.FilePath == urlTools.GetPath() {
+		if fileDiff.FilePath == utils.SanitizeFilePathFromURL(urlTools.GetPath()) {
 			if !t.config.ShowBenignHeaderChanges {
 				for changedHeader := range fileDiff.HeadersDiff.Changed {
 					if attacksurface.IsBenignHeader(changedHeader) {
@@ -915,7 +915,7 @@ func (t *SQLiteTracker) CommitBatch(ctx context.Context, snapshots []*models.Sna
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse snapshot URL: %w", err)
 		}
-		filePath := urlTools.GetPath()
+		filePath := utils.SanitizeFilePathFromURL(urlTools.GetPath())
 
 		headersJSONBytes, err := json.Marshal(snap.Headers)
 		if err != nil {
@@ -1099,7 +1099,7 @@ func (t *SQLiteTracker) AddSnapshots(ctx context.Context, pc *models.PendingComm
 		if err != nil {
 			return fmt.Errorf("failed to parse snapshot URL: %w", err)
 		}
-		filePath := urlTools.GetPath()
+		filePath := utils.SanitizeFilePathFromURL(urlTools.GetPath())
 
 		// Normalize headers
 		normalizedHeaders := normalizeHeaders(snap.Headers, t.config.RedactSensitiveHeaders)
@@ -1197,7 +1197,7 @@ func (t *SQLiteTracker) FinalizeCommit(ctx context.Context, pc *models.PendingCo
 			t.logger.Warn("Failed to parse URL for working tree", logging.Field{Key: "url", Value: snap.URL})
 			continue
 		}
-		filePath := urlTools.GetPath()
+		filePath := utils.SanitizeFilePathFromURL(urlTools.GetPath())
 
 		if err := t.writeWorkingTreeFiles(filePath, snap.StatusCode, snap.Body, snap.Headers); err != nil {
 			t.logger.Warn("Failed to write working tree files",

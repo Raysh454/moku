@@ -38,9 +38,9 @@ func TestDefaultConfig(t *testing.T) {
 		}
 	}
 
-	// Status codes should be empty by default (404 is opt-in)
-	if len(config.SkipStatusCodes) != 0 {
-		t.Errorf("DefaultConfig() should not skip any status codes by default, got %v", config.SkipStatusCodes)
+	// Verify 404 is skipped by default
+	if len(config.SkipStatusCodes) != 1 || config.SkipStatusCodes[0] != 404 {
+		t.Errorf("DefaultConfig() should skip 404 status code by default, got %v", config.SkipStatusCodes)
 	}
 }
 

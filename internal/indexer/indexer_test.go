@@ -643,3 +643,39 @@ func TestListEndpointsFiltered_PatternMatching(t *testing.T) {
 		}
 	}
 }
+
+func TestIndex_AddEndpoints_CrossOrigin(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	logger := logging.NewStdoutLogger("index_test")
+	opts := utils.CanonicalizeOptions{
+		DefaultScheme:      "http",
+		StripTrailingSlash: true,
+		DropTrackingParams: true,
+	}
+	ix := indexer.NewIndex(db, logger, opts)
+	ix.SetOrigin("https://bykea.net")
+
+	ctx := context.Background()
+
+	urls := []string{
+		"https://bykea.net/api/users",
+		"https://www.bykea.net/api/users",    // different hostname
+		"https://kronos.bykea.net/api/users", // different subdomain
+		"https://otherdomain.com/test",       // different domain
+	}
+
+	news, err := ix.AddEndpoints(ctx, urls, "spider")
+	if err != nil {
+		t.Fatalf("AddEndpoints error: %v", err)
+	}
+
+	// Should only accept same origin (bykea.net hostname)
+	if len(news) != 1 {
+		t.Errorf("expected 1 news endpoint, got %d", len(news))
+	}
+	if len(news) > 0 && news[0] != "https://bykea.net/api/users" {
+		t.Errorf("expected accepted url to be 'https://bykea.net/api/users', got %q", news[0])
+	}
+}

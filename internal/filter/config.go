@@ -26,10 +26,13 @@ func DefaultConfig() *Config {
 			// Documents (usually static, low security value)
 			".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
 		},
-		// No patterns skipped by default (opt-in)
-		SkipPatterns: []string{},
-		// No status codes skipped by default (404 filtering is opt-in, 401/403 are security signals)
-		SkipStatusCodes: []int{},
+		// Patterns skipped by default (e.g. noise URL structures)
+		SkipPatterns: []string{
+			"*/cdn-cgi/*",         // Cloudflare infrastructure
+			"*/__cf_chl_*",        // Cloudflare challenge tokens
+			"*/wp-includes/css/*", // WordPress core CSS
+		},
+		SkipStatusCodes: []int{404},
 	}
 }
 

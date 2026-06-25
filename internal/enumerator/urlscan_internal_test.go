@@ -102,6 +102,15 @@ func TestFindURLsInText_StripsMultipleTrailingPunctuation(t *testing.T) {
 	}
 }
 
+func TestFindURLsInText_StopsAtClosingParenthesisCSS(t *testing.T) {
+	t.Parallel()
+	got := findURLsInText("background-image: url(https://example.com/wp-content/uploads/2021/10/Fold_01_skywheel-1.png);background-size:contain;}.elementor-4694")
+	want := []string{"https://example.com/wp-content/uploads/2021/10/Fold_01_skywheel-1.png"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestFindURLsInText_DoesNotUnderstandTemplateLiterals_KnownLimitation(t *testing.T) {
 	t.Parallel()
 	// JS template literals like `https://x.com/${id}` require a tokenizer we

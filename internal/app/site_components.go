@@ -52,6 +52,7 @@ func NewSiteComponents(ctx context.Context, cfg *Config, web registry.Website, l
 
 	db := tr.DB()
 	ix := indexer.NewIndex(db, scopedLogger, utils.CanonicalizeOptions{})
+	ix.SetOrigin(web.Origin)
 
 	wc, err := webclient.NewWebClient(cfg.WebClientCfg, scopedLogger)
 	if err != nil {

@@ -78,10 +78,12 @@ func validatePath(path string) error {
 	cleaned := filepath.Clean(path)
 
 	// Check for directory traversal attempts
-	if strings.Contains(cleaned, "..") {
-		return fmt.Errorf("path contains '..' which is not allowed")
+	parts := strings.Split(cleaned, string(filepath.Separator))
+	for _, part := range parts {
+		if part == ".." {
+			return fmt.Errorf("path contains '..' directory traversal segment")
+		}
 	}
 
-	// Additional validation can be added here (e.g., check against siteDir)
 	return nil
 }

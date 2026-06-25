@@ -332,13 +332,13 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
 	// Insert snapshots
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		baseSnapshotID, baseVersionID, 200, url, "/path", "blob-base", now, "{}",
+		baseSnapshotID, baseVersionID, 200, url, "path", "blob-base", now, "{}",
 	); err != nil {
 		t.Fatalf("insert base snapshot: %v", err)
 	}
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		headSnapshotID, headVersionID, 200, url, "/path", "blob-head", now, "{}",
+		headSnapshotID, headVersionID, 200, url, "path", "blob-head", now, "{}",
 	); err != nil {
 		t.Fatalf("insert head snapshot: %v", err)
 	}
@@ -457,8 +457,8 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
 		t.Fatalf("expected 1 overview entry, got %d", len(ov.Entries))
 	}
 	entry := ov.Entries[0]
-	if entry.FilePath != "/path" {
-		t.Errorf("expected FilePath /path, got %q", entry.FilePath)
+	if entry.FilePath != "path" {
+		t.Errorf("expected FilePath path, got %q", entry.FilePath)
 	}
 	if entry.ScoreBase != baseSR.Score || entry.ScoreHead != headSR.Score {
 		t.Errorf("unexpected scores in overview entry: %+v", entry)
@@ -518,13 +518,13 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs(t *testing.T) {
 	// Insert snapshots
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		baseSnapshotID, baseVersionID, 200, url, "/path", "blob-base", now, "{}",
+		baseSnapshotID, baseVersionID, 200, url, "path", "blob-base", now, "{}",
 	); err != nil {
 		t.Fatalf("insert base snapshot: %v", err)
 	}
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		headSnapshotID, headVersionID, 200, url, "/path", "blob-head", now, "{}",
+		headSnapshotID, headVersionID, 200, url, "path", "blob-head", now, "{}",
 	); err != nil {
 		t.Fatalf("insert head snapshot: %v", err)
 	}
@@ -643,8 +643,8 @@ func TestSQLiteScoreTracker_ScoreAndSecurityAPIs(t *testing.T) {
 		t.Fatalf("expected 1 overview entry, got %d", len(ov.Entries))
 	}
 	entry := ov.Entries[0]
-	if entry.FilePath != "/path" {
-		t.Errorf("expected FilePath /path, got %q", entry.FilePath)
+	if entry.FilePath != "path" {
+		t.Errorf("expected FilePath path, got %q", entry.FilePath)
 	}
 	if entry.ScoreBase != baseSR.Score || entry.ScoreHead != headSR.Score {
 		t.Errorf("unexpected scores in overview entry: %+v", entry)

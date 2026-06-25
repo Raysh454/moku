@@ -30,8 +30,8 @@ func TestNewSecurityDiff_PropagatesScoresAndChanges(t *testing.T) {
 		t.Fatalf("NewSecurityDiff returned error: %v", err)
 	}
 
-	if d.FilePath != "/path" {
-		t.Errorf("expected FilePath == /path, got %q", d.FilePath)
+	if d.FilePath != "path" {
+		t.Errorf("expected FilePath == path, got %q", d.FilePath)
 	}
 	if d.ScoreBase != 0.2 || d.ScoreHead != 0.5 || d.ScoreDelta != 0.3 {
 		t.Errorf("unexpected scores: base=%v head=%v delta=%v", d.ScoreBase, d.ScoreHead, d.ScoreDelta)

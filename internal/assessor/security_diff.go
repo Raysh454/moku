@@ -21,7 +21,7 @@ func NewSecurityDiff(
 	if err != nil {
 		return nil, err
 	}
-	filepath := urlTools.GetPath()
+	filepath := utils.SanitizeFilePathFromURL(urlTools.GetPath())
 
 	return &SecurityDiff{
 		FilePath:       filepath,
