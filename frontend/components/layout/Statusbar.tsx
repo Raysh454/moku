@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useProject } from "../../context/ProjectContext";
+import { useEditor } from "../../context/EditorContext";
 
-export const Statusbar: React.FC = () => {
-  const { activeProject, selectedDomain, selectedSnapshot, jobs, refreshJobs, isBusy } = useProject();
+export const Statusbar = () => {
+  const { activeProject, jobs, refreshJobs, isBusy } = useProject();
+  const { activeDomain, headSnapshot } = useEditor();
   const [showJobs, setShowJobs] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
@@ -12,94 +14,79 @@ export const Statusbar: React.FC = () => {
     () => Array.from(new Set(jobs.map((job) => job.project).filter(Boolean))).sort(),
     [jobs],
   );
-  const siteOptions = useMemo(
-    () => Array.from(new Set(jobs.map((job) => job.website).filter(Boolean))).sort(),
-    [jobs],
-  );
+  const siteOptions = useMemo(() => Array.from(new Set(jobs.map((job) => job.website).filter(Boolean))).sort(), [jobs]);
 
   const filteredJobs = useMemo(
     () =>
       jobs
         .filter((job) => {
-        if (projectFilter && job.project !== projectFilter) return false;
-        if (siteFilter && job.website !== siteFilter) return false;
-        return true;
-      })
+          if (projectFilter && job.project !== projectFilter) return false;
+          if (siteFilter && job.website !== siteFilter) return false;
+          return true;
+        })
         .sort((left, right) => new Date(right.started_at ?? 0).getTime() - new Date(left.started_at ?? 0).getTime()),
     [jobs, projectFilter, siteFilter],
   );
 
   useEffect(() => {
     if (!showJobs) return;
-    const onDocumentMouseDown = (event: MouseEvent) => {
+    const onMouseDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
-      if (target && jobsMenuRef.current && !jobsMenuRef.current.contains(target)) {
-        setShowJobs(false);
-      }
+      if (target && jobsMenuRef.current && !jobsMenuRef.current.contains(target)) setShowJobs(false);
     };
-    document.addEventListener("mousedown", onDocumentMouseDown);
-    return () => {
-      document.removeEventListener("mousedown", onDocumentMouseDown);
-    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
   }, [showJobs]);
 
   if (!activeProject) return null;
 
   return (
-    <footer className="h-10 border-t border-border bg-black flex items-center justify-between px-8 text-[10px] z-30 fixed bottom-0 left-0 right-0 font-medium uppercase tracking-widest">
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-2">
-          <div
-            className={`w-1.5 h-1.5 rounded-full ${activeProject.status === "active" ? "bg-success shadow-[0_0_8px_rgba(0,212,170,0.4)]" : "bg-slate-700"}`}
-          ></div>
-          <span className="text-primary font-semibold">{activeProject.status}</span>
-        </div>
-        <div className="h-3 w-px bg-border/50"></div>
-        <span className="text-helper font-semibold">
-          Engine: <span className="text-slate-400 italic font-normal">{isBusy ? "Busy" : "Idle"}</span>
+    <footer className="flex h-9 items-center justify-between border-t border-border bg-black/60 px-6 text-[11px] text-helper">
+      <div className="flex items-center gap-5">
+        <span className="flex items-center gap-2">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${activeProject.status === "active" ? "bg-success shadow-[0_0_8px_rgba(0,212,170,0.4)]" : "bg-slate-700"}`}
+          />
+          <span className="font-medium text-primary">{activeProject.status}</span>
+        </span>
+        <span>
+          Engine: <span className="text-helper">{isBusy ? "busy" : "idle"}</span>
         </span>
       </div>
 
-      <div className="flex items-center gap-6 relative">
-        {selectedSnapshot && (
+      <div className="relative flex items-center gap-5">
+        {headSnapshot ? (
           <>
-            <div className="flex items-center gap-2">
-              <span className="text-helper">Domain:</span>
-              <span className="text-slate-300 tabular-nums">{selectedDomain?.hostname || "n/a"}</span>
-            </div>
-            <div className="h-3 w-px bg-border/50"></div>
-            <div className="flex items-center gap-2">
-              <span className="text-helper">Last Scan:</span>
-              <span className="text-slate-300 tabular-nums">{new Date(selectedSnapshot.createdAt).toLocaleTimeString()}</span>
-            </div>
+            <span>
+              Domain: <span className="tabular-nums text-primary">{activeDomain?.hostname || "n/a"}</span>
+            </span>
+            <span>
+              Snapshot: <span className="tabular-nums text-primary">{new Date(headSnapshot.createdAt).toLocaleTimeString()}</span>
+            </span>
           </>
-        )}
+        ) : null}
 
         <div ref={jobsMenuRef}>
           <button
-            className="px-3 py-1 rounded border border-border text-helper hover:text-white hover:border-slate-500 transition"
+            className="rounded border border-border px-3 py-1 text-helper transition hover:border-slate-500 hover:text-primary"
             onClick={() => setShowJobs((open) => !open)}
           >
             Jobs ({jobs.length})
           </button>
 
-          {showJobs && (
-            <div className="absolute bottom-11 right-0 w-[560px] max-h-[420px] bg-card border border-border rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden normal-case tracking-normal">
-              <div className="px-4 py-3 border-b border-border bg-bg/40 flex items-center justify-between">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-helper font-black">Job Queue</span>
-                <button
-                  className="text-[10px] uppercase tracking-widest text-accent hover:text-white"
-                  onClick={() => void refreshJobs()}
-                >
+          {showJobs ? (
+            <div className="absolute bottom-10 right-0 max-h-[420px] w-[560px] overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+              <div className="flex items-center justify-between border-b border-border bg-bg/40 px-4 py-3">
+                <span className="text-xs font-semibold text-primary">Job queue</span>
+                <button className="text-xs text-accent hover:text-primary" onClick={() => void refreshJobs()}>
                   Refresh
                 </button>
               </div>
-
-              <div className="px-4 py-2 border-b border-border bg-bg/30 grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 border-b border-border bg-bg/30 px-4 py-2">
                 <select
                   value={projectFilter}
                   onChange={(event) => setProjectFilter(event.target.value)}
-                  className="w-full bg-bg border border-border rounded px-2 py-1 text-[11px] text-slate-200"
+                  className="rounded border border-border bg-bg px-2 py-1 text-[11px] text-primary"
                 >
                   <option value="">All projects</option>
                   {projectOptions.map((value) => (
@@ -111,7 +98,7 @@ export const Statusbar: React.FC = () => {
                 <select
                   value={siteFilter}
                   onChange={(event) => setSiteFilter(event.target.value)}
-                  className="w-full bg-bg border border-border rounded px-2 py-1 text-[11px] text-slate-200"
+                  className="rounded border border-border bg-bg px-2 py-1 text-[11px] text-primary"
                 >
                   <option value="">All websites</option>
                   {siteOptions.map((value) => (
@@ -121,57 +108,50 @@ export const Statusbar: React.FC = () => {
                   ))}
                 </select>
               </div>
-
-              <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+              <div className="custom-scrollbar max-h-[300px] overflow-y-auto">
                 {filteredJobs.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-xs text-slate-500">No jobs found for selected filters.</p>
+                  <p className="px-4 py-8 text-center text-xs text-muted">No jobs for the selected filters.</p>
                 ) : (
                   <div className="divide-y divide-border/40">
-                    {filteredJobs.map((job) => (
-                      <div key={job.id} className="px-4 py-3 text-xs">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-100 font-semibold">{job.type}</span>
-                            <span
-                              className={`px-2 py-0.5 rounded uppercase text-[10px] tracking-wider ${
-                                job.status === "done"
-                                  ? "bg-success/20 text-success"
-                                  : job.status === "failed" || job.status === "canceled"
-                                    ? "bg-danger/20 text-danger"
-                                    : "bg-warning/20 text-warning"
-                              }`}
-                            >
-                              {job.status}
+                    {filteredJobs.map((job) => {
+                      const hasProgress = job.status !== "failed" && job.processed !== undefined && job.total !== undefined && job.total > 0;
+                      const pct = hasProgress ? Math.min(100, Math.max(0, ((job.processed ?? 0) / (job.total ?? 1)) * 100)) : 0;
+                      return (
+                        <div key={job.id} className="px-4 py-3 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-2">
+                              <span className="font-semibold text-primary">{job.type}</span>
+                              <span
+                                className={`rounded px-2 py-0.5 text-[10px] uppercase ${
+                                  job.status === "done"
+                                    ? "bg-success/20 text-success"
+                                    : job.status === "failed" || job.status === "canceled"
+                                      ? "bg-danger/20 text-danger"
+                                      : "bg-warning/20 text-warning"
+                                }`}
+                              >
+                                {job.status}
+                              </span>
                             </span>
+                            <span className="font-mono text-muted">{(job.id ?? "").slice(0, 8)}</span>
                           </div>
-                          <span className="text-slate-500 font-mono">{(job.id ?? "").slice(0, 8)}</span>
-                        </div>
-                        {job.status !== "failed" && job.processed !== undefined && job.total !== undefined && job.total > 0 && (
-                          <div className="mt-2 h-1.5 w-full bg-border rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-accent transition-all duration-300"
-                              style={{ width: `${Math.min(100, Math.max(0, (job.processed / job.total) * 100))}%` }}
-                            ></div>
+                          {hasProgress ? (
+                            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-border">
+                              <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                          ) : null}
+                          <div className="mt-1 text-helper">
+                            {job.project} / {job.website}
                           </div>
-                        )}
-                        <div className="mt-1 text-slate-400 flex justify-between">
-                          <span>{job.project} / {job.website}</span>
-                          {job.status !== "failed" && job.processed !== undefined && job.total !== undefined && job.total > 0 && (
-                            <span className="text-slate-500 font-mono">{Math.floor((job.processed / job.total) * 100)}%</span>
-                          )}
+                          {job.error ? <div className="mt-1 text-danger">error: {job.error}</div> : null}
                         </div>
-                        <div className="mt-1 text-slate-500">
-                          started: {new Date(job.started_at ?? 0).toLocaleString()}
-                          {job.ended_at ? ` • ended: ${new Date(job.ended_at).toLocaleString()}` : ""}
-                        </div>
-                        {job.error && <div className="mt-1 text-danger">error: {job.error}</div>}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </footer>

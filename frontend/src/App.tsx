@@ -2,6 +2,7 @@ import React from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import { ProjectProvider } from "../context/ProjectContext";
+import { EditorProvider } from "../context/EditorContext";
 import { NotificationProvider } from "../context/NotificationContext";
 import { JobEventProvider } from "../context/JobEventContext";
 
@@ -15,8 +16,9 @@ function App() {
     <NotificationProvider>
       <JobEventProvider>
         <ProjectProvider>
-          <HashRouter>
-            <main className="min-h-screen bg-bg text-gray-200 selection:bg-accent selection:text-bg">
+          <EditorProvider>
+            <HashRouter>
+              <main className="min-h-screen bg-bg text-gray-200 selection:bg-accent selection:text-bg">
               <Routes>
                 <Route path="/" element={<ProjectSelectPage />} />
 
@@ -27,8 +29,9 @@ function App() {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
               <NotificationViewport />
-            </main>
-          </HashRouter>
+              </main>
+            </HashRouter>
+          </EditorProvider>
         </ProjectProvider>
       </JobEventProvider>
     </NotificationProvider>

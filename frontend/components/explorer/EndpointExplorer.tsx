@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Domain } from "../../types/project";
 import type { SecurityDiffOverviewEntry } from "../../src/api/types";
 import { useProject } from "../../context/ProjectContext";
+import { useEditor } from "../../context/EditorContext";
 import { buildEndpointTree } from "../../lib/endpointTree";
 import { FileTreeView } from "../../adapters/tree";
 import { DomainActionsBar } from "../domain/DomainActionsBar";
@@ -14,7 +15,8 @@ import { Boxes, Globe } from "../ui/icons";
  * action bar. Replaces the flat list + hover mega-menu of the old DomainTree.
  */
 export function EndpointExplorer({ isCollapsed = false }: { isCollapsed?: boolean }) {
-  const { activeProject, selectedEndpoint, selectEndpoint, domainOverviews } = useProject();
+  const { activeProject, domainOverviews } = useProject();
+  const { openEndpoint, activeEndpoint } = useEditor();
 
   if (!activeProject || activeProject.domains.length === 0) {
     return (
@@ -48,9 +50,9 @@ export function EndpointExplorer({ isCollapsed = false }: { isCollapsed?: boolea
         <DomainSection
           key={domain.id}
           domain={domain}
-          selectedEndpointId={selectedEndpoint?.id ?? null}
+          selectedEndpointId={activeEndpoint?.id ?? null}
           overview={domainOverviews.get(domain.slug)}
-          onSelectEndpoint={(endpointId) => void selectEndpoint(domain.id, endpointId)}
+          onSelectEndpoint={(endpointId) => openEndpoint(domain.id, endpointId)}
         />
       ))}
     </div>
