@@ -1,10 +1,19 @@
 import type { AttackSurfaceChange, ChangeCategory } from "../src/api/types";
 
+/**
+ * Scores/deltas are shown to 2 decimals, so any |value| below this rounds to
+ * "0.00". Snapping the residual to 0 keeps a tiny floating-point delta (e.g. a
+ * quantized-hardening artifact) from rendering as a misleading "-0.00" and from
+ * being colored as a real change.
+ */
+export const SCORE_EPSILON = 0.005;
+
 export function formatScore(value: number | undefined): string {
   if (value === undefined || Number.isNaN(value)) {
     return "—";
   }
-  return value.toFixed(2);
+  const snapped = Math.abs(value) < SCORE_EPSILON ? 0 : value;
+  return snapped.toFixed(2);
 }
 
 export type ScoreDirection = "regressed" | "improved" | "neutral";
@@ -17,7 +26,9 @@ export function scoreDirection(
   delta: number,
   { higherIsWorse = true }: ScoreDirectionOptions = {},
 ): ScoreDirection {
-  if (delta === 0) return "neutral";
+  // Treat anything that displays as "0.00" as neutral so a sub-epsilon residual
+  // is not painted as an improvement/regression.
+  if (Math.abs(delta) < SCORE_EPSILON) return "neutral";
   const isRegression = higherIsWorse ? delta > 0 : delta < 0;
   return isRegression ? "regressed" : "improved";
 }

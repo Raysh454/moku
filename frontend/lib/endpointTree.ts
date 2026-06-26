@@ -28,6 +28,7 @@ export interface TreeNode {
   endpointId?: string;
   scoreHead?: number;
   scoreDelta?: number;
+  exposureDelta?: number;
   numAttackSurfaceChanges?: number;
   children?: TreeNode[];
 }
@@ -40,6 +41,7 @@ export interface EndpointLeaf {
   status: NodeStatus;
   scoreHead?: number;
   scoreDelta?: number;
+  exposureDelta?: number;
   numAttackSurfaceChanges?: number;
 }
 
@@ -99,6 +101,7 @@ interface MutableNode {
   endpointId?: string;
   scoreHead?: number;
   scoreDelta?: number;
+  exposureDelta?: number;
   numAttackSurfaceChanges?: number;
   children: Map<string, MutableNode>;
 }
@@ -158,6 +161,10 @@ function finalize(node: MutableNode): TreeNode {
     if (left.kind !== right.kind) return left.kind === "folder" ? -1 : 1;
     const weight = STATUS_WEIGHT[right.status] - STATUS_WEIGHT[left.status];
     if (weight !== 0) return weight;
+    // Within the same status, largest exposure regression first (higher
+    // exposure = worse posture), so the riskiest endpoints surface at the top.
+    const exposure = (right.exposureDelta ?? 0) - (left.exposureDelta ?? 0);
+    if (Math.abs(exposure) > 1e-9) return exposure;
     return left.name.localeCompare(right.name);
   });
   const hasChanges = node.kind === "endpoint" ? node.status !== "unchanged" : children.some((child) => child.hasChanges);
@@ -171,6 +178,7 @@ function finalize(node: MutableNode): TreeNode {
     endpointId: node.endpointId,
     scoreHead: node.scoreHead,
     scoreDelta: node.scoreDelta,
+    exposureDelta: node.exposureDelta,
     numAttackSurfaceChanges: node.numAttackSurfaceChanges,
   };
   return children.length > 0 ? { ...base, children } : base;
@@ -195,6 +203,7 @@ export function buildEndpointTree(domain: Domain, overview?: SecurityDiffOvervie
       endpointId: endpoint.id,
       scoreHead: entry?.score_head,
       scoreDelta: entry?.score_delta,
+      exposureDelta: entry?.exposure_delta,
       numAttackSurfaceChanges: entry?.num_attack_surface_changes,
     });
   }
@@ -228,6 +237,7 @@ export function flattenEndpointLeaves(nodes: TreeNode[]): EndpointLeaf[] {
         status: node.status,
         scoreHead: node.scoreHead,
         scoreDelta: node.scoreDelta,
+        exposureDelta: node.exposureDelta,
         numAttackSurfaceChanges: node.numAttackSurfaceChanges,
       });
     }

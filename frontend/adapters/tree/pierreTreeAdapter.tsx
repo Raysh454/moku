@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { themeToTreeStyles, type GitStatusEntry } from "@pierre/trees";
 import { ancestorFolderPaths, flattenEndpointLeaves, type EndpointLeaf } from "../../lib/endpointTree";
+import { SCORE_EPSILON } from "../../lib/score";
 import { buildTreeThemeInput } from "../shiki/highlighterTheme";
 import { useTheme } from "../../context/ThemeContext";
 import type { FileTreeViewProps } from "./TreeAdapter";
@@ -10,13 +11,27 @@ import type { FileTreeViewProps } from "./TreeAdapter";
 // the active palette as `--trees-theme-*` custom properties on the host, which
 // inherit across the shadow boundary and update when the theme changes.
 
+// Row decoration: the current risk score plus an exposure-delta chip (▲ worse,
+// ▼ better). Sub-epsilon deltas snap to 0 so a quantized residual never shows as
+// a misleading "-0.00". Shown whenever the endpoint has any overview signal.
 function decorate(leaf: EndpointLeaf | undefined): { text: string; title: string } | null {
-  if (!leaf || leaf.scoreHead === undefined) return null;
-  const score = leaf.scoreHead.toFixed(1);
-  const delta = leaf.scoreDelta ?? 0;
-  const arrow = delta > 0 ? "▲ " : delta < 0 ? "▼ " : "";
-  const deltaText = delta ? ` (Δ ${delta > 0 ? "+" : ""}${delta.toFixed(2)})` : "";
-  return { text: `${arrow}${score}`, title: `Risk score ${score}${deltaText}` };
+  if (!leaf || (leaf.scoreHead === undefined && leaf.exposureDelta === undefined)) return null;
+  const parts: string[] = [];
+  const titleParts: string[] = [];
+
+  if (leaf.scoreHead !== undefined) {
+    parts.push(leaf.scoreHead.toFixed(1));
+    titleParts.push(`Risk score ${leaf.scoreHead.toFixed(2)}`);
+  }
+  if (leaf.exposureDelta !== undefined) {
+    const exposure = Math.abs(leaf.exposureDelta) < SCORE_EPSILON ? 0 : leaf.exposureDelta;
+    const signed = `${exposure > 0 ? "+" : ""}${exposure.toFixed(2)}`;
+    titleParts.push(`Exposure Δ ${signed}`);
+    if (exposure !== 0) parts.push(`${exposure > 0 ? "▲" : "▼"}${signed}`);
+  }
+
+  if (parts.length === 0) return null;
+  return { text: parts.join("  "), title: titleParts.join(" · ") };
 }
 
 /** `@pierre/trees`-backed implementation of the file-tree explorer contract. */

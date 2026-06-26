@@ -26,6 +26,19 @@ describe('formatScore', () => {
   it('rendersDashForNaN', () => {
     expect(formatScore(Number.NaN)).toBe('—')
   })
+
+  // A sub-0.005 residual must not render as a misleading "-0.00"; it snaps to 0.
+  it('snapsTinyNegativeToPlainZero', () => {
+    expect(formatScore(-0.001)).toBe('0.00')
+  })
+
+  it('snapsNegativeAtEpsilonBoundaryToZero', () => {
+    expect(formatScore(-0.0049)).toBe('0.00')
+  })
+
+  it('preservesNegativesBeyondEpsilon', () => {
+    expect(formatScore(-0.006)).toBe('-0.01')
+  })
 })
 
 describe('scoreDirection', () => {
@@ -55,6 +68,20 @@ describe('scoreDirection', () => {
 
   it('higherIsBetter_zeroDeltaIsNeutral', () => {
     expect(scoreDirection(0, { higherIsWorse: false })).toBe('neutral')
+  })
+
+  // A sub-0.005 residual displays as "0.00", so it must read as neutral, not a
+  // colored "improvement" (the old `delta === 0` check mis-toned "-0.00" green).
+  it('tinyNegativeWithinEpsilonIsNeutral', () => {
+    expect(scoreDirection(-0.001)).toBe('neutral')
+  })
+
+  it('tinyPositiveWithinEpsilonIsNeutral', () => {
+    expect(scoreDirection(0.001)).toBe('neutral')
+  })
+
+  it('negativeBeyondEpsilonIsImproved', () => {
+    expect(scoreDirection(-0.006)).toBe('improved')
   })
 })
 

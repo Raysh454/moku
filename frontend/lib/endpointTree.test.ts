@@ -86,6 +86,33 @@ describe("flattenEndpointLeaves", () => {
   });
 });
 
+describe("exposure delta", () => {
+  it("attaches the overview exposure_delta to the endpoint leaf", () => {
+    const overview: SecurityDiffOverviewEntry[] = [{ url: "/login", exposure_delta: 0.4 }];
+    const tree = buildEndpointTree(makeDomain([makeEndpoint("b", "/login")]), overview);
+    expect(childNamed(tree, "login")?.exposureDelta).toBe(0.4);
+  });
+
+  it("flattens exposure delta onto leaves for the tree adapter", () => {
+    const overview: SecurityDiffOverviewEntry[] = [{ url: "/login", exposure_delta: 0.4 }];
+    const leaves = flattenEndpointLeaves(buildEndpointTree(makeDomain([makeEndpoint("b", "/login")]), overview));
+    expect(leaves[0]?.exposureDelta).toBe(0.4);
+  });
+
+  it("orders sibling endpoints by exposure delta, largest regression first", () => {
+    const overview: SecurityDiffOverviewEntry[] = [
+      { url: "/a", exposure_delta: 0.1 },
+      { url: "/b", exposure_delta: 0.9 },
+      { url: "/c", exposure_delta: 0.5 },
+    ];
+    const tree = buildEndpointTree(
+      makeDomain([makeEndpoint("a", "/a"), makeEndpoint("b", "/b"), makeEndpoint("c", "/c")]),
+      overview,
+    );
+    expect(tree.map((node) => node.name)).toEqual(["b", "c", "a"]);
+  });
+});
+
 describe("ancestorFolderPaths", () => {
   it("lists every parent folder of a nested leaf, root first", () => {
     expect(ancestorFolderPaths("auth/createchallenge/recaptchav3.js")).toEqual(["auth", "auth/createchallenge"]);
