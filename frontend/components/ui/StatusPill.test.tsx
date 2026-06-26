@@ -33,6 +33,11 @@ describe("scoreTone", () => {
   it("treats an unchanged score as neutral", () => {
     expect(scoreTone(0)).toBe("neutral");
   });
+
+  it("treats a sub-epsilon residual as neutral, not a colored change", () => {
+    expect(scoreTone(-0.001)).toBe("neutral");
+    expect(scoreTone(0.002)).toBe("neutral");
+  });
 });
 
 describe("StatusPill", () => {

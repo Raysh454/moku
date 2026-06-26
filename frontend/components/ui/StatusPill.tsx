@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { IconComponent } from "./icons";
+import { SCORE_EPSILON } from "../../lib/score";
 
 /**
  * Small status/score chip. Replaces the repeated `statusToneClass` ternaries
@@ -33,9 +34,10 @@ export function httpStatusTone(statusCode: number): StatusTone {
  * improvement (success) — matching `scoreDirection` in `lib/score.ts`.
  */
 export function scoreTone(delta: number): StatusTone {
-  if (delta > 0) return "danger";
-  if (delta < 0) return "success";
-  return "neutral";
+  // Snap a sub-rounding residual to neutral so a "-0.00" delta is not colored
+  // as an improvement (matches `formatScore`/`scoreDirection`).
+  if (Math.abs(delta) < SCORE_EPSILON) return "neutral";
+  return delta > 0 ? "danger" : "success";
 }
 
 interface StatusPillProps {
