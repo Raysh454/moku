@@ -23,17 +23,6 @@ import (
 // so the two are intentionally pinned together.
 var tlsClientProfile = profiles.Chrome_146
 
-// tlsClientUserAgent matches tlsClientProfile's Chrome version.
-const tlsClientUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-	"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
-
-// browserDefaultHeaders are sent (unless the caller overrides them) so the
-// request looks like a browser navigation rather than a bare client.
-var browserDefaultHeaders = map[string]string{
-	"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-	"Accept-Language": "en-US,en;q=0.9",
-}
-
 // TLSClientClient is a WebClient backed by bogdanfinn/tls-client. It impersonates
 // a real Chrome TLS (JA3/JA4) and HTTP/2 fingerprint, which clears Cloudflare's
 // transport-layer gate that bare net/http trips — without running a browser. It
@@ -86,7 +75,7 @@ func NewTLSClient(cfg Config, logger logging.Logger) (WebClient, error) {
 
 	return &TLSClientClient{
 		client:       inner,
-		userAgent:    tlsClientUserAgent,
+		userAgent:    browserUserAgent,
 		maxBodyBytes: maxBodyBytes,
 		logger:       componentLogger,
 	}, nil
