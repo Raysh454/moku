@@ -202,6 +202,20 @@ export function buildEndpointTree(domain: Domain, overview?: SecurityDiffOvervie
   return finalize(root).children ?? [];
 }
 
+/**
+ * The parent folder paths of a leaf, root first and excluding the leaf itself
+ * (e.g. `a/b/c` → [`a`, `a/b`]). Used to reveal a selected endpoint in a tree
+ * that starts collapsed — each returned path is a folder that must be expanded.
+ */
+export function ancestorFolderPaths(path: string): string[] {
+  const segments = path.split("/").filter(Boolean);
+  const ancestors: string[] = [];
+  for (let depth = 1; depth < segments.length; depth += 1) {
+    ancestors.push(segments.slice(0, depth).join("/"));
+  }
+  return ancestors;
+}
+
 /** Depth-first flatten to endpoint leaves, in display order. */
 export function flattenEndpointLeaves(nodes: TreeNode[]): EndpointLeaf[] {
   const leaves: EndpointLeaf[] = [];

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { themeToTreeStyles, type GitStatusEntry } from "@pierre/trees";
-import { flattenEndpointLeaves, type EndpointLeaf } from "../../lib/endpointTree";
+import { ancestorFolderPaths, flattenEndpointLeaves, type EndpointLeaf } from "../../lib/endpointTree";
 import { buildTreeThemeInput } from "../shiki/highlighterTheme";
 import { useTheme } from "../../context/ThemeContext";
 import type { FileTreeViewProps } from "./TreeAdapter";
@@ -45,6 +45,9 @@ export function PierreFileTreeView({
     () => leaves.find((leaf) => leaf.endpointId === selectedEndpointId)?.path ?? null,
     [leaves, selectedEndpointId],
   );
+  // The tree starts collapsed; reveal only the folders leading to the open
+  // endpoint so it stays visible without expanding everything else.
+  const pathToSelection = useMemo(() => (selectedPath ? ancestorFolderPaths(selectedPath) : undefined), [selectedPath]);
 
   // `useFileTree` builds the model once, so its callbacks capture construction
   // state. Refs keep them pointed at the latest data/handlers.
@@ -56,7 +59,8 @@ export function PierreFileTreeView({
   const { model } = useFileTree({
     id: treeId,
     paths,
-    initialExpansion: "open",
+    initialExpansion: "closed",
+    initialExpandedPaths: pathToSelection,
     density,
     gitStatus,
     initialSelectedPaths: selectedPath ? [selectedPath] : undefined,
@@ -80,9 +84,15 @@ export function PierreFileTreeView({
 
   useEffect(() => {
     if (!selectedPath) return;
+    // Expand the folders on the way to the selection before revealing it, so a
+    // collapsed tree still scrolls the open endpoint into view.
+    for (const folder of pathToSelection ?? []) {
+      const item = model.getItem(folder);
+      if (item && "expand" in item) item.expand();
+    }
     model.getItem(selectedPath)?.select();
     model.scrollToPath(selectedPath, { offset: "nearest" });
-  }, [model, selectedPath]);
+  }, [model, selectedPath, pathToSelection]);
 
   return <FileTree model={model} className="moku-tree-host" style={{ ...treeStyle, height: "100%" }} />;
 }

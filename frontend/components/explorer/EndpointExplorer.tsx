@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Domain } from "../../types/project";
 import type { SecurityDiffOverviewEntry } from "../../src/api/types";
 import { useProject } from "../../context/ProjectContext";
@@ -7,7 +7,7 @@ import { buildEndpointTree } from "../../lib/endpointTree";
 import { FileTreeView } from "../../adapters/tree";
 import { DomainActionsBar } from "../domain/DomainActionsBar";
 import { EmptyState } from "../ui";
-import { Boxes, Globe } from "../ui/icons";
+import { Boxes, ChevronRight, Globe } from "../ui/icons";
 
 /**
  * Sidebar body: one virtualized file tree per domain (endpoint URL paths
@@ -67,32 +67,48 @@ interface DomainSectionProps {
 }
 
 function DomainSection({ domain, selectedEndpointId, overview, onSelectEndpoint }: DomainSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(true);
   const nodes = useMemo(() => buildEndpointTree(domain, overview), [domain, overview]);
   const hasEndpoints = domain.endpoints.length > 0;
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col border-b border-border/60 last:border-b-0">
+    <section
+      className={`flex flex-col border-b border-border/60 last:border-b-0 ${isExpanded ? "min-h-0 flex-1" : "flex-none"}`}
+    >
       <div className="px-3 pt-3">
-        <div className="flex items-center gap-2 px-1">
+        <button
+          type="button"
+          data-testid="website-toggle"
+          aria-expanded={isExpanded}
+          onClick={() => setIsExpanded((value) => !value)}
+          className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left transition-colors hover:bg-white/[0.03]"
+        >
+          <ChevronRight
+            className={`h-3.5 w-3.5 shrink-0 text-helper transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
           <Globe className="h-4 w-4 shrink-0 text-helper" />
           <span className="truncate font-mono text-[13px] font-semibold text-primary">{domain.hostname}</span>
-        </div>
-        <div className="mt-1.5 px-1">
-          <DomainActionsBar domain={domain} />
-        </div>
+        </button>
+        {isExpanded ? (
+          <div className="mt-1.5 px-1">
+            <DomainActionsBar domain={domain} />
+          </div>
+        ) : null}
       </div>
-      {hasEndpoints ? (
-        <div className="mt-2 min-h-0 flex-1">
-          <FileTreeView
-            treeId={`tree-${domain.id}`}
-            nodes={nodes}
-            selectedEndpointId={selectedEndpointId}
-            onSelectEndpoint={onSelectEndpoint}
-          />
-        </div>
-      ) : (
-        <p className="px-4 py-6 text-center text-xs text-muted">No endpoints loaded yet — run Enumerate, then Fetch.</p>
-      )}
+      {isExpanded ? (
+        hasEndpoints ? (
+          <div className="mt-2 min-h-0 flex-1">
+            <FileTreeView
+              treeId={`tree-${domain.id}`}
+              nodes={nodes}
+              selectedEndpointId={selectedEndpointId}
+              onSelectEndpoint={onSelectEndpoint}
+            />
+          </div>
+        ) : (
+          <p className="px-4 py-6 text-center text-xs text-muted">No endpoints loaded yet — run Enumerate, then Fetch.</p>
+        )
+      ) : null}
     </section>
   );
 }

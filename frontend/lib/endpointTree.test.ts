@@ -1,4 +1,4 @@
-import { buildEndpointTree, flattenEndpointLeaves, type TreeNode } from "./endpointTree";
+import { ancestorFolderPaths, buildEndpointTree, flattenEndpointLeaves, INDEX_LEAF, type TreeNode } from "./endpointTree";
 import type { Domain, Endpoint } from "../types/project";
 import type { SecurityDiffOverviewEntry } from "../src/api/types";
 
@@ -83,5 +83,19 @@ describe("flattenEndpointLeaves", () => {
     const leaves = flattenEndpointLeaves(tree);
     expect(leaves.map((leaf) => leaf.endpointId).sort()).toEqual(["a", "c"]);
     expect(leaves.find((leaf) => leaf.endpointId === "c")?.path).toBe("admin/users");
+  });
+});
+
+describe("ancestorFolderPaths", () => {
+  it("lists every parent folder of a nested leaf, root first", () => {
+    expect(ancestorFolderPaths("auth/createchallenge/recaptchav3.js")).toEqual(["auth", "auth/createchallenge"]);
+  });
+
+  it("returns no ancestors for a top-level leaf", () => {
+    expect(ancestorFolderPaths("login")).toEqual([]);
+  });
+
+  it("treats an index leaf's containing folder as its only ancestor", () => {
+    expect(ancestorFolderPaths(`admin/${INDEX_LEAF}`)).toEqual(["admin"]);
   });
 });
