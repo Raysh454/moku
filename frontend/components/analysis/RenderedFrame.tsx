@@ -20,6 +20,12 @@ export type TextChange = {
 type RenderedFrameProps = {
   html: string;
   title?: string;
+  /** The captured page's own URL; used as the iframe `<base href>` so relative
+   * asset URLs resolve against the real origin instead of about:blank. */
+  pageUrl?: string;
+  /** When false (default) the page's own <script> tags are stripped so a real
+   * site's framework JS can't throw and blank the preview. */
+  runPageScripts?: boolean;
   highlights?: HighlightedElement[];
   activeHighlight?: HighlightedElement | null;
   showHighlights?: boolean;
@@ -27,6 +33,31 @@ type RenderedFrameProps = {
   showTextHighlights?: boolean;
   className?: string;
 };
+
+// A captured page carries its own CSP (as a <meta> tag) and framework scripts.
+// The CSP blocks our injected styles and the real assets; the scripts expect
+// their bundles/hydration and routinely throw and blank the DOM. We strip both
+// before rendering so the page paints reliably as static styled HTML.
+const CSP_META_PATTERN = /<meta\b[^>]*http-equiv\s*=\s*["']?content-security-policy["']?[^>]*>/gi;
+const SCRIPT_TAG_PATTERN = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+const SELF_CLOSING_SCRIPT_PATTERN = /<script\b[^>]*\/>/gi;
+
+function stripContentSecurityPolicy(html: string): string {
+  return html.replace(CSP_META_PATTERN, "");
+}
+
+function stripPageScripts(html: string): string {
+  return html.replace(SCRIPT_TAG_PATTERN, "").replace(SELF_CLOSING_SCRIPT_PATTERN, "");
+}
+
+function resolveBaseHref(pageUrl: string | undefined): string {
+  if (!pageUrl) return "about:blank";
+  try {
+    return new URL(pageUrl).href;
+  } catch {
+    return "about:blank";
+  }
+}
 
 const VOID_ELEMENTS = [
   "input",
@@ -172,6 +203,8 @@ function injectTextHighlights(html: string, textChanges: TextChange[]): string {
 export default function RenderedFrame({
   html,
   title,
+  pageUrl,
+  runPageScripts = false,
   highlights = [],
   activeHighlight,
   showHighlights = true,
@@ -183,9 +216,13 @@ export default function RenderedFrame({
   const [isLoaded, setIsLoaded] = useState(false);
 
   const preparedHtml = useCallback(() => {
-    const baseTag = "<base href=\"about:blank\">";
+    const baseTag = `<base href="${resolveBaseHref(pageUrl)}">`;
     const styleTag = `<style>${highlightStyles}</style>`;
     let modified = injectTextHighlights(html, textChanges);
+    modified = stripContentSecurityPolicy(modified);
+    if (!runPageScripts) {
+      modified = stripPageScripts(modified);
+    }
 
     if (modified.includes("<head>")) {
       modified = modified.replace("<head>", `<head>${baseTag}${styleTag}`);
@@ -195,7 +232,7 @@ export default function RenderedFrame({
       modified = `${baseTag}${styleTag}${modified}`;
     }
     return modified;
-  }, [html, textChanges]);
+  }, [html, textChanges, pageUrl, runPageScripts]);
 
   useEffect(() => {
     if (!iframeRef.current || !isLoaded) return;

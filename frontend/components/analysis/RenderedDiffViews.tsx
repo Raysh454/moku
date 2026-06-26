@@ -93,6 +93,9 @@ export default function RenderedDiffViews({
   const [showOnlyChanged, setShowOnlyChanged] = useState(false);
   const [showHighlights, setShowHighlights] = useState(true);
   const [showTextHighlights, setShowTextHighlights] = useState(true);
+  // Off by default: the captured page's own scripts are what blank real sites,
+  // so we render static-but-styled unless the user opts into full fidelity.
+  const [runPageScripts, setRunPageScripts] = useState(false);
 
   const headHtml = useMemo(() => getSnapshotContentInfo(headSnapshot).textBody || "<p>No content</p>", [headSnapshot]);
   const baseHtml = useMemo(
@@ -234,6 +237,18 @@ export default function RenderedDiffViews({
               />
               Text Changes
             </label>
+            <label
+              className="inline-flex items-center gap-1.5 text-xs text-helper"
+              title="Off renders the captured page statically (reliable). On runs the page's own scripts for full fidelity, which can break on framework-heavy sites."
+            >
+              <input
+                type="checkbox"
+                className="accent-accent"
+                checked={runPageScripts}
+                onChange={(event) => setRunPageScripts(event.target.checked)}
+              />
+              Run page scripts
+            </label>
           </>
         )}
       </div>
@@ -254,6 +269,8 @@ export default function RenderedDiffViews({
           <RenderedFrame
             html={headHtml}
             title="Current Version"
+            pageUrl={headSnapshot.url}
+            runPageScripts={runPageScripts}
             highlights={addedChangedHighlights}
             activeHighlight={activeHighlight}
             showHighlights={showHighlights}
@@ -268,6 +285,8 @@ export default function RenderedDiffViews({
             <RenderedFrame
               html={baseHtml || "<p>No base version available</p>"}
               title="Base Version"
+              pageUrl={baseSnapshot?.url}
+              runPageScripts={runPageScripts}
               highlights={removedHighlights}
               activeHighlight={activeHighlight}
               showHighlights={showHighlights}
@@ -278,6 +297,8 @@ export default function RenderedDiffViews({
             <RenderedFrame
               html={headHtml}
               title="Head Version"
+              pageUrl={headSnapshot.url}
+              runPageScripts={runPageScripts}
               highlights={addedChangedHighlights}
               activeHighlight={activeHighlight}
               showHighlights={showHighlights}
