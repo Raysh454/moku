@@ -30,4 +30,10 @@ type Config struct {
 	// left at its zero value the client falls back to DefaultMaxBodyBytes
 	// (10 MiB). The cap applies even when a custom *http.Client is injected.
 	MaxBodyBytes int64
+
+	// ChromePath, when set, points the chromedp backend at a specific browser
+	// binary — e.g. chrome-headless-shell, which renders the identical Blink DOM
+	// as full Chrome at a lower binary/RAM/startup cost. Empty uses chromedp's
+	// default browser discovery. Ignored by the non-browser backends.
+	ChromePath string
 }

@@ -35,6 +35,7 @@ type options struct {
 	allowPrivate   bool
 	compare        bool
 	remoteEndpoint string
+	chromePath     string
 }
 
 func main() {
@@ -47,6 +48,7 @@ func main() {
 	flag.BoolVar(&opts.allowPrivate, "allow-private", false, "allow fetching private/loopback hosts (SSRF guard off)")
 	flag.BoolVar(&opts.compare, "compare", false, "benchmark every constructible backend and print a comparison")
 	flag.StringVar(&opts.remoteEndpoint, "remote-endpoint", "", "FlareSolverr/Byparr /v1 URL enabling the remote backend")
+	flag.StringVar(&opts.chromePath, "chrome-path", "", "browser binary for the chromedp backend (e.g. chrome-headless-shell)")
 	flag.Parse()
 
 	if err := run(opts); err != nil {
@@ -57,7 +59,7 @@ func main() {
 
 func run(opts options) error {
 	logger := logging.NewStdoutLogger("grade")
-	cfg := webclient.Config{Client: webclient.Client(opts.backend), AllowPrivateHosts: opts.allowPrivate}
+	cfg := webclient.Config{Client: webclient.Client(opts.backend), AllowPrivateHosts: opts.allowPrivate, ChromePath: opts.chromePath}
 
 	if opts.compare {
 		return runComparison(opts, cfg, logger)
