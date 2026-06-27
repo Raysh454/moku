@@ -44,6 +44,11 @@ const (
 	// shares its truthy convention ("1"/"true"/"yes"). Intended only for local
 	// verification against the demo server; leave it unset in production.
 	EnvAllowPrivateHosts = "MOKU_ALLOW_PRIVATE_HOSTS"
+
+	// EnvChromePath points the chromedp backend at a specific browser binary
+	// (e.g. an installed chrome-headless-shell). Unset uses chromedp's default
+	// browser discovery. `go run make.go install-browser` prints a value for it.
+	EnvChromePath = "MOKU_CHROME_PATH"
 )
 
 const (
@@ -135,6 +140,12 @@ func resolveAllowPrivateHosts() bool {
 	}
 }
 
+// resolveChromePath returns the trimmed EnvChromePath value, or "" when unset
+// (in which case chromedp falls back to its own browser discovery).
+func resolveChromePath() string {
+	return strings.TrimSpace(os.Getenv(EnvChromePath))
+}
+
 // Config contains a minimal set of runtime configuration options required by
 // internal modules during initial development. We intentionally keep this small
 // for the dev branch — add more fields later as wiring requires them.
@@ -189,6 +200,7 @@ func DefaultConfig() *Config {
 		WebClientCfg: webclient.Config{
 			Client:            webclient.ClientNetHTTP,
 			AllowPrivateHosts: resolveAllowPrivateHosts(),
+			ChromePath:        resolveChromePath(),
 		},
 		AnalyzerCfg: analyzer.Config{
 			Backend: resolveAnalyzerBackend(),

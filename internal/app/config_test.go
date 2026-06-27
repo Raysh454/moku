@@ -204,6 +204,46 @@ func TestDefaultConfig_AllowPrivateHostsFromEnv(t *testing.T) {
 	}
 }
 
+// TestDefaultConfig_ChromePathFromEnv verifies that MOKU_CHROME_PATH flows into
+// WebClientCfg.ChromePath (trimmed), so the chromedp backend can be pointed at
+// an installed chrome-headless-shell without code changes.
+func TestDefaultConfig_ChromePathFromEnv(t *testing.T) {
+	cases := []struct {
+		name     string
+		envValue string
+		setEnv   bool
+		want     string
+	}{
+		{name: "unset_is_empty", setEnv: false, want: ""},
+		{name: "empty_is_empty", setEnv: true, envValue: "", want: ""},
+		{name: "path_passthrough", setEnv: true, envValue: "/opt/chrome-headless-shell", want: "/opt/chrome-headless-shell"},
+		{name: "whitespace_trimmed", setEnv: true, envValue: "  /opt/chs  ", want: "/opt/chs"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.setEnv {
+				t.Setenv(app.EnvChromePath, tc.envValue)
+			} else {
+				if prior, present := os.LookupEnv(app.EnvChromePath); present {
+					t.Setenv(app.EnvChromePath, prior)
+				}
+				if err := os.Unsetenv(app.EnvChromePath); err != nil {
+					t.Fatalf("os.Unsetenv: %v", err)
+				}
+			}
+
+			cfg := app.DefaultConfig()
+			if cfg == nil {
+				t.Fatal("DefaultConfig() returned nil")
+			}
+			if got := cfg.WebClientCfg.ChromePath; got != tc.want {
+				t.Errorf("WebClientCfg.ChromePath = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // captureStandardLogger redirects the default log package output to dst and
 // returns a restore func. Used to assert that invalid env values produce a
 // warning without leaking the warning into test output.

@@ -89,6 +89,7 @@ func targets() map[string]target {
 		"lint":             {lint, "Run golangci-lint (installs to bin/ if missing)"},
 		"install-golangci": {installGolangci, "Install golangci-lint " + golangciLintVersion + " into bin/"},
 		"install-swagger":  {installSwagger, "Install swag " + swagVersion + " into bin/"},
+		"install-browser":  {installBrowser, "Install chrome-headless-shell into ~/.cache/puppeteer and print MOKU_CHROME_PATH"},
 		"swagger":          {swagger, "Regenerate Swagger docs under docs/swagger/"},
 		"coverage":         {coverage, "Run tests with coverage and write test-results/coverage.txt"},
 		"coverage-html":    {coverageHTML, "Produce coverage.html from coverage.out"},
@@ -366,6 +367,54 @@ func swagger(_ []string) error {
 	bin := filepath.Join(binDir(), exe("swag"))
 	info("generating Swagger docs -> %s", swaggerOutDir)
 	return runCmd(bin, "init", "-g", swaggerEntry, "-o", swaggerOutDir)
+}
+
+// installBrowser installs chrome-headless-shell into the per-user puppeteer
+// cache (never into the repo) via @puppeteer/browsers, then prints the
+// MOKU_CHROME_PATH the chromedp backend should use. The browser is a
+// machine-level runtime dependency, so it is kept out of the working tree.
+func installBrowser(_ []string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("locating home dir: %w", err)
+	}
+	cacheDir := filepath.Join(home, ".cache", "puppeteer")
+	if err := ensureDir(cacheDir); err != nil {
+		return err
+	}
+
+	info("installing chrome-headless-shell -> %s", cacheDir)
+	if err := runCmd("npx", "--yes", "@puppeteer/browsers", "install", "chrome-headless-shell@stable", "--path", cacheDir); err != nil {
+		return fmt.Errorf("installing chrome-headless-shell via npx (is Node.js/npm installed?): %w", err)
+	}
+
+	binary, err := findHeadlessShell(cacheDir)
+	if err != nil {
+		info("installed under %s, but could not locate the binary automatically (%v); see the output above", cacheDir, err)
+		return nil
+	}
+	info("chrome-headless-shell ready: %s", binary)
+	info("point moku at it via MOKU_CHROME_PATH:")
+	if isWindows {
+		info(`  setx MOKU_CHROME_PATH "%s"`, binary)
+	} else {
+		info(`  export MOKU_CHROME_PATH="%s"`, binary)
+	}
+	return nil
+}
+
+// findHeadlessShell locates the chrome-headless-shell executable under the
+// puppeteer cache, preferring the highest version directory.
+func findHeadlessShell(cacheDir string) (string, error) {
+	matches, err := filepath.Glob(filepath.Join(cacheDir, "chrome-headless-shell", "*", "*", exe("chrome-headless-shell")))
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no chrome-headless-shell binary under %s", cacheDir)
+	}
+	sort.Strings(matches)
+	return matches[len(matches)-1], nil
 }
 
 func coverage(_ []string) error {
