@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/raysh454/moku/internal/htmlnorm"
 	"github.com/raysh454/moku/internal/webclient"
 )
 
@@ -15,7 +16,7 @@ func TestNormalizingClient_NormalizesBody(t *testing.T) {
 		StatusCode: 200,
 		Body:       []byte(`<html><head></head><body><script nonce="abc">a</script><p>hi</p></body></html>`),
 	}}
-	client := webclient.NewNormalizingClient(inner, webclient.NewNormalizer(), &noopLogger{})
+	client := webclient.NewNormalizingClient(inner, htmlnorm.New(), &noopLogger{})
 
 	resp, err := client.Get(context.Background(), "https://x")
 	if err != nil {
@@ -32,7 +33,7 @@ func TestNormalizingClient_NormalizesBody(t *testing.T) {
 func TestNormalizingClient_PropagatesFetchError(t *testing.T) {
 	t.Parallel()
 	inner := &scriptedClient{err: errors.New("boom")}
-	client := webclient.NewNormalizingClient(inner, webclient.NewNormalizer(), &noopLogger{})
+	client := webclient.NewNormalizingClient(inner, htmlnorm.New(), &noopLogger{})
 
 	if _, err := client.Get(context.Background(), "https://x"); err == nil {
 		t.Fatal("expected the inner fetch error to propagate")
@@ -42,7 +43,7 @@ func TestNormalizingClient_PropagatesFetchError(t *testing.T) {
 func TestNormalizingClient_DelegatesClose(t *testing.T) {
 	t.Parallel()
 	inner := &scriptedClient{resp: &webclient.Response{StatusCode: 200, Body: []byte("<p>x</p>")}}
-	client := webclient.NewNormalizingClient(inner, webclient.NewNormalizer(), &noopLogger{})
+	client := webclient.NewNormalizingClient(inner, htmlnorm.New(), &noopLogger{})
 
 	if err := client.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/raysh454/moku/internal/assessor"
 	"github.com/raysh454/moku/internal/assessor/attacksurface"
+	"github.com/raysh454/moku/internal/htmlnorm"
 	"github.com/raysh454/moku/internal/logging"
 	"github.com/raysh454/moku/internal/tracker/blobstore"
 	"github.com/raysh454/moku/internal/tracker/models"
@@ -31,6 +32,10 @@ type SQLiteTracker struct {
 	store  *blobstore.Blobstore
 	logger logging.Logger
 	config *Config
+
+	// normalizer canonicalizes HTML bodies before diffing when
+	// config.NormalizeBody is set; stored snapshots stay raw.
+	normalizer *htmlnorm.Normalizer
 
 	// score persists precomputed score results; producing the scores is the
 	// caller's responsibility (the fetcher owns the assessor).
@@ -84,11 +89,12 @@ func NewSQLiteTracker(config *Config, logger logging.Logger) (*SQLiteTracker, er
 	logger.Info("SQLiteTracker initialized", logging.Field{Key: "config.StoragePath", Value: config.StoragePath})
 
 	t := &SQLiteTracker{
-		db:     db,
-		store:  store,
-		logger: logger,
-		config: config,
-		score:  score.New(db, logger),
+		db:         db,
+		store:      store,
+		logger:     logger,
+		config:     config,
+		normalizer: htmlnorm.New(),
+		score:      score.New(db, logger),
 	}
 
 	if config.ProjectID != "" {
@@ -299,6 +305,18 @@ func buildSnapshot(
 	}
 }
 
+// normalizeForDiff canonicalizes a body for comparison. It is best-effort: on a
+// parse failure it returns the raw body so a diff is never dropped.
+func (t *SQLiteTracker) normalizeForDiff(body []byte) []byte {
+	out, err := t.normalizer.Normalize(body)
+	if err != nil {
+		t.logger.Warn("body normalization failed; diffing raw",
+			logging.Field{Key: "error", Value: err.Error()})
+		return body
+	}
+	return out
+}
+
 func (t *SQLiteTracker) computeDiff(ctx context.Context, tx *sql.Tx, baseID, headID string) (*models.CombinedMultiDiff, error) {
 	baseSnaps, err := t.getVersionSnapshots(ctx, tx, baseID)
 	if err != nil && baseID != "" {
@@ -319,7 +337,12 @@ func (t *SQLiteTracker) computeDiff(ctx context.Context, tx *sql.Tx, baseID, hea
 			baseBody = baseSnapshot.body
 			baseHeaders = baseSnapshot.headers
 		}
-		bodyDiffJSON, err := computeTextDiffJSON(baseID, headID, baseBody, headSnapshot.body)
+		base, head := baseBody, headSnapshot.body
+		if t.config != nil && t.config.NormalizeBody {
+			base = t.normalizeForDiff(base)
+			head = t.normalizeForDiff(head)
+		}
+		bodyDiffJSON, err := computeTextDiffJSON(baseID, headID, base, head)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compute body diff for %s: %w", filePath, err)
 		}

@@ -191,6 +191,7 @@ func DefaultConfig() *Config {
 			ProjectID:               "",    // Needs to be set! (Project Identifier for website)
 			ForceProjectID:          false, // Needs to be set! (Whether to overwrite existing project ID)
 			ShowBenignHeaderChanges: false,
+			NormalizeBody:           true, // strip per-request volatility (nonces, ...) from body diffs
 		},
 		FetcherCfg: fetcher.Config{
 			MaxConcurrency: 4,

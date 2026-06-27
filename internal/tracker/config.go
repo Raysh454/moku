@@ -18,4 +18,10 @@ type Config struct {
 
 	// Show benign header changes
 	ShowBenignHeaderChanges bool `json:"show_benign_header_changes,omitempty"`
+
+	// NormalizeBody, when true, canonicalizes the HTML body of both versions
+	// before diffing (stripping the CSP nonce, etc.) so periodic diffs reflect
+	// real content changes rather than per-request volatility. Stored snapshots
+	// remain raw; only the comparison is normalized. Defaults to false.
+	NormalizeBody bool `json:"normalize_body,omitempty"`
 }

@@ -1,16 +1,16 @@
-package webclient_test
+package htmlnorm_test
 
 import (
 	"bytes"
 	"strings"
 	"testing"
 
-	"github.com/raysh454/moku/internal/webclient"
+	"github.com/raysh454/moku/internal/htmlnorm"
 )
 
-func TestNormalizer_StripsNonceSoNonceOnlyDifferenceNormalizesAway(t *testing.T) {
+func TestNormalize_StripsNonceSoNonceOnlyDifferenceNormalizesAway(t *testing.T) {
 	t.Parallel()
-	n := webclient.NewNormalizer() // default strips the CSP nonce attribute
+	n := htmlnorm.New() // default strips the CSP nonce attribute
 
 	a := []byte(`<html><head></head><body><script nonce="abc123">x</script><p>hello</p></body></html>`)
 	b := []byte(`<html><head></head><body><script nonce="zzz999">x</script><p>hello</p></body></html>`)
@@ -32,9 +32,9 @@ func TestNormalizer_StripsNonceSoNonceOnlyDifferenceNormalizesAway(t *testing.T)
 	}
 }
 
-func TestNormalizer_PreservesRealContent(t *testing.T) {
+func TestNormalize_PreservesRealContent(t *testing.T) {
 	t.Parallel()
-	n := webclient.NewNormalizer()
+	n := htmlnorm.New()
 
 	out, err := n.Normalize([]byte(`<html><head></head><body><h1>Title</h1><a href="/x">link</a></body></html>`))
 	if err != nil {
@@ -47,9 +47,9 @@ func TestNormalizer_PreservesRealContent(t *testing.T) {
 	}
 }
 
-func TestNormalizer_RemovesConfiguredSelectors(t *testing.T) {
+func TestNormalize_RemovesConfiguredSelectors(t *testing.T) {
 	t.Parallel()
-	n := webclient.NewNormalizer(webclient.WithRemoveSelectors(".ad", "#clock"))
+	n := htmlnorm.New(htmlnorm.WithRemoveSelectors(".ad", "#clock"))
 
 	out, err := n.Normalize([]byte(`<html><body><div class="ad">buy</div><span id="clock">12:00</span><p>real</p></body></html>`))
 	if err != nil {
@@ -64,9 +64,9 @@ func TestNormalizer_RemovesConfiguredSelectors(t *testing.T) {
 	}
 }
 
-func TestNormalizer_StripsConfiguredAttributes(t *testing.T) {
+func TestNormalize_StripsConfiguredAttributes(t *testing.T) {
 	t.Parallel()
-	n := webclient.NewNormalizer(webclient.WithStripAttributes("data-csrf", "data-timestamp"))
+	n := htmlnorm.New(htmlnorm.WithStripAttributes("data-csrf", "data-timestamp"))
 
 	out, err := n.Normalize([]byte(`<html><body><form data-csrf="tok" data-timestamp="999" action="/go">f</form></body></html>`))
 	if err != nil {
@@ -81,9 +81,9 @@ func TestNormalizer_StripsConfiguredAttributes(t *testing.T) {
 	}
 }
 
-func TestNormalizer_IsIdempotent(t *testing.T) {
+func TestNormalize_IsIdempotent(t *testing.T) {
 	t.Parallel()
-	n := webclient.NewNormalizer(webclient.WithRemoveSelectors(".ad"))
+	n := htmlnorm.New(htmlnorm.WithRemoveSelectors(".ad"))
 	in := []byte(`<html><head></head><body><div class="ad" nonce="q">x</div><p>keep</p></body></html>`)
 
 	once, err := n.Normalize(in)

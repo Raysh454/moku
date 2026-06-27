@@ -3,6 +3,7 @@ package webclient
 import (
 	"context"
 
+	"github.com/raysh454/moku/internal/htmlnorm"
 	"github.com/raysh454/moku/internal/logging"
 )
 
@@ -12,12 +13,12 @@ import (
 // raw body is returned rather than dropping the fetch.
 type NormalizingClient struct {
 	inner      WebClient
-	normalizer *Normalizer
+	normalizer *htmlnorm.Normalizer
 	logger     logging.Logger
 }
 
 // NewNormalizingClient wraps inner so its response bodies are normalized.
-func NewNormalizingClient(inner WebClient, normalizer *Normalizer, logger logging.Logger) WebClient {
+func NewNormalizingClient(inner WebClient, normalizer *htmlnorm.Normalizer, logger logging.Logger) WebClient {
 	return &NormalizingClient{
 		inner:      inner,
 		normalizer: normalizer,
