@@ -355,6 +355,11 @@ func (cdc *ChromeDPClient) waitForNetworkIdle(ctx context.Context) <-chan struct
 		}
 	})
 
+	// Start the countdown immediately so a navigation that issues no further
+	// network requests (e.g. about:blank or a fully-cached page) still reaches
+	// idle after idleTimeout instead of stalling until the request budget.
+	resetTimer()
+
 	return idleCh
 }
 

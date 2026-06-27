@@ -33,7 +33,9 @@ func mustCreateChromedpClient(t *testing.T) webclient.WebClient {
 		t.Skip("Skipping ChromeDP tests in CI environment")
 	}
 
-	cfg := webclient.Config{Client: webclient.ClientChromedp}
+	// MOKU_CHROME_PATH lets the suite target a specific browser binary (e.g. an
+	// installed chrome-headless-shell); empty falls back to chromedp discovery.
+	cfg := webclient.Config{Client: webclient.ClientChromedp, ChromePath: os.Getenv("MOKU_CHROME_PATH")}
 	logger := &chromedpNoopLogger{}
 
 	client, err := webclient.NewChromedpClient(cfg, logger)
