@@ -684,6 +684,17 @@ func (o *Orchestrator) GetEndpointDetails(ctx context.Context, projectIdentifier
 					secDiff = sd
 				}
 			}
+		} else {
+			// No parent version (first version): synthesize a zero base so the
+			// analysis still reports the head's score as its delta. There is no
+			// prior snapshot to compute a body diff against.
+			if sd, err := comps.Tracker.GetSecurityDiff(ctx, "", snap.ID); err != nil {
+				o.logger.Warn("Failed to compute base-less security diff, skipping security diff",
+					logging.Field{Key: "head_snapshot_id", Value: snap.ID},
+					logging.Field{Key: "error", Value: err.Error()})
+			} else {
+				secDiff = sd
+			}
 		}
 	}
 

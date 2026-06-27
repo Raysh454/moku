@@ -100,11 +100,14 @@ export function useEndpointComparison(
           setBaseSnapshot(result.base);
           setHeadSnapshot(result.head);
         } else {
-          const head = await projectService.loadSnapshotByVersion(
+          // No base selected (e.g. a freshly-fetched, single-version endpoint).
+          // Load the latest snapshot with no version params so the backend
+          // synthesizes a zero base — giving the analysis pane a real score
+          // delta (= the head's own score) instead of an empty self-diff.
+          const head = await projectService.loadLatestSnapshot(
             project.slug,
             domain.slug,
             endpoint,
-            headVersionId,
             versionList,
           );
           if (cancelled) return;

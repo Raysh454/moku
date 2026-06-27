@@ -298,6 +298,87 @@ func TestSQLiteScoreTracker_GetScoreResultFromSnapshotID_NoRow_Legacy(t *testing
 	}
 }
 
+func TestGetSecurityDiff_NoBaseSynthesizesZeroBase(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	sa := score.New(db, logging.Logger(nil))
+	ctx := context.Background()
+
+	url := "https://example.com/only"
+	headVersionID := "v-only"
+	headSnapshotID := "snap-only"
+	now := time.Now().Unix()
+
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO versions (id, parent_id, message, author, timestamp) VALUES (?, ?, ?, ?, ?)`,
+		headVersionID, "", "only", "", now,
+	); err != nil {
+		t.Fatalf("insert version: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO snapshots (id, version_id, status_code, url, file_path, blob_id, created_at, headers) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		headSnapshotID, headVersionID, 200, url, "/only", "blob-only", now, "{}",
+	); err != nil {
+		t.Fatalf("insert snapshot: %v", err)
+	}
+
+	headSR := &assessor.ScoreResult{
+		Score:          0.8,
+		SnapshotID:     headSnapshotID,
+		VersionID:      headVersionID,
+		ExposureScore:  0.9,
+		HardeningScore: 0.1,
+		Version:        "v-test",
+		AttackSurface: &attacksurface.AttackSurface{
+			URL:        url,
+			SnapshotID: headSnapshotID,
+			StatusCode: 200,
+			Headers:    map[string][]string{},
+		},
+	}
+	headJSON, err := json.Marshal(headSR)
+	if err != nil {
+		t.Fatalf("marshal head score: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO score_results (
+			id, snapshot_id, version_id, url,
+			score, normalized, confidence, scoring_version, created_at,
+			score_json, matched_rules, meta, raw_features
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"score-only", headSnapshotID, headVersionID, url,
+		headSR.Score, headSR.Normalized, headSR.Confidence, headSR.Version, now,
+		string(headJSON), "{}", "{}", "{}",
+	); err != nil {
+		t.Fatalf("insert head score_results: %v", err)
+	}
+
+	// With no base snapshot, the base score is treated as zero so the head
+	// version's own score becomes its delta (no prior baseline to compare).
+	secDiff, err := sa.GetSecurityDiff(ctx, "", headSnapshotID)
+	if err != nil {
+		t.Fatalf("GetSecurityDiff with empty base returned error: %v", err)
+	}
+	if secDiff.ScoreBase != 0 {
+		t.Errorf("expected ScoreBase 0, got %v", secDiff.ScoreBase)
+	}
+	if secDiff.ScoreHead != headSR.Score {
+		t.Errorf("expected ScoreHead %v, got %v", headSR.Score, secDiff.ScoreHead)
+	}
+	if secDiff.ScoreDelta != headSR.Score {
+		t.Errorf("expected ScoreDelta %v (head - 0), got %v", headSR.Score, secDiff.ScoreDelta)
+	}
+	if secDiff.HeadSnapshotID != headSnapshotID || secDiff.BaseSnapshotID != "" {
+		t.Errorf("unexpected snapshot IDs: base=%q head=%q", secDiff.BaseSnapshotID, secDiff.HeadSnapshotID)
+	}
+
+	// An empty head snapshot is still an error.
+	if _, err := sa.GetSecurityDiff(ctx, "", ""); err == nil {
+		t.Error("expected error when head snapshot id is empty")
+	}
+}
+
 func TestSQLiteScoreTracker_ScoreAndSecurityAPIs_Legacy(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

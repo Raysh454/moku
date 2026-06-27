@@ -215,46 +215,52 @@ func (scoreTracker *SQLiteScoreTracker) GetScoreResultsFromVersionID(ctx context
 }
 
 // GetSecurityDiff retrieves a detailed SecurityDiff between two snapshots.
-// Enforces that both snapshots refer to the same URL/file (if both exist).
+// An empty baseSnapshotID means there is no prior baseline (e.g. the first
+// version): the diff is computed against a zero base, so the head's own score
+// becomes its delta. When both snapshots exist they must refer to the same URL.
 func (scoreTracker *SQLiteScoreTracker) GetSecurityDiff(ctx context.Context, baseSnapshotID, headSnapshotID string) (*assessor.SecurityDiff, error) {
-	if headSnapshotID == "" || baseSnapshotID == "" {
-		return nil, errors.New("headSnapshotID/baseSnapshotID is required")
-	}
-
-	baseScore, err := scoreTracker.GetScoreResultFromSnapshotID(ctx, baseSnapshotID)
-	if err != nil {
-		return nil, fmt.Errorf("get base score result: %w", err)
+	if headSnapshotID == "" {
+		return nil, errors.New("headSnapshotID is required")
 	}
 
 	headScore, err := scoreTracker.GetScoreResultFromSnapshotID(ctx, headSnapshotID)
 	if err != nil {
 		return nil, fmt.Errorf("get head score result: %w", err)
 	}
-
-	if baseScore == nil {
-		return nil, fmt.Errorf("no score result found for base snapshot %s", baseSnapshotID)
-	}
-
 	if headScore == nil {
 		return nil, fmt.Errorf("no score result found for head snapshot %s", headSnapshotID)
 	}
 
-	if baseScore.AttackSurface.URL != headScore.AttackSurface.URL {
-		return nil, fmt.Errorf("snapshot URL mismatch: base (%s) vs head (%s)", baseScore.AttackSurface.URL, headScore.AttackSurface.URL)
+	var baseScore *assessor.ScoreResult
+	if baseSnapshotID != "" {
+		baseScore, err = scoreTracker.GetScoreResultFromSnapshotID(ctx, baseSnapshotID)
+		if err != nil {
+			return nil, fmt.Errorf("get base score result: %w", err)
+		}
+		if baseScore == nil {
+			return nil, fmt.Errorf("no score result found for base snapshot %s", baseSnapshotID)
+		}
+		if baseScore.AttackSurface.URL != headScore.AttackSurface.URL {
+			return nil, fmt.Errorf("snapshot URL mismatch: base (%s) vs head (%s)", baseScore.AttackSurface.URL, headScore.AttackSurface.URL)
+		}
 	}
 
-	// Build SecurityDiff.
-	diff, err := assessor.NewSecurityDiff(
-		baseScore.AttackSurface.URL,
-		baseScore.VersionID,
-		headScore.VersionID,
-		baseSnapshotID,
-		headSnapshotID,
-		baseScore,
-		headScore,
-		baseScore.AttackSurface,
-		headScore.AttackSurface,
-	)
+	// DiffScores / DiffAttackSurfaces zero-fill a nil base, so passing nil here
+	// yields ScoreDelta = head.Score - 0.
+	var diff *assessor.SecurityDiff
+	if baseScore != nil {
+		diff, err = assessor.NewSecurityDiff(
+			headScore.AttackSurface.URL, baseScore.VersionID, headScore.VersionID,
+			baseSnapshotID, headSnapshotID,
+			baseScore, headScore, baseScore.AttackSurface, headScore.AttackSurface,
+		)
+	} else {
+		diff, err = assessor.NewSecurityDiff(
+			headScore.AttackSurface.URL, "", headScore.VersionID,
+			baseSnapshotID, headSnapshotID,
+			nil, headScore, nil, headScore.AttackSurface,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("build security diff: %w", err)
 	}
